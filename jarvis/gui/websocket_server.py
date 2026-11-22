@@ -1122,11 +1122,9 @@ class JARVISWebSocketServer:
         self._clipboard_intelligence = None
 
         
-        if CONTEXT_MEMORY_AVAILABLE:
-            try:
-                self.context_memory = ContextMemory()
-            except Exception as e:
-                print(f"[WebSocket] Context memory init error: {e}")
+        # ContextMemory is created lazily by the `context_memory` property on
+        # first use (it loads embeddings, so doing it here would slow boot).
+        # The old eager assignment here always failed: the property has no setter.
         
         # Hotkeys (must register immediately)
         if HOTKEY_AVAILABLE:
@@ -2612,8 +2610,18 @@ class JARVISWebSocketServer:
 
             if brain_result and brain_result.is_valid:
                 # Brain produced a confident result — use it
-                intent_name = brain_result.action
-                entities = brain_result.entities
+                # Translate ML intent names (get_time, volume_up …) to handler
+                # names (time, volume …). If there is still no handler, use the
+                # keyword classifier, which speaks HANDLER_MAP's names natively.
+                from jarvis.core.intent_handlers import resolve_brain_intent
+                intent_name, entities = resolve_brain_intent(brain_result.action,
+                                                             brain_result.entities)
+                # Names the router serves itself, outside HANDLER_MAP
+                router_native = {'list_alarms', 'read_clipboard', 'next', 'previous', 'scroll'}
+                if ROUTER_AVAILABLE and intent_name not in HANDLER_MAP and intent_name not in router_native:
+                    kw_intent, kw_entities = classify_intent(command)
+                    if kw_intent in HANDLER_MAP:
+                        intent_name, entities = kw_intent, kw_entities
                 if jlog: jlog.intent(f"BRAIN:{intent_name}", entities=entities)
                 else: print(f"[WebSocket] BRAIN Intent: {intent_name}, Entities: {entities}, Conf: {brain_result.confidence:.2f}")
 
