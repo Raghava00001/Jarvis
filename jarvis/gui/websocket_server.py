@@ -115,70 +115,23 @@ except ImportError:
     print("[WebSocket] python-dotenv not installed, using system env vars")
 
 
-# Browser origins allowed to open the WebSocket (the Web HUD served on :8080).
-# None = no Origin header (desktop_gui / Python clients); browsers always send one.
-HUD_HTTP_PORT = 8080
-ALLOWED_WS_ORIGINS = [
-    f"http://localhost:{HUD_HTTP_PORT}",
-    f"http://127.0.0.1:{HUD_HTTP_PORT}",
-    None,
-]
-
-# ── Power / exit command matching ────────────────────────────────────────────
-# Matched against the WHOLE command (after the wake word is stripped) so that
-# sentences like "how do I shutdown linux?" or "my phone rebooted" don't quit
-# JARVIS or restart the PC.
-WAKE_WORD_RE = re.compile(r'^(?:hey\s+)?(?:jarvis|friday)[,!.\s]*', re.I)
-JARVIS_EXIT_RE = re.compile(
-    r'^(?:please\s+)?(?:'
-    r'(?:shutdown|shut\s+down|power\s+off|go\s+offline)(?:\s+(?:jarvis|friday|yourself))?'
-    r'|(?:exit|quit|close)\s+(?:jarvis|friday)'
-    r'|(?:jarvis|friday)\s+(?:shutdown|shut\s+down)'
-    r')(?:\s+please)?[\s.!]*$'
+# Wake/exit/power phrase rules and WebSocket access checks live in command_rules.py
+from jarvis.gui.fast_path import try_fast_path
+from jarvis.gui.command_rules import (  # noqa: F401  (re-exported for tests/tools)
+    HUD_HTTP_PORT,
+    ALLOWED_WS_ORIGINS,
+    WAKE_WORD_RE,
+    JARVIS_EXIT_RE,
+    PC_SHUTDOWN_RE,
+    PC_RESTART_RE,
+    CONFIRM_RE,
+    CANCEL_RE,
+    POWER_CONFIRM_WINDOW_S,
+    check_ws_token,
+    normalize_command,
+    is_jarvis_exit_command,
+    detect_pc_power_action,
 )
-PC_SHUTDOWN_RE = re.compile(
-    r'\b(?:shut\s*down|switch\s+off|turn\s+off|power\s+off)\s+(?:the\s+|my\s+)?'
-    r'(?:laptop|computer|pc|system)\b'
-)
-PC_RESTART_RE = re.compile(
-    r'\b(?:restart|reboot)\s+(?:the\s+|my\s+)?(?:laptop|computer|pc|system)\b'
-    r'|^reboot[\s.!]*$'
-)
-CONFIRM_RE = re.compile(r'^(?:yes|yeah|yep|confirm(?:ed)?|do it|go ahead|proceed)\b')
-CANCEL_RE = re.compile(r"^(?:no|nope|cancel|abort|don'?t|never ?mind|stop)\b")
-POWER_CONFIRM_WINDOW_S = 30
-
-
-def check_ws_token(connection, request):
-    """websockets process_request hook: 403 unless ?token=<session token>."""
-    from http import HTTPStatus
-    from urllib.parse import urlsplit, parse_qs
-    import hmac
-    from jarvis.gui.session_token import get_ws_token
-    supplied = parse_qs(urlsplit(request.path).query).get("token", [""])[0]
-    if not hmac.compare_digest(supplied.encode(), get_ws_token().encode()):
-        print("[WebSocket] Rejected connection without a valid token")
-        return connection.respond(HTTPStatus.FORBIDDEN, "Missing or invalid token\n")
-    return None
-
-
-def normalize_command(text: str) -> str:
-    """Lower-case, trim and strip a leading wake word."""
-    return WAKE_WORD_RE.sub('', (text or '').lower().strip()).strip()
-
-
-def is_jarvis_exit_command(cmd: str) -> bool:
-    return bool(JARVIS_EXIT_RE.match(cmd))
-
-
-def detect_pc_power_action(cmd: str):
-    """Return 'shutdown', 'restart' or None for a normalized command."""
-    if PC_RESTART_RE.search(cmd):
-        return 'restart'
-    if PC_SHUTDOWN_RE.search(cmd):
-        return 'shutdown'
-    return None
-
 
 # Feature availability flags
 JARVIS_AVAILABLE = False
@@ -230,7 +183,9 @@ except ImportError:
     pass
 
 try:
-    from jarvis.core.emotion_detector import EmotionDetector, EmotionState
+    # EmotionState comes from mood_engine (imported above); importing the
+    # detector's EmotionState here used to silently replace it
+    from jarvis.core.emotion_detector import EmotionDetector
     EMOTION_AVAILABLE = True
     print("[WebSocket] Emotion detector available")
 except ImportError:
@@ -421,14 +376,8 @@ try:
 except ImportError:
     pass
 
-# Email Handler (Gmail)
-EMAIL_HANDLER_AVAILABLE = False
-try:
-    from jarvis.core.email_handler import EmailHandler
-    EMAIL_HANDLER_AVAILABLE = True
-    print("[WebSocket] Email handler available")
-except ImportError:
-    pass
+# Email Handler (Gmail): same import as EMAIL_AVAILABLE above
+EMAIL_HANDLER_AVAILABLE = EMAIL_AVAILABLE
 
 # YouTube Downloader
 YOUTUBE_AVAILABLE = False
@@ -1937,158 +1886,8 @@ class JARVISWebSocketServer:
         return f"Restarting the computer in 5 seconds{maybe_title(title)}."
 
     def _try_fast_path(self, text: str):
-        """Instant execution for common commands — no routing chain."""
-        cmd = text.lower().strip()
-        import re as _re
-        title = getattr(self, 'hud_perception', None)
-        title = title.user_title if title else 'sir'
-        
-        # ── CLOSE APP (instant via taskkill) ──
-        close_match = _re.match(r'^close\s+(.+)', cmd)
-        if close_match:
-            app = close_match.group(1).strip()
-            try:
-                # Map common names to process names
-                APP_PROCESS = {
-                    'whatsapp': 'WhatsApp', 'chrome': 'chrome',
-                    'brave': 'brave', 'firefox': 'firefox',
-                    'spotify': 'Spotify', 'discord': 'Discord',
-                    'notepad': 'notepad', 'calculator': 'Calculator',
-                    'edge': 'msedge', 'vscode': 'Code', 'vs code': 'Code',
-                    'telegram': 'Telegram', 'explorer': 'explorer',
-                }
-                proc = APP_PROCESS.get(app, app)
-                from jarvis.core.safe_exec import kill_process, is_safe_app_name
-                if not is_safe_app_name(proc):
-                    return f"I can't close '{app}', {title}. That isn't a valid app name."
-                kill_process(proc)
-                print(f"[FAST] Closed {app}")
-                return f"Closed {app}, {title}."
-            except Exception:
-                return None  # Fall through to normal pipeline
-        
-        # ── RESUME/PAUSE VIDEO (space key, not media keys) ──
-        if any(w in cmd for w in ['resume video', 'resume the video', 'play video',
-                                   'pause video', 'pause the video', 'resume youtube',
-                                   'play youtube', 'pause youtube']):
-            try:
-                import pyautogui
-                pyautogui.press('space')  # Space = play/pause in YouTube
-                action = 'Resumed' if 'resume' in cmd or 'play' in cmd else 'Paused'
-                print(f"[FAST] {action} video (space key)")
-                return f"{action} the video, {title}."
-            except Exception:
-                return None
-        
-        # ── SCREENSHOT (instant) ──
-        if 'screenshot' in cmd or 'screen capture' in cmd:
-            try:
-                import pyautogui
-                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-                path = Path.home() / 'Pictures' / f'jarvis_screenshot_{ts}.png'
-                pyautogui.screenshot(str(path))
-                print(f"[FAST] Screenshot saved: {path}")
-                return f"Screenshot saved, {title}."
-            except Exception:
-                return None
-        
-        # ── VOLUME (instant) ──
-        if 'volume' in cmd:
-            if self.system_control:
-                if 'up' in cmd or 'increase' in cmd:
-                    self.system_control.volume_up()
-                    return f"Volume up, {title}."
-                elif 'down' in cmd or 'decrease' in cmd:
-                    self.system_control.volume_down()
-                    return f"Volume down, {title}."
-                elif 'mute' in cmd:
-                    self.system_control.mute_volume()
-                    return f"Muted, {title}."
-                num = _re.search(r'(\d+)', cmd)
-                if num:
-                    self.system_control.set_volume(int(num.group(1)))
-                    return f"Volume set to {num.group(1)}%, {title}."
-        
-        # ── BRIGHTNESS (instant) ──
-        if 'brightness' in cmd:
-            if self.system_control:
-                if 'up' in cmd or 'increase' in cmd:
-                    self.system_control.brightness_up()
-                    return f"Brightness up, {title}."
-                elif 'down' in cmd or 'decrease' in cmd:
-                    self.system_control.brightness_down()
-                    return f"Brightness down, {title}."
-                num = _re.search(r'(\d+)', cmd)
-                if num:
-                    self.system_control.set_brightness(int(num.group(1)))
-                    return f"Brightness set to {num.group(1)}%, {title}."
-        
-        # ── PLAY IN YOUTUBE (instant — prevents Spotify conflict) ──
-        yt_match = _re.search(r'play\s+(.+?)\s+(?:in|on)\s+youtube', cmd)
-        if yt_match:
-            query = yt_match.group(1).strip()
-            try:
-                import urllib.parse, webbrowser
-                url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
-                webbrowser.open(url)
-                # Auto-click first video after page loads
-                def _auto_play():
-                    import pyautogui
-                    time.sleep(3.5)
-                    pyautogui.press('tab', presses=8, interval=0.05)
-                    time.sleep(0.2)
-                    pyautogui.press('enter')
-                threading.Thread(target=_auto_play, daemon=True).start()
-                print(f"[FAST] YouTube search: {query}")
-                return f"Playing {query} on YouTube, {title}."
-            except Exception:
-                return None
-        
-        # ── OPEN APP (instant) ──
-        open_match = _re.match(r'^(?:open|launch|start)\s+(.+)', cmd)
-        if open_match:
-            app = open_match.group(1).strip()
-            try:
-                # Try AppSwitcher first, then fallback to os.startfile
-                switcher = getattr(self, 'app_switcher', None)
-                if switcher and hasattr(switcher, 'open_app'):
-                    switcher.open_app(app)
-                else:
-                    from jarvis.core.safe_exec import start_app, is_safe_app_name
-                    if not is_safe_app_name(app):
-                        return f"I can't open '{app}', {title}. That isn't a valid app name."
-                    start_app(app)
-                print(f"[FAST] Opened {app}")
-                return f"Opening {app}, {title}."
-            except Exception:
-                return None
-        
-        # ── TIME (instant) ──
-        if cmd in ['time', 'what time is it', 'what is the time', 'tell me the time', "what's the time"]:
-            now = datetime.now().strftime('%I:%M %p')
-            return f"It's {now}, {title}."
-        
-        # ── DATE (instant) ──
-        if cmd in ['date', 'what date is it', "what's the date", 'what is the date', "what's today's date"]:
-            now = datetime.now().strftime('%A, %B %d, %Y')
-            return f"It's {now}, {title}."
-        
-        # ── STOP / PAUSE / RESUME VIDEO (instant) ──
-        if any(p in cmd for p in ['stop video', 'pause video', 'stop the video', 'pause the video',
-                                   'resume video', 'resume the video', 'unpause',
-                                   'stop playing', 'stop music', 'pause music',
-                                   'play pause', 'play/pause']):
-            try:
-                import pyautogui
-                pyautogui.press('space')
-                print(f"[FAST] Toggled playback")
-                if 'resume' in cmd or 'unpause' in cmd:
-                    return f"Resuming playback, {title}."
-                return f"Paused, {title}."
-            except Exception:
-                return None
-        
-        return None  # No fast path — use normal pipeline
+        """Instant execution for common commands (see fast_path.py)."""
+        return try_fast_path(self, text)
 
     def _split_compound_command(self, text: str) -> list:
         """Split compound commands — delegates to command_processor module."""
