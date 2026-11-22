@@ -1,58 +1,39 @@
 # 🎯 START HERE — JARVIS Quick Setup
 
-## 3 Steps to Run
-
-### Step 1: Install Dependencies
-```bash
+## 1. Install
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
 ```
+Optional features (face, emotion, OCR, calendar, Spotify): `pip install -r requirements-optional.txt`
 
-### Step 2: Create `.env` File
-Copy the template and add your Gemini API key:
-```bash
+## 2. Configure
+```powershell
 copy .env.example .env
 ```
-Then edit `.env` and set:
+Set `GEMINI_API_KEY` in `.env` (get one at https://aistudio.google.com/apikey).
+
+Optional: `copy user_profile.example.json user_profile.json` and set your name.
+
+## 3. Run
+```powershell
+start_jarvis.bat
 ```
-GEMINI_API_KEY=your-gemini-api-key-here
+The HUD opens at **http://localhost:8080**. You can also run `python jarvis/gui/websocket_server.py`.
+
+## First commands to try
+1. "What time is it?"
+2. "Open calculator"
+3. "Tell me the news"
+4. "Switch to Friday"
+5. "Restart the computer", then "cancel" to see the confirmation step
+
+## Verify
+```powershell
+pip install -r requirements-dev.txt
+python -m pytest tests/ -q
 ```
-Get your key at: https://aistudio.google.com/apikey
+All 155 tests should pass.
 
-### Step 3: Run JARVIS
-```bash
-python jarvis/gui/websocket_server.py
-```
-Then open **http://localhost:8080** in your browser for the Web HUD.
-
----
-
-## 🎤 First Commands to Try
-
-1. "What time is it?" — basic functionality
-2. "Open calculator" — app launching
-3. "Tell me a joke" — AI conversation
-4. "Tell me the news" — news headlines
-5. "Switch to Friday" — persona swap
-
----
-
-## 📁 Project Structure
-
-- **`jarvis/gui/websocket_server.py`** — Start JARVIS here (main entry point)
-- **`jarvis/core/`** — 68 core modules (brain, voice, tools, handlers)
-- **`jarvis/gui/web_hud/`** — Iron Man Web HUD interface
-- **`tests/`** — Smoke tests and unit tests
-- **`jarvis_data/`** — Runtime data (auto-created, gitignored)
-
----
-
-## ✅ Verify Installation
-
-```bash
-python -m pytest tests/test_smoke.py -v
-```
-All 53 tests should pass.
-
----
-
-See `README.md` for full documentation.
+See `README.md` for the full documentation and the Security section.

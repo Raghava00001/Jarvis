@@ -3,9 +3,7 @@
 [![J.A.R.V.I.S. CI Pipeline](https://github.com/Raghava001-web/Jarvis/actions/workflows/ci.yml/badge.svg)](https://github.com/Raghava001-web/Jarvis/actions/workflows/ci.yml)
 
 > **Just A Rather Very Intelligent System**
-> A real-time, voice-first AI desktop assistant with full-duplex Gemini Live conversation, an Iron Man–inspired Web HUD, gesture control, emotion detection, and 30+ integrated system tools — all running locally on Windows.
->
-> 🚀 **Active Ongoing Project & Massive Future Potential:** JARVIS is continuously evolved with new capabilities, holding immense potential for advanced desktop automation, custom agent workflows, and deeper spatial-visual perception.
+> A voice-first desktop assistant for Windows: real-time two-way voice through Gemini Live, an Iron Man–style Web HUD, real system control (apps, volume, brightness, screenshots), and optional gesture, face and emotion features.
 
 <p align="center">
   <img src="docs/jarvis_banner.png" alt="JARVIS Banner" width="900">
@@ -14,380 +12,210 @@
 ## 🖥️ See It In Action
 
 <p align="center">
-  <img src="docs/jarvis_hud_hero.png" alt="JARVIS Iron Man HUD — Main Dashboard" width="900">
+  <img src="docs/jarvis_hud_hero.png" alt="JARVIS Web HUD — main dashboard" width="900">
   <br>
-  <em>The Iron Man–style Web HUD: 3D globe, system vitals, news feed, chat, and Feature Hub — all in real-time.</em>
+  <em>The Web HUD: 3D globe, system vitals, news feed, chat and Feature Hub, updated live.</em>
 </p>
 
 <p align="center">
-  <img src="docs/jarvis_hud_voice.png" alt="JARVIS HUD — Active Voice Conversation" width="900">
+  <img src="docs/jarvis_hud_voice.png" alt="JARVIS HUD — voice conversation" width="900">
   <br>
-  <em>Full-duplex voice conversation mode: waveform visualization, live tool execution, and real-time responses.</em>
+  <em>Voice mode: waveform, live tool execution and spoken replies.</em>
 </p>
 
-> 🎥 **Want to see it live?** Clone the repo, add your Gemini API key, and run `start_jarvis.bat` — the HUD opens in your browser at `http://localhost:8080` with full voice interaction. You can also run `python docs/record_demo.py` to record a 60-second screen capture demo of the HUD in action.
+> 🎥 To record your own demo, run `python docs/record_demo.py` while the HUD is open.
 
 ---
 
-## Overview
+## What it does
 
-JARVIS is a modular AI assistant that goes beyond chat. It combines **real-time bidirectional voice** (via Google Gemini Live), a **multi-layer intelligence pipeline** (intent classification → entity extraction → decision engine → emotion routing), and **direct system control** (apps, volume, brightness, screenshots) into a single cohesive runtime.
-
-The interface is a full **Iron Man–style Web HUD** served over WebSocket, with live system vitals, a 3D globe, waveform visualization, and a tabbed Feature Hub for face recognition, gestures, WhatsApp, and news.
-
-### What makes this different
-
-- **Voice-first, not text-first** — Gemini Live provides full-duplex audio streaming. You talk, JARVIS talks back — simultaneously, with echo suppression and interrupt handling.
-- **Tool execution, not just conversation** — When you say "open Chrome," JARVIS doesn't just say "I opened Chrome." It calls `open_app("Chrome")` through a registered tool dispatcher and actually opens it.
-- **Layered intelligence** — A fast keyword classifier handles 90% of commands instantly. Ambiguous inputs route through BrainAdapter's ML pipeline. Only truly open-ended queries go to the LLM.
-- **Tactical personality** — JARVIS warns you before destructive actions (shutdown, max volume), detects repeated failures, and adapts responses to your emotional state.
+- **Talks and listens at the same time.** Gemini Live (`gemini-2.5-flash-native-audio`) streams audio both ways, with echo suppression and barge-in.
+- **Actually does things.** "Open Chrome" calls a real tool that opens Chrome. Gemini Live has 14 tools: apps, YouTube, web search, news, weather, screen control, workflows and more.
+- **Answers simple commands instantly.** A keyword fast path handles common commands (open/close apps, volume, brightness, time) in milliseconds without calling an LLM.
+- **Asks before risky actions.** PC shutdown and restart always need a spoken or typed "confirm".
 
 ---
 
-## Architecture
+## How a command flows
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                        TRANSPORT LAYER                           │
-│              websocket_server.py (WebSocket gateway)             │
-│         Serves Web HUD · Routes all commands · Manages state     │
-└───────────┬──────────────┬──────────────────┬────────────────────┘
-            │              │                  │
-   ┌────────▼────────┐ ┌──▼───────────┐ ┌───▼──────────────┐
-   │  GEMINI LIVE    │ │  BRAIN       │ │  KEYWORD ENGINE  │
-   │  ENGINE         │ │  ADAPTER     │ │  (dispatcher.py) │
-   │                 │ │              │ │                  │
-   │ Full-duplex     │ │ IntentModel  │ │ Pattern-match    │
-   │ audio streaming │ │ EntityExtr.  │ │ 30+ intents      │
-   │ 14 native tools │ │ DecisionEng. │ │ Cache + memory   │
-   │ Echo gate       │ │ EmotionRoute │ │                  │
-   └────────┬────────┘ └──┬───────────┘ └───┬──────────────┘
-            │              │                  │
-            └──────────────┴──────────────────┘
-                           │
-            ┌──────────────▼──────────────────┐
-            │         EXECUTION LAYER          │
-            │                                  │
-            │  system_control.py   apps        │
-            │  voice_engine.py     TTS         │
-            │  workflow_manager.py automation   │
-            │  news / weather / email / notes  │
-            │  WhatsApp / YouTube / calendar    │
-            └──────────────────────────────────┘
+ Voice / HUD text
+        │
+        ▼
+ websocket_server.py ── Gemini Live session active? ──► Gemini Live (voice + 14 tools)
+        │ no                       (power commands and confirmations stay local)
+        ▼
+ Fast path            open / close app, volume, brightness, screenshot, time …
+        │ no match
+        ▼
+ process_command      quiet mode, PC shutdown/restart (with confirmation),
+        │             exit JARVIS, keyword overrides (email, reminders, apps …)
+        ▼
+ BrainAdapter         IntentModel (sentence-transformers kNN) → EntityExtractor
+        │             → DecisionEngine → EmotionRouter
+        ▼
+ IntentRouter / HUD handlers / FallbackProcessor
+        │
+        ▼
+ Gemini 2.0 Flash (text) for open-ended questions
 ```
 
-### Key Modules
+### Key modules
 
 | Module | Role |
 |--------|------|
-| **`websocket_server.py`** | Central gateway. Serves the Web HUD, manages WebSocket connections, routes all commands through keyword engine or BrainAdapter, manages Gemini Live lifecycle. |
-| **`gemini_live_engine.py`** | Full-duplex audio via Gemini 2.0 Flash. Handles mic capture, speaker playback, echo suppression, tool calls, and turn management — all async. |
-| **`brain_adapter.py`** | ML pipeline bridge. Routes text through IntentModel → EntityExtractor → DecisionEngine → EmotionRouter for nuanced understanding. Falls back gracefully if any module is unavailable. |
-| **`state_controller.py`** | UI state machine (`UIStateController`). Tracks state transitions (idle → listening → processing → speaking), trust scoring, emotion vectors, and deduplication. |
-| **`startup_orchestrator.py`** | Boot sequence. Generates time-aware greetings, loads session history, reports system status, and builds context for the first Gemini Live turn. |
-| **`intent_classifier.py`** | 30+ intent classifier with confidence scoring. Maps natural language to structured actions. |
-| **`decision_engine.py`** | Safety layer. Evaluates commands before execution — warns on destructive actions, blocks dangerous operations, enforces tactical personality. |
-| **`voice_engine.py`** | Edge TTS backend with automatic cache cleanup. Provides `speak()` for non-live-mode responses. |
-| **`perception.py`** | HUDPerception layer. Manages assistant identity (JARVIS/FRIDAY), speech deduplication, live-mode gating, and persona switching. |
+| `jarvis/gui/desktop_gui.py` | Entry point used by `start_jarvis.bat`. Starts the WebSocket server and the HUD web server, then opens the HUD. |
+| `jarvis/gui/websocket_server.py` | Central gateway: WebSocket on `127.0.0.1:8765`, command routing, Gemini Live lifecycle, power-action confirmation. |
+| `jarvis/gui/web_hud_launcher.py` | Serves the HUD on `127.0.0.1:8080` and injects the per-session WebSocket token. |
+| `jarvis/core/gemini_live_engine.py` | Full-duplex audio, tool declarations and tool execution. |
+| `jarvis/core/brain_adapter.py` | ML pipeline: intent → entities → decision → emotion. Reports clearly when it is running in keyword-only mode. |
+| `jarvis/core/intent_model.py` | Embedding-based intent classifier. Raises `IntentModelUnavailable` if the model can't load. |
+| `jarvis/core/safe_exec.py` | Validated `open`/`close` app helpers. Never uses a shell. |
+| `jarvis/core/user_profile.py` | Loads personal settings from the gitignored `user_profile.json`. |
 
 ---
 
-## What Works Now
+## Quick start
 
-### ✅ Core — Fully Functional
+**Requirements:** Windows 10/11, Python 3.12, a [Gemini API key](https://aistudio.google.com/apikey), mic and speakers. A webcam is optional.
 
-| Feature | Status | Details |
-|---------|--------|---------|
-| **Gemini Live Voice** | ✅ Working | Full-duplex audio, echo gate, interrupt handling, tool dispatch |
-| **BrainAdapter Text Routing** | ✅ Working | ML pipeline with intent → entity → decision → emotion |
-| **Keyword Engine** | ✅ Working | 30+ intents, cache, memory, pattern matching |
-| **System Control** | ✅ Working | Open/close apps, volume, brightness, screenshots, lock/shutdown |
-| **Web HUD** | ✅ Working | Real-time dashboard with globe, vitals, chat, waveform |
-| **Feature Hub Tabs** | ✅ Working | Face Recognition, WhatsApp, Hand Gestures, News — tabbed UI |
-| **Tactical Personality** | ✅ Working | Safety warnings, failure detection, emotional adaptation |
-| **Switch to FRIDAY** | ✅ Working | Voice command to swap persona (JARVIS ↔ FRIDAY) |
-| **News** | ✅ Working | Category-filtered headlines via News API |
-| **Weather** | ✅ Working | Live weather via OpenWeatherMap (requires API key) |
-| **Reminders & Alarms** | ✅ Working | Natural language time parsing, background checker |
-| **Chat History** | ✅ Working | SQLite-backed with FTS5 search, thread-safe |
-| **Smart Notes** | ✅ Working | Create, search, list notes |
-| **Hotkeys** | ✅ Working | Ctrl+Alt+J (wake), Ctrl+Alt+S (shutdown) |
-
-### ⚙️ Optional — Dependency-Based
-
-| Feature | Requires | Details |
-|---------|----------|---------|
-| **Face Recognition** | Webcam + OpenCV | Enrolls and recognizes users |
-| **Hand Gestures** | Webcam + MediaPipe | Thumbs up/down, wave, swipe |
-| **Emotion Detection** | Webcam + TensorFlow | Facial emotion → response adaptation |
-| **WhatsApp** | `pywhatkit` | Send messages to contacts |
-| **Email** | Gmail SMTP credentials | Send/read emails |
-| **YouTube** | `yt-dlp` | Search and play videos |
-| **Calendar** | Google Calendar API | Event listing and reminders |
-| **Spotify** | `spotipy` + Spotify API | Music playback |
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- **Python 3.10+**
-- **Windows 10/11** (system control features are Windows-native)
-- **Gemini API Key** from [Google AI Studio](https://aistudio.google.com/apikey)
-- **Microphone + Speakers** (for Gemini Live voice)
-- **Webcam** (optional — for gesture, face recognition, emotion)
-
-### Installation
-
-```bash
-# Clone the repository
+```powershell
 git clone https://github.com/Raghava001-web/Jarvis.git
 cd Jarvis
-
-# Create virtual environment
 python -m venv .venv
 .venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-copy .env.example .env
-# Edit .env and add your GEMINI_API_KEY
+pip install -r requirements.txt            # pinned core dependencies
+pip install -r requirements-optional.txt   # optional: face, emotion, OCR, calendar, Spotify
+copy .env.example .env                     # then set GEMINI_API_KEY
+copy user_profile.example.json user_profile.json   # optional: your name for face auth
 ```
+
+Run it:
+
+```powershell
+start_jarvis.bat
+```
+
+Or run `python jarvis/gui/websocket_server.py`. Both start the WebSocket server and the HUD, served at **http://localhost:8080**.
 
 ### Configuration
 
-Create a `.env` file in the project root (or edit the copied `.env.example`):
+`.env` (never committed):
 
 ```env
-# Required
-GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here   # required
 GEMINI_LIVE_ENABLED=true
-
-# Optional
-SMTP_EMAIL=your_email@gmail.com
-SMTP_PASSWORD=your_app_password
-OPENWEATHER_API_KEY=your_weather_key
-NEWS_API_KEY=your_news_key
+GROQ_API_KEY=                             # optional: knowledge Q&A
+OPENWEATHER_API_KEY=                      # optional: weather
+NEWS_API_KEY=                             # optional: news
+SMTP_EMAIL=                               # optional: Gmail
+SMTP_PASSWORD=
 ```
 
-### Run JARVIS
+`user_profile.json` (never committed) holds `owner_name` (who face recognition treats as the owner), `creator_name` and `creator_full_name`. You can also set them with the `JARVIS_OWNER_NAME`, `JARVIS_CREATOR_NAME` and `JARVIS_CREATOR_FULL_NAME` environment variables.
 
-```bash
-# Option 1: Batch launcher
-start_jarvis.bat
+---
 
-# Option 2: Direct
-python jarvis/gui/websocket_server.py
+## Voice commands
+
+```
+"Open YouTube" / "Close Chrome"          → app control
+"Set volume to 50" / "Brightness up"     → system control
+"Take a screenshot"                      → saved to Pictures
+"What's the weather like?"               → weather
+"Tell me the news"                       → headlines
+"Remind me to call Mom in 30 minutes"    → reminder
+"Play lo-fi on YouTube"                  → YouTube
+"Switch to Friday"                       → persona swap
+"Restart the computer" … "Confirm"       → restart (needs confirmation)
+"Shutdown" / "Exit Jarvis"               → closes JARVIS (not the PC)
 ```
 
-JARVIS will:
-1. Start the WebSocket server on `ws://localhost:8765`
-2. Serve the Web HUD on `http://localhost:8080`
-3. Connect to Gemini Live for voice interaction
-4. Initialize gesture/face/emotion (if webcam available)
+---
 
-### Access the Web HUD
+## 🔒 Security
 
-Open your browser to **`http://localhost:8080`** to see the Iron Man–style dashboard.
+JARVIS can run commands on your PC, so I audited it and fixed these issues in v2.1:
+
+| Issue | Before | Fix |
+|-------|--------|-----|
+| **Remote command execution from any website** | The WebSocket on `localhost:8765` accepted any connection, so a web page you visited could send it commands. | The server only accepts the HUD's origin, and every client must present a random per-session token (`secrets.token_urlsafe`). The HUD server injects the token into its page, where other sites can't read it. |
+| **Shell injection** | App names were pasted into shell strings (`taskkill /IM {name}.exe`, `start {app}`, with `shell=True`), so "close chrome & …" ran a second command. Gemini's tool arguments took the same path. | `safe_exec.py` checks names against a strict pattern and runs argument lists without a shell. A test fails if a formatted shell command reappears. |
+| **Accidental shutdown/restart** | Substring matching meant "my phone rebooted" restarted the PC and "how do I shutdown linux?" quit JARVIS. Gemini could restart the PC without asking. | Commands are matched as whole phrases. PC shutdown/restart always needs a confirmation within 30 s, including when Gemini requests it. |
+| **XSS in the HUD** | LLM replies and news headlines went into `innerHTML`. | Chat text is inserted with `textContent`, and headlines are HTML-escaped. |
+| **HUD exposed on the LAN** | The HTTP server bound to all network interfaces and called `os.chdir` on the whole process. | It binds to `127.0.0.1` only and serves its directory without changing the working directory. |
+| **Personal data in the repo and release** | Chat/memory databases, face encodings, a face photo, logs and personal details were committed or zipped. | Untracked and gitignored. `zip_release.py` packages only git-tracked files and also excludes `*.db`, `*.pkl`, `*.log`, face data and keys. Personal details moved to `user_profile.json`. |
+| **Unsafe deserialization** | Face encodings and the Calendar token were stored as pickles. | Both use JSON now. Legacy `.pkl` files are ignored. |
+| **Silent ML failure** | If the embedding model failed to load, classification quietly returned `(None, 0.0)`. | `IntentModelUnavailable` is raised. BrainAdapter logs an error and labels its keyword fallback `DEGRADED`. |
+
+Every fix has a regression test in `tests/test_security_regressions.py`.
 
 ---
 
 ## Testing
 
-### Smoke Test Suite
-
-A 53-test smoke suite validates all critical paths without requiring hardware or API keys:
-
-```bash
-python -m pytest tests/test_smoke.py -v
+```powershell
+pip install -r requirements-dev.txt
+python -m pytest tests/ -q
 ```
 
-**Current status: 90/90 tests passing** (53 smoke tests + 37 NLP and router unit tests)
+**155 tests pass:**
+- smoke tests: boot, Gemini Live dedup and echo gate, BrainAdapter, persona switching
+- NLP and router unit tests
+- 65 security regression tests
 
-The suite covers:
-- Application boot and startup orchestrator
-- Gemini Live deduplication and echo gating
-- BrainAdapter pipeline routing
-- Intent classification (30+ intents)
-- News command end-to-end flow
-- JARVIS ↔ FRIDAY persona switching
-- Tactical personality (safety warnings, failure detection)
-- Handler map completeness
+CI runs the same suite on `windows-latest`.
 
-### Additional Test Suites
+---
 
-```bash
-# Intent model unit tests
-python -m pytest tests/test_intent_model.py -v
+## Project structure
 
-# Entity extractor tests
-python -m pytest tests/test_entity_extractor.py -v
-
-# Intent router tests
-python -m pytest tests/test_intent_router.py -v
-
-# Run everything
-python -m pytest tests/ -v
+```
+jarvis/
+├── core/        # ~70 modules: Gemini Live engine, BrainAdapter, intent model, handlers,
+│                #   system control, reminders, notes, news, weather, face, gestures …
+├── gui/         # websocket_server (gateway), desktop_gui (entry), web_hud_launcher,
+│   │            #   state_controller, mood_engine, command_processor, fallback_processor
+│   └── web_hud/index.html   # the HUD (single-file app)
+├── data/        # intent embedding cache, small runtime JSON (databases are gitignored)
+└── utils/
+tests/           # smoke, NLP, router and security regression tests
+docs/            # architecture notes, screenshots, demo recorder
 ```
 
 ---
 
-## Voice Commands
+## Known limitations / future work
 
-```
-"Open YouTube"                              → launches YouTube
-"Close Chrome"                              → closes Chrome
-"Set volume to 50"                          → adjusts system volume
-"Take a screenshot"                         → captures screen
-"What's the weather like?"                  → weather report
-"Tell me the news"                          → headlines summary
-"Set alarm for 7 AM"                        → alarm
-"Remind me to call Mom in 30 minutes"       → reminder
-"Send WhatsApp to Dad saying I'll be late"  → WhatsApp message
-"Switch to Friday"                          → persona swap
-"What time is it?"                          → time
-"Search for latest AI research"             → web search
-"Tell me a joke"                            → entertainment
-"Shutdown JARVIS"                           → graceful shutdown
-```
+- **`websocket_server.py` is large** (~3,200 lines). Command logic still lives in several places (fast path, `process_command`, `fallback_processor`, `intent_handlers`, Gemini tools). The next refactor is a single tool registry that every path uses.
+- **Logging is mostly `print()`.** A structured logger exists (`core/logger.py`) but isn't used everywhere yet.
+- **Runtime data lives in two folders,** `jarvis/data/` and `jarvis_data/`.
+- **Windows only:** system control uses Windows APIs.
+- **Gemini API key required:** no offline LLM fallback.
+- **Single user:** designed as a personal assistant.
 
 ---
 
-## Project Structure
-
-```
-JARVIS-AI-Assistant/
-├── jarvis/
-│   ├── core/                        # 68 modules — brain, voice, tools, handlers
-│   │   ├── gemini_live_engine.py       # Gemini Live full-duplex audio (1500+ lines)
-│   │   ├── brain_adapter.py            # ML pipeline bridge
-│   │   ├── intent_classifier.py        # 30+ intent classifier
-│   │   ├── intent_handlers.py          # Handler implementations
-│   │   ├── decision_engine.py          # Safety/tactical layer
-│   │   ├── voice_engine.py             # Edge TTS backend
-│   │   ├── perception.py               # HUDPerception + persona management
-│   │   ├── startup_orchestrator.py     # Boot sequence
-│   │   ├── system_control.py           # OS-level commands
-│   │   ├── reminder_manager.py         # Thread-safe SQLite reminders
-│   │   ├── chat_history.py             # Thread-safe chat storage
-│   │   ├── context_memory.py           # Conversation memory
-│   │   ├── emotion_router.py           # Text → mood detection
-│   │   ├── state_manager.py            # Core state machine
-│   │   └── ...                         # weather, news, email, WhatsApp, etc.
-│   │
-│   ├── gui/                         # Interface layer
-│   │   ├── websocket_server.py         # Central gateway (WebSocket + HTTP)
-│   │   ├── state_controller.py         # UI state controller
-│   │   ├── mood_engine.py              # Emotion state machine
-│   │   ├── command_processor.py        # Command routing
-│   │   ├── desktop_gui.py              # Pygame desktop window
-│   │   ├── advanced_hud.py             # Pygame HUD renderer
-│   │   └── web_hud/
-│   │       └── index.html              # Iron Man Web HUD (single-file app)
-│   │
-│   ├── tools/                       # Tool architecture
-│   │   ├── dispatcher.py               # Intent → tool routing + caching
-│   │   ├── tool_registry.py            # Async tool execution
-│   │   └── web_tools.py                # Web search, news, URL fetch
-│   │
-│   └── data/                        # Runtime databases (SQLite)
-│
-├── tests/                           # Test suites
-│   ├── test_smoke.py                   # 53 smoke tests
-│   ├── test_intent_model.py            # Intent model tests
-│   ├── test_entity_extractor.py        # Entity extraction tests
-│   └── test_intent_router.py           # Router tests
-│
-├── jarvis_data/                     # Session data (gitignored)
-├── requirements.txt                 # Python dependencies
-├── .env.example                     # Environment template
-├── start_jarvis.bat                 # One-click launcher
-└── README.md                        # This file
-```
-
----
-
-## Tech Stack
+## Tech stack
 
 | Layer | Technology |
 |-------|-----------|
-| **AI Engine** | Google Gemini 2.0 Flash (Live + Text) |
-| **Voice** | Gemini Live (full-duplex), Edge TTS |
-| **Vision** | MediaPipe, OpenCV, TensorFlow |
-| **Desktop GUI** | Pygame |
-| **Web HUD** | Vanilla HTML/CSS/JS + WebSocket |
-| **Transport** | WebSocket (real-time), HTTP (HUD serving) |
-| **System Control** | pyautogui, pycaw, psutil |
-| **NLP** | Custom intent classifier + sentence-transformers |
-| **Storage** | SQLite (thread-safe, persistent) |
-
----
-
-## API Keys
-
-| Service | Required | Get Key |
-|---------|----------|---------|
-| **Gemini API** | ✅ Required | [Google AI Studio](https://aistudio.google.com/apikey) |
-| **OpenWeather** | Optional | [openweathermap.org](https://openweathermap.org/api) |
-| **News API** | Optional | [newsapi.org](https://newsapi.org) |
-| **Gmail SMTP** | Optional | [Google App Passwords](https://myaccount.google.com/apppasswords) |
-
----
-
-## Project Status & Ongoing Potential
-
-🚀 **Active & Ongoing Development — Massive Potential**
-
-JARVIS is an **ongoing project with immense potential for expansion**. While it is currently highly stable and fully prepared for demos, publishing, and daily use, we are continuously pushing updates to expand its capabilities. 
-
-Our current focus:
-- **Core Stability**: The runtime is stabilized with thread-safe database operations, audio clash prevention, and resource leak patches.
-- **Robust Verification**: 53/53 smoke tests pass consistently to prevent regressions.
-- **Multimodal Focus**: Gemini Live voice is the primary, full-duplex interaction mode.
-- **Modular & Extensible**: All core features are functional out of the box. Optional features (webcam, email, calendar) degrade gracefully when dependencies are missing.
-- **Active Roadmap**: Future releases aim to add offline-first intent routing, tighter OS-level automation loops, and multi-modal vision perception enhancements.
-
-### Known Limitations
-
-- **Windows only** — System control (volume, brightness, app management) uses Windows-native APIs
-- **Gemini API key required** — No offline fallback for AI features
-- **Single user** — Designed as a personal desktop assistant, not multi-tenant
-- **Webcam features are optional** — Face recognition, gestures, and emotion detection require a webcam and their respective ML dependencies
-- **WebSocket server is monolithic** — `websocket_server.py` is large (~4100 lines); partial extraction into `command_processor.py`, `state_controller.py`, and `ws_channels.py` has begun
-
----
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+| Voice AI | Gemini Live (`gemini-2.5-flash-native-audio`), Edge TTS |
+| Text AI | Gemini 2.0 Flash, Groq (Llama 3.3 70B) for knowledge Q&A |
+| NLP | sentence-transformers (`all-MiniLM-L6-v2`), custom intent/entity pipeline |
+| Vision | MediaPipe, OpenCV, optional facenet/deepface |
+| UI | Vanilla HTML/CSS/JS HUD over WebSocket, customtkinter/pygame desktop |
+| System | pyautogui, pycaw, psutil, pywin32 |
+| Storage | SQLite, JSON |
 
 ---
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-
----
+MIT. See [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-- **Google Gemini** — For the Gemini Live API and Flash model
-- **MediaPipe** — For real-time hand and face tracking
-- **The Iron Man franchise** — For the JARVIS inspiration
-
----
-
-<p align="center">
-  <i>"Good evening, sir. All systems are online and ready."</i>
-  <br>
-  <b>— J.A.R.V.I.S.</b>
-</p>
+- **Google Gemini:** the Live API and Flash models
+- **MediaPipe:** hand and face tracking
+- **The Iron Man films:** the inspiration for JARVIS
