@@ -36,6 +36,7 @@
 ## What it does
 
 - **Talks and listens at the same time.** Gemini Live (`gemini-2.5-flash-native-audio`) streams audio both ways, with echo suppression and barge-in.
+- **Only listens when you mean it.** The mic is always on, but JARVIS acts only after you say "Jarvis" or "Friday" (or type in the HUD), then stays awake for a 20-second follow-up window. Background chatter and videos can't trigger it.
 - **Actually does things.** "Open Chrome" calls a real tool that opens Chrome. Gemini Live has 14 tools: apps, YouTube, web search, news, weather, screen control, workflows and more.
 - **Answers simple commands instantly.** A keyword fast path handles common commands (open/close apps, volume, brightness, time) in milliseconds without calling an LLM.
 - **Asks before risky actions.** PC shutdown and restart always need a spoken or typed "confirm".
@@ -110,7 +111,9 @@ Or run `python jarvis/gui/websocket_server.py`. Both start the WebSocket server 
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here   # required
-GEMINI_LIVE_ENABLED=true
+JARVIS_USE_GEMINI_LIVE=1                  # 1 = full-duplex voice (Gemini Live)
+JARVIS_WAKE_WORD=1                        # 0 = respond to all speech (no wake word)
+JARVIS_AWAKE_WINDOW=20                    # seconds JARVIS stays awake after being addressed
 GROQ_API_KEY=                             # optional: knowledge Q&A
 OPENWEATHER_API_KEY=                      # optional: weather
 NEWS_API_KEY=                             # optional: news
@@ -124,8 +127,10 @@ SMTP_PASSWORD=
 
 ## Voice commands
 
+Start with "Jarvis" (or "Friday"); follow-ups within 20 seconds don't need the name.
+
 ```
-"Open YouTube" / "Close Chrome"          → app control
+"Jarvis, open YouTube" / "close Chrome"  → app control
 "Set volume to 50" / "Brightness up"     → system control
 "Take a screenshot"                      → saved to Pictures
 "What's the weather like?"               → weather
@@ -158,6 +163,17 @@ Every fix has a regression test in `tests/test_security_regressions.py`.
 
 ---
 
+## What's new in v2.3: wake word
+
+During live testing JARVIS acted on background speech (paused a video, reopened Paint) because Gemini Live hears everything and nothing filtered it. Now:
+
+- Speech that doesn't say **"Jarvis"/"Friday"** can't run tools, its reply is muted, and it stays out of the chat.
+- Saying the name (or typing in the HUD) opens a **20-second follow-up window**.
+- It matches the name even when Gemini splits it across transcript fragments ("Ja" + "rvis"), and in Telugu, Hindi, Tamil and Kannada spellings.
+- Verified against the real Gemini Live API: "Open notepad please" → tool blocked, reply muted; "Jarvis, open notepad please" → Notepad opens and JARVIS answers.
+
+---
+
 ## What's new in v2.2
 
 | Area | Before | After |
@@ -177,11 +193,12 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-**176 tests pass:**
+**201 tests pass:**
 - smoke tests: boot, Gemini Live dedup and echo gate, BrainAdapter, persona switching
 - NLP and router unit tests
 - 67 security and regression tests
 - 19 tests for the v2.2 upgrades (routing, embedding cache, TTS fallback, boot briefing)
+- 25 wake-word tests, including the real receive loop with a fake Live session
 
 CI runs the same suite on `windows-latest`.
 
