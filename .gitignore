@@ -70,3 +70,6 @@ recovered_chat_history.md
 jarvis/data/faces/
 calendar_token.*
 user_profile.json
+
+# Machine-specific scan of installed apps (rebuilt automatically)
+jarvis/data/app_cache.json
