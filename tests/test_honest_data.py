@@ -145,3 +145,9 @@ class TestLockScreen:
     def test_gemini_lock_tool_has_no_shell(self):
         src = (ROOT / "jarvis/core/gemini_live_engine.py").read_text(encoding="utf-8")
         assert "LockWorkStation\", shell=True" not in src
+
+
+def test_hud_placeholders_are_not_fake_weather():
+    html = (ROOT / "jarvis/gui/web_hud/index.html").read_text(encoding="utf-8")
+    assert 'id="weatherTemp">24°' not in html
+    assert 'id="weatherCondition">Partly Cloudy' not in html
