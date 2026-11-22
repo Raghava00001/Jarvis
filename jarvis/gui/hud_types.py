@@ -82,7 +82,8 @@ class HUDPerception:
             engine.set_voice(voice_key)
             
             # Speak asynchronously so we don't block the WebSocket loop
-            threading.Thread(target=engine.speak, args=(text,), daemon=True).start()
+            # speak_with_fallback: Edge TTS, else offline pyttsx3 (never silent)
+            threading.Thread(target=engine.speak_with_fallback, args=(text,), daemon=True).start()
         except (ImportError, Exception) as e:
             # Fallback to older perception layer if voice_engine fails
             if self.original and hasattr(self.original, 'speak'):

@@ -288,6 +288,9 @@ class VoiceEngine:
         # State
         self.is_speaking = False
         self.stop_flag = False
+        # Circuit breaker: stop calling a failing cloud TTS after a few errors
+        # in a row, so each reply doesn't wait on a dead service.
+        self._edge_failures = 0
 
         tts_name = "Edge TTS" if self.use_edge_tts else "pyttsx3"
         stt_name = "Whisper" if self.use_whisper else "Google STT"
@@ -308,16 +311,44 @@ class VoiceEngine:
         if self.edge_tts:
             self.edge_tts.set_volume(vol)
 
+    EDGE_FAILURE_LIMIT = 3
+
     def speak(self, text: str) -> bool:
         """Speak text using the best available TTS. Returns True if Edge TTS was used."""
         if self.use_edge_tts:
             self.is_speaking = True
             self.stop_flag = False
             try:
-                return self.edge_tts.speak_blocking(text)
+                ok = self.edge_tts.speak_blocking(text)
             finally:
                 self.is_speaking = False
+            if ok:
+                self._edge_failures = 0
+                return True
+            self._record_edge_failure()
         return False  # Caller should fall back to pyttsx3
+
+    def _record_edge_failure(self):
+        self._edge_failures += 1
+        if self._edge_failures >= self.EDGE_FAILURE_LIMIT and self.use_edge_tts:
+            self.use_edge_tts = False
+            print(f"[VOICE ENGINE] Edge TTS failed {self._edge_failures} times in a row; "
+                  f"switching to offline pyttsx3 for this session")
+
+    def speak_with_fallback(self, text: str) -> str:
+        """Speak with Edge TTS, falling back to offline pyttsx3. Returns the backend used."""
+        if self.speak(text):
+            return "edge"
+        try:
+            import pyttsx3
+            engine = pyttsx3.init()
+            engine.say(text)
+            engine.runAndWait()
+            engine.stop()
+            return "pyttsx3"
+        except Exception as e:
+            print(f"[VOICE ENGINE] pyttsx3 fallback failed: {e}")
+            return "none"
 
     def speak_to_file(self, text: str) -> Optional[str]:
         """Generate speech audio file (for WebSocket/browser playback). Returns MP3 path."""
