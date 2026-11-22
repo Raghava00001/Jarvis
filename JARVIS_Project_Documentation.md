@@ -2,7 +2,7 @@
 ## AI Voice Assistant Project Documentation
 
 **Creator:** Raghava  
-**Date:** January 2026 – May 2026  
+**Date:** January 2026 – November 2026 (v2.7)  
 **Platform:** Windows 10/11 (Python 3.12)
 
 ---
@@ -39,10 +39,11 @@ Current personal computing requires constant manual interaction — typing, clic
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| LLM (Primary) | Google Gemini 2.0 Flash (Live + Text) | Real-time voice conversation and intelligent responses |
-| LLM (Voice) | Gemini Live API | Full-duplex bidirectional audio streaming |
+| LLM (Voice) | Gemini Live API, `gemini-2.5-flash-native-audio` | Full-duplex real-time voice conversation with tool calls |
+| LLM (Text) | Google Gemini 2.0 Flash | Open-ended typed questions when Live mode is off |
+| Knowledge Q&A | Groq, Llama 3.3 70B (OpenRouter fallback) | Answers, stories, poems, definitions |
 | Intent Classification | SentenceTransformer (MiniLM) | Classify user commands into intents (open app, set alarm, etc.) |
-| Emotion Detection | TensorFlow/Keras CNN | Detect user mood via facial expressions |
+| Emotion Detection | DeepFace or FER (optional install) + text cues | Detect user mood from the face; text-based mood works without them |
 | Face Recognition | FaceNet-PyTorch, DeepFace | Owner authentication and access control |
 | Hand Gesture Detection | MediaPipe HandLandmarker | Touchless control via 21-point hand tracking |
 
@@ -157,7 +158,7 @@ Legacy Pattern Handler (fallback keyword matching)
     ├── "volume up/down" → pycaw adjustment
     │
     ▼
-AI Knowledge Layer (Gemini 2.0 Flash)
+AI Knowledge Layer (Groq Llama 3.3 70B; Gemini 2.0 Flash for typed questions)
     └── General conversation with Iron Man JARVIS personality
 ```
 
@@ -235,7 +236,7 @@ Verification:
 
 ### Phase 2: AI Integration
 - Integrated Google Gemini 2.0 Flash for intelligent conversation
-- Added Gemini Live API for full-duplex real-time voice
+- Added Gemini Live API (`gemini-2.5-flash-native-audio`) for full-duplex real-time voice
 - Engineered Iron Man JARVIS personality prompt (dry wit, probability framing, loyal obedience)
 
 ### Phase 3: System Control
@@ -265,36 +266,48 @@ Verification:
 
 ---
 
+### Phase 7: Hardening (v2.1 – v2.7, November 2026)
+- **Security:** WebSocket origin check + per-session token (any website could previously send commands), no shell injection, XSS-safe HUD, PC shutdown/restart always confirmed, personal data removed from the repo and its history
+- **Architecture:** one module identity (37 modules were loaded twice) and a service registry so every subsystem exists once (alarms, reminders and hotkeys were duplicated)
+- **Correctness:** wake word for Gemini Live, real news instead of placeholder headlines, per-city weather, 15+ routing and crash fixes found by running real commands through the pipeline, and a fix for a native audio crash
+- **Speed:** startup 15.5 s → 4.8 s
+- **Tests:** 90 → 321, including architecture invariants and a real-pipeline command corpus
+
+---
+
 ## 7. Features Summary
+
+Status as verified in November 2026 (v2.7) by running real commands through the
+pipeline and live sessions. ⚠️ = works, with a dependency or a part not verified live.
 
 | Feature | Status |
 |---------|--------|
-| Voice Commands | ✅ Working |
-| AI Conversation (Groq/Gemini) | ✅ Working |
-| Iron Man JARVIS Personality | ✅ Working |
-| App Launching (20+ apps) | ✅ Working |
-| Volume/Brightness Control | ✅ Working |
-| Bluetooth Toggle | ✅ Working |
-| Laptop Shutdown/Restart | ✅ Working |
-| Screenshot | ✅ Working |
-| Alarm/Reminder/Timer | ✅ Working |
-| News with AI Opinions | ✅ Working |
-| Weather | ✅ Working |
-| Hand Gesture Control | ✅ Working |
-| Open Palm → Stop Speaking | ✅ Working |
-| Quiet Mode (wake word only) | ✅ Working |
-| Compound Commands | ✅ Working |
-| Spell Correction | ✅ Working |
-| TTS Echo Prevention | ✅ Working |
-| Browser HUD | ✅ Working |
-| Face Recognition | ✅ Working |
-| Emotion Detection | ✅ Working |
-| WhatsApp Message Sending | ✅ Working |
-| Gemini Live Voice | ✅ Working |
-| BrainAdapter ML Pipeline | ✅ Working |
-| Feature Hub (Tabbed UI) | ✅ Working |
-| Tactical Personality | ✅ Working |
-| JARVIS ↔ FRIDAY Persona | ✅ Working |
+| Gemini Live voice (two-way) | ✅ Working |
+| Wake word ("Jarvis"/"Friday", 20 s follow-ups) | ✅ Working, verified against the Live API; ⚠️ not yet tested with a real microphone |
+| Typed commands in the HUD | ✅ Working |
+| AI conversation, translation, definitions (Groq/Gemini) | ✅ Working |
+| Iron Man JARVIS personality, JARVIS ↔ FRIDAY | ✅ Working |
+| Open/close apps | ✅ Working |
+| Volume, brightness, Bluetooth | ✅ Working |
+| Screenshot, screen lock | ✅ Working |
+| Screen control (scroll, tabs, zoom, windows) | ✅ Working |
+| Laptop shutdown/restart (with confirmation) | ✅ Working |
+| Alarm, timer, reminders, tasks | ✅ Working |
+| Notes ("take a note…", "show my notes") | ✅ Working |
+| Clipboard reading | ✅ Working |
+| News (real headlines by category) | ✅ Working |
+| Weather (any city) | ✅ Working |
+| Music / YouTube playback | ✅ Working |
+| Compound commands, spell correction | ✅ Working |
+| TTS (Edge TTS, offline fallback, no overlapping speech) | ✅ Working |
+| Browser HUD, Feature Hub | ✅ Working |
+| WhatsApp message sending | ⚠️ Routing verified; sending through the desktop app not verified live |
+| Face recognition | ⚠️ Runs; owner matching depends on registration and lighting |
+| Hand gestures | ⚠️ Tracking loads; gesture actions not verified with a live camera |
+| Emotion detection | ⚠️ Text mood works; face emotion needs DeepFace or FER (`requirements-optional.txt`) |
+| Screen reading (OCR) | ⚠️ Needs Tesseract OCR (`pytesseract` + the Tesseract app) |
+| Email (Gmail) | 🔧 Needs Gmail credentials |
+| Google Calendar | 🔧 Needs Google API credentials |
 
 ---
 
@@ -308,4 +321,4 @@ Verification:
 
 ---
 
-*Last updated: May 2026*
+*Last updated: November 2026 (v2.7). Current setup and architecture: README.md and docs/ARCHITECTURE.md.*
