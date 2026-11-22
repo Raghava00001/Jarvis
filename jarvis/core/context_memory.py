@@ -17,12 +17,13 @@ from collections import deque
 import hashlib
 import threading
 
-# Try embedding support
+# Embedding support: check availability without importing torch at module load
+# (the model itself comes lazily from shared_embeddings).
+import importlib.util
 EMBEDDINGS_AVAILABLE = False
 try:
     import numpy as np
-    from sentence_transformers import SentenceTransformer
-    EMBEDDINGS_AVAILABLE = True
+    EMBEDDINGS_AVAILABLE = importlib.util.find_spec("sentence_transformers") is not None
 except ImportError:
     pass
 

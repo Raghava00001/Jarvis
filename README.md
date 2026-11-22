@@ -163,6 +163,19 @@ Every fix has a regression test in `tests/test_security_regressions.py`.
 
 ---
 
+## What's new in v2.5: 3× faster startup
+
+The HUD used to take **15.5 s** to come online, mostly spent importing torch, TensorFlow, Whisper and sentence-transformers just to check they were installed. Those checks now use `importlib.util.find_spec`, and the libraries load when first used (the existing Phase 2 background thread still warms the models).
+
+| Milestone | Before | After |
+|---|---|---|
+| HUD online | 15.5 s | **4.8 s** |
+| ML models ready (background) | 19.6 s | 18.9 s |
+
+A test starts the server in a fresh process and fails if any heavy ML library is imported at startup.
+
+---
+
 ## What's new in v2.4: real data, honestly shown
 
 | Issue | Before | After |
@@ -205,13 +218,14 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-**216 tests pass:**
+**220 tests pass:**
 - smoke tests: boot, Gemini Live dedup and echo gate, BrainAdapter, persona switching
 - NLP and router unit tests
 - 67 security and regression tests
 - 19 tests for the v2.2 upgrades (routing, embedding cache, TTS fallback, boot briefing)
 - 25 wake-word tests, including the real receive loop with a fake Live session
 - 15 tests for real news, honest fallbacks, spoken weather and lock screen
+- 4 fast-boot tests (no heavy ML imported at startup)
 
 CI runs the same suite on `windows-latest`.
 

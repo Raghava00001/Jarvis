@@ -19,29 +19,44 @@ try:
 except ImportError:
     from gesture_state import GestureState
 
-# Try to import mediapipe tasks API
-MP_AVAILABLE = False
+# MediaPipe is loaded on first use, not at import: importing it also loads
+# TensorFlow, and this module is imported at server start even when gestures
+# are never enabled.
+import importlib.util
+MP_AVAILABLE = importlib.util.find_spec("mediapipe") is not None
+mp = mp_python = mp_vision = MpImage = MpImageFormat = None
 HandLandmarker = None
 HandLandmarkerOptions = None
 HandLandmarkerResult = None
+_MP_LOADED = False
 
-try:
-    import mediapipe as mp
-    from mediapipe.tasks import python as mp_python
-    from mediapipe.tasks.python import vision as mp_vision
-    from mediapipe import Image as MpImage
-    from mediapipe import ImageFormat as MpImageFormat
-    
-    HandLandmarker = mp_vision.HandLandmarker
-    HandLandmarkerOptions = mp_vision.HandLandmarkerOptions
-    HandLandmarkerResult = mp_vision.HandLandmarkerResult
-    
-    MP_AVAILABLE = True
-    print("[GESTURE] MediaPipe Tasks API available")
-except ImportError as e:
-    print(f"[GESTURE] MediaPipe Tasks not available: {e}")
-except Exception as e:
-    print(f"[GESTURE] MediaPipe Tasks error: {e}")
+
+def _load_mediapipe() -> bool:
+    """Import the MediaPipe Tasks API once; returns whether it is usable."""
+    global mp, mp_python, mp_vision, MpImage, MpImageFormat, _MP_LOADED, MP_AVAILABLE
+    global HandLandmarker, HandLandmarkerOptions, HandLandmarkerResult
+    if _MP_LOADED:
+        return MP_AVAILABLE
+    _MP_LOADED = True
+    try:
+        import mediapipe as mp
+        from mediapipe.tasks import python as mp_python
+        from mediapipe.tasks.python import vision as mp_vision
+        from mediapipe import Image as MpImage
+        from mediapipe import ImageFormat as MpImageFormat
+
+        HandLandmarker = mp_vision.HandLandmarker
+        HandLandmarkerOptions = mp_vision.HandLandmarkerOptions
+        HandLandmarkerResult = mp_vision.HandLandmarkerResult
+        MP_AVAILABLE = True
+        print("[GESTURE] MediaPipe Tasks API available")
+    except ImportError as e:
+        MP_AVAILABLE = False
+        print(f"[GESTURE] MediaPipe Tasks not available: {e}")
+    except Exception as e:
+        MP_AVAILABLE = False
+        print(f"[GESTURE] MediaPipe Tasks error: {e}")
+    return MP_AVAILABLE
 
 
 class GestureController:
@@ -82,7 +97,7 @@ class GestureController:
         self.last_angle = None
         self.tracking_mode = False  # True = output continuous positions
         
-        if MP_AVAILABLE:
+        if _load_mediapipe():
             self._initialize_landmarker()
         else:
             print("[GESTURE] Gesture Controller Disabled (MediaPipe Tasks not available)")

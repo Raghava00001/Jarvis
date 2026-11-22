@@ -6,13 +6,12 @@ Extended intents for JARVIS
 import re
 import numpy as np
 
-# BUG FIX: Top-level import crashes JARVIS if sentence-transformers not installed
-# Wrap in try/except so the module can still load with reduced functionality
-try:
-    from sentence_transformers import SentenceTransformer
-    SENTENCE_TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
+# Only CHECK that sentence-transformers is installed; don't import it here.
+# Importing it pulls in torch + transformers (~10 s), and this module is imported
+# at server start even though the model is created lazily via shared_embeddings.
+import importlib.util
+SENTENCE_TRANSFORMERS_AVAILABLE = importlib.util.find_spec("sentence_transformers") is not None
+if not SENTENCE_TRANSFORMERS_AVAILABLE:
     print("[UNDERSTANDING] sentence-transformers not installed — install with: pip install sentence-transformers")
 
 
