@@ -66,3 +66,7 @@ recovered_chat_history.md
 
 # Release Artifacts
 *.zip
+# Face biometrics (never commit)
+jarvis/data/faces/
+calendar_token.*
+user_profile.json

@@ -30,9 +30,26 @@ def _get_model():
         EMBEDDINGS_AVAILABLE = True
         _ST_MODEL = get_shared_embedding_model("all-MiniLM-L6-v2")
         return _ST_MODEL
-    except ImportError:
-        print("[INTENT] sentence-transformers not installed")
+    except ImportError as e:
+        print(f"[INTENT] sentence-transformers not available: {e}")
         return None
+
+
+def _model_load_error() -> str:
+    try:
+        from jarvis.core.shared_embeddings import get_embedding_load_error
+        err = get_embedding_load_error()
+    except ImportError as e:
+        err = f"ImportError: {e}"
+    return err or "sentence-transformers model unavailable"
+
+
+class IntentModelUnavailable(RuntimeError):
+    """The embedding model could not be loaded, so ML classification is impossible.
+
+    Raised instead of quietly returning (None, 0.0), so a broken install is
+    visible. Callers that want degraded behaviour use classify_keyword().
+    """
 
 
 class IntentClassification:
@@ -159,8 +176,8 @@ class IntentModel:
         For ambiguous cases, returns ("AMBIGUOUS", confidence).
         """
         if not self._ensure_loaded():
-            return self._classify_keyword(text)
-            
+            raise IntentModelUnavailable(_model_load_error())
+
         # Get all scores
         scores = self._score_all_intents(text)
         
@@ -195,8 +212,7 @@ class IntentModel:
     def classify_detailed(self, text: str) -> IntentClassification:
         """Get detailed classification with alternatives"""
         if not self._ensure_loaded():
-            intent, conf = self._classify_keyword(text)
-            return IntentClassification(intent, conf)
+            raise IntentModelUnavailable(_model_load_error())
             
         scores = self._score_all_intents(text)
         scores.sort(key=lambda x: -x[1])
@@ -246,6 +262,10 @@ class IntentModel:
             
         return scores
         
+    def classify_keyword(self, text: str) -> Tuple[Optional[str], float]:
+        """Keyword-only classification (works without the embedding model)."""
+        return self._classify_keyword(text)
+
     def _classify_keyword(self, text: str) -> Tuple[Optional[str], float]:
         """Fallback: keyword-based classification"""
         text_lower = text.lower()
@@ -280,8 +300,7 @@ class IntentModel:
     def get_top_intents(self, text: str, top_k: int = 3) -> List[Tuple[str, float]]:
         """Get top K most likely intents with scores"""
         if not self._ensure_loaded():
-            intent, conf = self._classify_keyword(text)
-            return [(intent, conf)] if intent else []
+            raise IntentModelUnavailable(_model_load_error())
             
         scores = self._score_all_intents(text)
         scores.sort(key=lambda x: -x[1])

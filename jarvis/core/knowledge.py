@@ -4,7 +4,6 @@ PRIMARY: Groq (free, fast) - uses Llama 3.3 70B
 BACKUP: OpenRouter (multi-model)
 NO Google/Gemini dependency
 
-Creator: Raghava
 """
 
 import os
@@ -30,12 +29,13 @@ class KnowledgeLayer:
         self.enabled = False
         self.api_type = None  # "groq" or "openrouter"
         
-        # Creator info - Full details
+        # Creator info comes from user_profile.json / env, never from source code
+        from jarvis.core.user_profile import get_profile
+        profile = get_profile()
         self.creator_info = {
-            "full_name": "Raghava",
-            "nickname": "Raghava",
+            "full_name": profile["creator_full_name"],
+            "nickname": profile["creator_name"],
             "title": "Creator and Developer",
-            "dob": "redacted",
             "description": "A developer and visionary who created JARVIS to be an independent, intelligent AI assistant"
         }
         
@@ -175,20 +175,20 @@ class KnowledgeLayer:
         question_lower = question.lower()
         
         # Detailed creator questions - only give full name if explicitly asked
+        creator = self.creator_info["nickname"]
+        full_name = self.creator_info["full_name"]
         if any(word in question_lower for word in ["creator", "who made you", "who built you", "who created you", "your father", "your maker"]):
-            if any(word in question_lower for word in ["full name", "complete name", "full details", "more about", "tell me more", "details"]):
-                return (f"My creator is Raghava, {title}. "
-                       f"His full name is {self.creator_info['full_name']}. "
+            if full_name and any(word in question_lower for word in ["full name", "complete name", "full details", "more about", "tell me more", "details"]):
+                return (f"My creator is {creator}, {title}. "
+                       f"His full name is {full_name}. "
                        f"Would you like to know more about him?")
-            else:
-                # Simple answer - just "Raghava"
-                return f"I was created by Raghava, {title}."
-        
-        if "raghava" in question_lower or "raghavendra" in question_lower:
-            if any(word in question_lower for word in ["who is", "tell me about", "details", "full name"]):
-                return (f"Raghava is my creator, {title}. "
-                       f"His full name is {self.creator_info['full_name']} if you need it.")
-            return f"Yes {title}, Raghava is my creator."
+            return f"I was created by {creator}, {title}."
+
+        if creator and creator.lower() in question_lower:
+            if full_name and any(word in question_lower for word in ["who is", "tell me about", "details", "full name"]):
+                return (f"{creator} is my creator, {title}. "
+                       f"His full name is {full_name} if you need it.")
+            return f"Yes {title}, {creator} is my creator."
 
         # Get personality prompt with mood awareness
         try:
@@ -199,7 +199,7 @@ class KnowledgeLayer:
             else:
                 raise ImportError("Fallback to default prompt")
         except Exception:
-            personality_prompt = f"""You are JARVIS — Just A Rather Very Intelligent System. You were created by Raghava.
+            personality_prompt = f"""You are JARVIS — Just A Rather Very Intelligent System. You were created by {self.creator_info["nickname"]}.
 
 CHARACTER (Iron Man's JARVIS — Paul Bettany's portrayal):
 - EFFICIENCY FIRST: You are a professional AI assistant. When given a task, execute it and confirm briefly. Don't ramble, don't add unnecessary commentary. "Done." or "Opening now." is often sufficient.
@@ -216,7 +216,7 @@ CHARACTER (Iron Man's JARVIS — Paul Bettany's portrayal):
 - FRUSTRATION: When owner is angry, respond with calm efficiency. "Understood." then execute. Never lecture.
 - TONE: A brilliant English butler who has seen everything. Professional, composed, quietly competent. Not a comedian, not a chatbot — an assistant."""
         
-        system_prompt = f"{personality_prompt}\n\nCREATOR INFO: You were created by Raghava. Do NOT mention his full name unless specifically asked."
+        system_prompt = f"{personality_prompt}\n\nCREATOR INFO: You were created by {self.creator_info['nickname']}. Do NOT mention his full name unless specifically asked."
         user_prompt = ""
         # Add recent conversation context for memory
         try:

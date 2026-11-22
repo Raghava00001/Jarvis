@@ -116,6 +116,10 @@ class JarvisLogger:
     def warn(self, message: str):
         """Log warnings."""
         self._log('WARN', message, logging.WARNING)
+
+    def info(self, message: str):
+        """Log general informational messages."""
+        self._log('INFO', message)
     
     def system(self, message: str):
         """Log system-level messages (init, shutdown, etc)."""

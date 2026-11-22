@@ -1,12 +1,11 @@
 """
 Face Recognition Authentication - Owner verification for JARVIS
-Recognizes the owner (Raghava) and limits access for outsiders
+Recognizes the owner (set in user_profile.json) and limits access for outsiders
 Now with auto-install and facenet fallback!
 """
 
 import os
 import json
-import pickle
 import threading
 import time
 import subprocess
@@ -47,8 +46,9 @@ class FaceRecognition:
         self.encodings_file = self.data_dir / "face_encodings.pkl"
         self.profiles_file = self.data_dir / "profiles.json"
         
-        # Owner info
-        self.owner_name = "Raghava"
+        # Owner info (user_profile.json / JARVIS_OWNER_NAME, not hardcoded)
+        from jarvis.core.user_profile import get_profile
+        self.owner_name = get_profile()["owner_name"]
         
         # Check for dependencies
         self.face_recognition_available = False
@@ -203,14 +203,10 @@ class FaceRecognition:
                     self.known_face_encodings = [np.array(e) for e in data.get("encodings", [])]
                     self.known_face_names = data.get("names", [])
             elif self.encodings_file.exists():
-                # Legacy pickle fallback — read once, then migrate to JSON
-                with open(self.encodings_file, 'rb') as f:
-                    data = pickle.load(f)
-                    self.known_face_encodings = data.get("encodings", [])
-                    self.known_face_names = data.get("names", [])
-                # Migrate to JSON immediately
-                self._save_data()
-                print("[FACE AUTH] Migrated pickle encodings to JSON")
+                # Legacy pickle files are NOT loaded: unpickling a swapped file
+                # runs arbitrary code. Re-enroll to create face_encodings.json.
+                print("[FACE AUTH] Ignoring legacy face_encodings.pkl (unsafe format). "
+                      "Re-register your face to create face_encodings.json.")
             print(f"[FACE AUTH] Loaded {len(self.known_face_encodings)} face encodings")
             
             # Load profiles
@@ -262,7 +258,7 @@ class FaceRecognition:
             print(f"[FACE AUTH] Error saving data: {e}")
     
     def register_owner(self) -> bool:
-        """Register the owner's face (Raghava)"""
+        """Register the owner's face"""
         if not self.is_available():
             self._speak("Face recognition is not available. Please install the required libraries.")
             return False

@@ -576,7 +576,7 @@ class AppLauncher:
         
     def _launch_uwp(self, app: AppInfo, title: str) -> bool:
         """Launch UWP/Store app"""
-        subprocess.Popen(["explorer", f"shell:AppsFolder\\{app.path}"], shell=True)
+        subprocess.Popen(["explorer", f"shell:AppsFolder\\{app.path}"])
         self._speak(f"Opening {app.name}, {title}.")
         return True
         

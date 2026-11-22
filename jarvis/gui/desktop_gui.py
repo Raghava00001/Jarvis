@@ -646,7 +646,8 @@ class JARVISDesktopApp(ctk.CTk):
 
     async def _ws_connect(self):
         import websockets
-        uri = "ws://localhost:8765"
+        from jarvis.gui.session_token import get_ws_token
+        uri = f"ws://localhost:8765/?token={get_ws_token()}"
         retry = 0
 
         while retry < 15:

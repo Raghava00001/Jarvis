@@ -22,6 +22,29 @@ sys.path.insert(0, str(jarvis_root))
 
 
 
+class HUDRequestHandler(http.server.SimpleHTTPRequestHandler):
+    """Serves web_hud/, injecting the per-session WebSocket token into index.html.
+
+    The token sits inside the HTML, which other websites cannot read
+    cross-origin, so only the real HUD page can open the WebSocket.
+    """
+
+    def do_GET(self):
+        path = self.path.split("?", 1)[0]
+        if path in ("/", "/index.html"):
+            from jarvis.gui.session_token import get_ws_token
+            html = (Path(self.directory) / "index.html").read_text(encoding="utf-8")
+            body = html.replace("__JARVIS_WS_TOKEN__", get_ws_token()).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        super().do_GET()
+
+
 def start_http_server(port=8080):
     """Start a simple HTTP server to serve the web HUD"""
     web_dir = Path(__file__).parent / "web_hud"
@@ -30,10 +53,11 @@ def start_http_server(port=8080):
         print(f"[ERROR] Web HUD directory not found: {web_dir}")
         return None
     
-    os.chdir(web_dir)
-    
-    handler = http.server.SimpleHTTPRequestHandler
-    httpd = socketserver.TCPServer(("", port), handler)
+    # Serve web_hud/ without os.chdir() (which changed the CWD of the whole
+    # JARVIS process) and bind to loopback only so the HUD isn't exposed on the LAN.
+    import functools
+    handler = functools.partial(HUDRequestHandler, directory=str(web_dir))
+    httpd = socketserver.TCPServer(("127.0.0.1", port), handler)
     
     # Run in background thread
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
