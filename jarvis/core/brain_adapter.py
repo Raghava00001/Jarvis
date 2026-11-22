@@ -199,7 +199,17 @@ class BrainAdapter:
             return result
 
         try:
-            intent, confidence = self.intent_model.classify(text)
+            try:
+                intent, confidence = self.intent_model.classify(text)
+            except Exception as e:
+                if type(e).__name__ != "IntentModelUnavailable":
+                    raise
+                # Model failed to load: degrade to keywords, but say so loudly.
+                if not getattr(self, "_warned_intent_degraded", False):
+                    print(f"[BRAIN] ERROR: intent model unavailable ({e}); using keyword fallback")
+                    self._warned_intent_degraded = True
+                result.pipeline_log.append(f"classify: DEGRADED keyword fallback ({e})")
+                intent, confidence = self.intent_model.classify_keyword(text)
             result.action = intent
             result.confidence = confidence
 
