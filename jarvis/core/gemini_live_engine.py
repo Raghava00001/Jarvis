@@ -22,6 +22,7 @@ from google.genai import types
 
 # JARVIS Integrations
 from jarvis.core.intent_handlers import HANDLER_MAP
+from jarvis.core.llm import GEMINI_TEXT_MODEL
 
 # ── Audio Constants ──────────────────────────────────────────────
 FORMAT = pyaudio.paInt16
@@ -676,7 +677,7 @@ class GeminiLiveEngine:
             # Use Gemini Vision (non-live) to analyze
             client = genai.Client(api_key=self.api_key)
             response = client.models.generate_content(
-                model='gemini-2.0-flash',
+                model=GEMINI_TEXT_MODEL,  # gemini-2.0-flash was retired (404)
                 contents=[
                     {
                         'parts': [

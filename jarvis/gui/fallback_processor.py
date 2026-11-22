@@ -903,22 +903,10 @@ class FallbackProcessor:
                 print(f"[WebSocket] Knowledge error: {e}")
         
         # Gemini Flash fallback for general conversation
-        try:
-            import google.genai as _genai
-            _api_key = getattr(self.server, '_gemini_key', None)
-            if not _api_key:
-                _api_key = os.getenv('GEMINI_API_KEY', '')
-                self.server._gemini_key = _api_key
-            if _api_key:
-                _client = _genai.Client(api_key=_api_key)
-                _resp = _client.models.generate_content(
-                    model='gemini-2.0-flash',
-                    contents=f"You are JARVIS, a witty AI assistant. Keep replies to 1-2 sentences. Address user as 'sir'. Never break character. User says: {command}"
-                )
-                if _resp and _resp.text:
-                    return _resp.text.strip()
-        except Exception as e:
-            print(f"[WebSocket] Gemini fallback error: {e}")
+        from jarvis.core.llm import ask_gemini
+        reply = ask_gemini(command)
+        if reply:
+            return reply
         
         # Final fallback
         return "I'm not sure about that. Try asking differently or be more specific."

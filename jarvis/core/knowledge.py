@@ -39,8 +39,10 @@ class KnowledgeLayer:
             "description": "A developer and visionary who created JARVIS to be an independent, intelligent AI assistant"
         }
         
-        # Try Groq first (primary)
+        # Try Groq first (primary); OpenRouter and Gemini are fallbacks
         self.groq_key = os.getenv("GROQ_API_KEY")
+        self.openrouter_key = os.getenv("OPENROUTER_API_KEY")
+        self.gemini_key = os.getenv("GEMINI_API_KEY")
         if self.groq_key:
             self.enabled = True
             self.api_type = "groq"
@@ -52,6 +54,10 @@ class KnowledgeLayer:
                 self.enabled = True
                 self.api_type = "openrouter"
                 print("[KNOWLEDGE] Layer Ready (OpenRouter - Llama 3.1)")
+            elif self.gemini_key:
+                self.enabled = True
+                self.api_type = "gemini"
+                print("[KNOWLEDGE] Layer Ready (Gemini)")
             else:
                 print("[KNOWLEDGE] WARNING: No API keys found!")
                 print("[KNOWLEDGE] Set GROQ_API_KEY or OPENROUTER_API_KEY")
@@ -154,13 +160,22 @@ class KnowledgeLayer:
             if result:
                 return result
             # Try OpenRouter as fallback
-            if hasattr(self, 'openrouter_key') and self.openrouter_key:
-                return self._call_openrouter(messages)
+            if getattr(self, 'openrouter_key', None):
+                result = self._call_openrouter(messages)
+                if result:
+                    return result
         
         # Try OpenRouter
-        if self.api_type == "openrouter" and hasattr(self, 'openrouter_key'):
-            return self._call_openrouter(messages)
-        
+        if self.api_type == "openrouter" and getattr(self, 'openrouter_key', None):
+            result = self._call_openrouter(messages)
+            if result:
+                return result
+
+        # Last resort: Gemini (a revoked Groq key used to mean no answers at all)
+        if getattr(self, 'gemini_key', None):
+            from jarvis.core.llm import ask_gemini
+            return ask_gemini(user_prompt, system=system_prompt)
+
         return None
 
     def answer_question(self, question: str) -> str:
