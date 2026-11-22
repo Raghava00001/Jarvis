@@ -34,6 +34,6 @@ The HUD opens at **http://localhost:8080**. You can also run `python jarvis/gui/
 pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
-All 301 tests should pass.
+All 328 tests should pass.
 
 See `README.md` for the full documentation and the Security section.

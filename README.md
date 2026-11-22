@@ -163,6 +163,23 @@ Every fix has a regression test in `tests/test_security_regressions.py`.
 
 ---
 
+## What's new in v2.7: no more made-up answers
+
+| Command | Before | After |
+|---|---|---|
+| "take a note buy eggs" | Went to the AI chat; nothing was saved | Saved with SmartNotes; "show my notes" reads them back |
+| "read my clipboard" | The AI made up an answer | Reads the real clipboard |
+| "read the screen" | The AI made up an answer (OCR wasn't installed) | Says that screen reading needs Tesseract; a duplicate OCR branch in the server was removed |
+| "translate hello to spanish" | Treated as a greeting | Translated by the AI |
+| "send email to bob saying hi" | Checked the inbox | Asks for an email address |
+| Any typed question (Live mode off) | Google retired `gemini-2.0-flash` (hard-coded in 3 places): 404, then an unrelated greeting | `core/llm.py`: `gemini-flash-latest` with a fallback chain and honest "couldn't reach the AI" |
+| An overloaded model | No request timeout: one hung call froze the whole server | 15 s timeout per model; the router runs off the event loop |
+| Knowledge answers | Only Groq/OpenRouter; a rejected key meant no answers | Gemini as the last fallback |
+
+`JARVIS_Project_Documentation.md` now has verified feature statuses instead of an all-✅ table.
+
+---
+
 ## What's new in v2.6: architecture
 
 The layered design (perception → understanding → decision → action → output) now
@@ -241,7 +258,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-**301 tests pass:**
+**328 tests pass:**
 - smoke tests: boot, Gemini Live dedup and echo gate, BrainAdapter, persona switching
 - NLP and router unit tests
 - 67 security and regression tests

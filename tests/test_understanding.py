@@ -159,3 +159,74 @@ def test_whatsapp_contact_parsing():
     wa.send_message.assert_called_once_with("dad", "hi")
     assert "to to" not in res.response
     assert not handle_send_message("", {"contact": "dad"}, {"whatsapp_handler": wa}).success
+
+
+# ─── v2.7: commands that used to fall to the AI chat ──────────────────────
+
+@pytest.mark.parametrize("text,intent", [
+    ("translate hello to spanish", "conversation"),     # was: greeting
+    ("how do you say thank you in french", "conversation"),
+    ("take a note buy eggs", "take_note"),               # was: AI chat, note lost
+    ("make a note that the meeting moved", "take_note"),
+    ("note that wifi is in the drawer", "take_note"),
+    ("show my notes", "list_notes"),
+    ("read my clipboard", "read_clipboard"),             # was: AI made it up
+    ("whats in my clipboard", "read_clipboard"),
+    ("read the screen", "ocr"),                          # was: AI made it up
+    ("take a screenshot", "screenshot"),                 # must NOT become ocr
+])
+def test_new_keyword_rules(text, intent):
+    from jarvis.core.intent_classifier import classify_intent
+    assert classify_intent(text)[0] == intent
+
+
+def test_take_note_extracts_content():
+    from jarvis.core.intent_classifier import classify_intent
+    assert classify_intent("make a note that the meeting moved")[1] == {"content": "the meeting moved"}
+
+
+@pytest.fixture
+def temp_notes(tmp_path, monkeypatch):
+    from jarvis.core import services
+    from jarvis.core.smart_notes import SmartNotes
+    import jarvis.core.smart_notes as sn
+
+    class _TempRoot:  # Path(__file__).parent.parent / "data" -> tmp_path / "data"
+        def __init__(self, *_):
+            pass
+
+        @property
+        def parent(self):
+            return self
+
+        def __truediv__(self, other):
+            return tmp_path / other
+
+    monkeypatch.setattr(sn, "Path", _TempRoot)
+    notes = SmartNotes()
+    assert str(notes.db_path).startswith(str(tmp_path))
+    monkeypatch.setitem(services._instances, SmartNotes, notes)
+    return notes
+
+
+def test_notes_round_trip(temp_notes):
+    from jarvis.core.intent_handlers import handle_take_note, handle_list_notes
+    assert "no notes" in handle_list_notes("show my notes", {}, {}).response
+    res = handle_take_note("take a note buy eggs", {"content": "buy eggs"}, {"title": "sir"})
+    assert res.success and "buy eggs" in res.response
+    assert "buy eggs" in handle_list_notes("show my notes", {}, {}).response
+    assert not handle_take_note("take a note", {"content": ""}, {}).success
+
+
+def test_ocr_unavailable_is_an_answer_not_a_fallthrough():
+    """As success=False the router fell through to the AI, which made up the screen."""
+    from jarvis.core.intent_handlers import handle_ocr
+    ocr = MagicMock()
+    ocr.is_available.return_value = False
+    res = handle_ocr("read the screen", {}, {"ocr_handler": ocr, "title": "sir"})
+    assert res.success and "tesseract" in res.response.lower()
+
+
+def test_router_has_no_duplicate_ocr_branch():
+    src = (ROOT / "jarvis/gui/websocket_server.py").read_text(encoding="utf-8")
+    assert "if intent_name == 'ocr':" not in src

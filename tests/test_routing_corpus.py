@@ -50,6 +50,13 @@ EXPECT = {
     "who are you": (["jarvis"], []),
     "switch to friday": (["friday"], []),
     "switch to jarvis": (["jarvis"], []),
+    # v2.7: these used to be answered by the AI chat or the wrong handler
+    "translate hello to spanish": (["[knowledge answer]"], ["online", "working late"]),
+    "take a note buy eggs": (["noted", "buy eggs"], ["[knowledge"]),
+    "show my notes": (["notes"], ["[knowledge"]),
+    "read my clipboard": (["clipboard"], ["[knowledge"]),
+    "read the screen": (["tesseract"], ["[knowledge"]),
+    "send email to bob saying hi": (["email address"], ["inbox"]),
 }
 
 HARNESS = r'''
@@ -89,6 +96,9 @@ async def main():
         for m in methods:
             if obj is not None and hasattr(obj, m):
                 setattr(obj, m, MagicMock(return_value=None))
+    from jarvis.core.services import shared
+    from jarvis.core.smart_notes import SmartNotes
+    shared(SmartNotes).add_note = MagicMock(return_value=1)   # never write real notes
     srv._execute_power_action = MagicMock(return_value="[power]")
     srv._stop_speaking = MagicMock()
     if srv.knowledge:
