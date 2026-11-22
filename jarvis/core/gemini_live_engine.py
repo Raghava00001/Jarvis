@@ -12,6 +12,8 @@ import os
 import subprocess
 import webbrowser
 import concurrent.futures
+import re
+import time as _time
 from pathlib import Path
 
 import pyaudio
@@ -27,6 +29,24 @@ CHANNELS = 1
 SEND_SAMPLE_RATE = 16000
 RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE = 1024
+
+# ── Wake-word gate ───────────────────────────────────────────────
+# The mic streams to Gemini nonstop, so without a gate JARVIS answers and runs
+# tools for any speech in the room. JARVIS acts only after it is addressed by
+# name (or the user types in the HUD), then stays awake for a short follow-up
+# window. Disable with JARVIS_WAKE_WORD=0; tune with JARVIS_AWAKE_WINDOW (secs).
+# Includes common mishearings and Telugu/Hindi/Tamil/Kannada spellings, since
+# Gemini transcribes in the language spoken.
+WAKE_WORD_RE = re.compile(
+    r"\b(?:jar\s?vis|jarviz|jervis|jarves|friday)\b"
+    r"|జార్విస్|जार्विस|ஜார்விஸ்|ಜಾರ್ವಿಸ್|ఫ్రైడే|फ्राइडे",
+    re.IGNORECASE,
+)
+AWAKE_WINDOW_S = float(os.getenv("JARVIS_AWAKE_WINDOW", "20"))
+NOT_ADDRESSED_RESULT = (
+    "Not executed: the user did not address JARVIS by name, so this was most "
+    "likely background speech. Do not act on it and stay silent."
+)
 
 # The CORRECT model — must be the native-audio-preview variant
 LIVE_MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025"
@@ -507,11 +527,44 @@ class GeminiLiveEngine:
         self._interrupt_flag = False
         self._speaking_until = 0.0   # timestamp — mic is gated while time() < this
         self._muted = False          # C-02: mute flag — gates audio playback
+        # Wake-word gate state (see WAKE_WORD_RE)
+        self._wake_gate = os.getenv("JARVIS_WAKE_WORD", "1") != "0"
+        self._awake_until = 0.0
+        self._turn_suppressed = False   # model reply muted because JARVIS was asleep
+        self._turn_addressed = False    # user speech this turn was meant for JARVIS
+        # Raw transcription fragments joined as-is. Gemini splits words across
+        # fragments ("Ja" + "rvis"); stripping and space-joining them produced
+        # "Ja rvis", which defeated the wake word and garbled the chat ("O pen").
+        self._raw_in = ""
         # Task refs for cleanup
         self._listen_task = None
         self._receive_task = None
         self._play_task = None
         self._send_task = None
+
+    # ── Wake-word gate ────────────────────────────────────────────
+    def is_awake(self, now: float = None) -> bool:
+        """True when JARVIS may respond: gate off, or inside the awake window."""
+        if not self._wake_gate:
+            return True
+        return (now if now is not None else _time.time()) < self._awake_until
+
+    def wake(self, reason: str = "") -> None:
+        """Open (or extend) the awake window."""
+        was_awake = self.is_awake()
+        self._awake_until = _time.time() + AWAKE_WINDOW_S
+        if not was_awake:
+            print(f"[WAKE] Awake ({reason}) for {AWAKE_WINDOW_S:.0f}s", flush=True)
+
+    def note_user_speech(self, text: str) -> bool:
+        """Handle transcribed speech. Returns True if it was addressed to JARVIS."""
+        if WAKE_WORD_RE.search(text or ""):
+            self.wake("wake word")
+            return True
+        if self.is_awake():
+            self.wake("follow-up")
+            return True
+        return False
 
     def _push_to_chat(self, text: str, role: str = 'jarvis', turn_id: int = None):
         """Push transcription to Web HUD via server's central gateway.
@@ -741,6 +794,12 @@ class GeminiLiveEngine:
             "- When user says 'come back', 'back online', 'unmute', 'I need you', "
             "'speak', 'talk to me': call unmute_jarvis.\n"
             "- When muted, do NOT produce audio responses. Stay completely silent.\n"
+            "\nWAKE WORD RULES:\n"
+            "- The microphone is always on and hears other people and media in the room.\n"
+            "- Only respond to speech that addresses you as JARVIS or FRIDAY, or that clearly "
+            "continues a conversation the user just had with you.\n"
+            "- If speech is not meant for you, produce no audio and call no tools.\n"
+            "- If a tool result says 'Not executed', say nothing.\n"
         )
 
     def _build_config(self) -> types.LiveConnectConfig:
@@ -1372,6 +1431,7 @@ class GeminiLiveEngine:
                             self._current_turn_id += 1
                             in_buf = []
                             out_buf = []
+                            self._raw_in = ""
                             while not self.audio_in_queue.empty():
                                 try:
                                     self.audio_in_queue.get_nowait()
@@ -1382,7 +1442,12 @@ class GeminiLiveEngine:
                             continue
 
                         # PCM audio from Gemini
-                        if response.data:
+                        if response.data and not self.is_awake():
+                            # Reply to speech that wasn't addressed to JARVIS: mute it
+                            if not self._turn_suppressed:
+                                print("[WAKE] Asleep - muting reply to speech without the wake word", flush=True)
+                            self._turn_suppressed = True
+                        elif response.data:
                             if not hasattr(self, '_audio_count'):
                                 self._audio_count = 0
                             if self._audio_count == 0:
@@ -1410,6 +1475,10 @@ class GeminiLiveEngine:
                                                 try: self.audio_in_queue.get_nowait()
                                                 except: break
                                         in_buf.append(txt)
+                                        self._raw_in += sc.input_transcription.text
+                                        # Wake-word gate on the raw joined fragments
+                                        if self.note_user_speech(self._raw_in):
+                                            self._turn_addressed = True
                             if sc.output_transcription and sc.output_transcription.text:
                                 txt = sc.output_transcription.text.strip()
                                 if txt:
@@ -1417,8 +1486,13 @@ class GeminiLiveEngine:
                             if sc.turn_complete:
                                 current_turn = self._current_turn_id
                                 try:
+                                    if in_buf and self._wake_gate and not self._turn_addressed:
+                                        # Background speech: keep it out of the HUD chat
+                                        safe = (self._raw_in or " ".join(in_buf)).strip().encode('ascii', errors='replace').decode()
+                                        print(f"[WAKE] Heard, not addressed: {safe[:80]}", flush=True)
+                                        in_buf = []
                                     if in_buf:
-                                        full_in = " ".join(in_buf).strip()
+                                        full_in = (self._raw_in or " ".join(in_buf)).strip()
                                         # Mo-01: use pre-imported time
                                         _now = _recv_time.time()
                                         _last_in = getattr(self, '_last_in_text', '')
@@ -1430,6 +1504,12 @@ class GeminiLiveEngine:
                                             self._last_in_text = full_in
                                             self._last_in_time = _now
                                         in_buf = []
+                                    if out_buf and self._turn_suppressed:
+                                        safe = " ".join(out_buf).encode('ascii', errors='replace').decode()
+                                        print(f"[WAKE] Muted reply: {safe[:80]}", flush=True)
+                                        out_buf = []
+                                    elif out_buf and self.is_awake():
+                                        self.wake("reply")  # allow a follow-up after JARVIS answers
                                     if out_buf:
                                         full_out = " ".join(out_buf).strip()
                                         # Deduplicate: skip if same as last output within 3s
@@ -1447,6 +1527,9 @@ class GeminiLiveEngine:
                                 except Exception:
                                     in_buf = []
                                     out_buf = []
+                                self._turn_suppressed = False
+                                self._turn_addressed = False
+                                self._raw_in = ""
                         
                             # Mo-10: Removed duplicate interrupted handler —
                             # already handled at L1165 above
@@ -1462,6 +1545,13 @@ class GeminiLiveEngine:
 
                                 # Mo-09: Process ALL tool calls (not just first) for multi-tool workflows
                                 for fc in tool_call.function_calls:
+                                    if not self.is_awake():
+                                        # Wake-word gate: never act on background speech
+                                        print(f"[WAKE] Blocked tool {fc.name} (not addressed)", flush=True)
+                                        fn_responses.append(types.FunctionResponse(
+                                            id=fc.id, name=fc.name,
+                                            response={"result": NOT_ADDRESSED_RESULT}))
+                                        continue
                                     fr = await loop.run_in_executor(
                                         self._tool_executor, self._execute_tool, fc
                                     )
@@ -1597,6 +1687,7 @@ class GeminiLiveEngine:
             # Trigger JARVIS startup greeting (only on first connect, not reconnects)
             if not getattr(self, '_has_greeted', False):
                 self._has_greeted = True
+                self.wake("startup greeting")
                 boot_context = self._cached_boot_context or ""
                 greeting_prompt = (
                     "You just came online. This is your first connection. "

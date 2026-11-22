@@ -1549,7 +1549,11 @@ class JARVISWebSocketServer:
             raise RuntimeError("Gemini Live session not available")
         
         from google import genai
-        
+
+        # Typing in the HUD is always deliberate: open the wake-word window
+        if hasattr(le, 'wake'):
+            le.wake("typed in HUD")
+
         # Push into the live session's event loop
         async def _inject():
             await le.session.send_client_content(
