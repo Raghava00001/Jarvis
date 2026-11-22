@@ -221,7 +221,7 @@ class TestLiveRoutingNoDoubleExecution:
     """
 
     def test_routed_text_skips_local_pipeline(self, server, ws_module):
-        server.live_engine = SimpleNamespace(_running=True)
+        server.live_engine = SimpleNamespace(_running=True, session=object())
         server._push_live_text = MagicMock()
         server._try_fast_path = MagicMock(return_value="ran locally")
         server.process_command = MagicMock()
@@ -232,6 +232,16 @@ class TestLiveRoutingNoDoubleExecution:
         server._push_live_text.assert_called_once_with("open notepad")
         server._try_fast_path.assert_not_called()
         server.process_command.assert_not_called()
+
+    def test_live_mode_means_a_connected_session(self, server):
+        """While Gemini Live reconnects there is no session: typed commands must
+        use the local pipeline (they used to be dropped by a 'hard gate')."""
+        server.live_engine = SimpleNamespace(_running=True, session=None)
+        assert server._live_ready() is False
+        server.live_engine.session = object()
+        assert server._live_ready() is True
+        src = (ROOT / "jarvis/gui/websocket_server.py").read_text(encoding="utf-8")
+        assert "HARD PIPELINE GATE" not in src
 
     def test_logger_has_info(self):
         from jarvis.core.logger import get_logger

@@ -265,13 +265,13 @@ class AlarmSystem:
         print("[ALARMS] System Ready")
         
     def _speak(self, text: str):
-        """Speak via perception or print — with Gemini Live guard"""
+        """Speak via perception or print.
+
+        The HUD perception decides how this is voiced (Gemini Live in live mode,
+        the local voice otherwise). Alarms used to be dropped in live mode, so
+        they went off without a sound.
+        """
         if self.perception:
-            # M-06: Don't speak during Gemini Live — prevents audio clash
-            _live = getattr(self.perception, '_gemini_live_active', False)
-            if _live:
-                print(f"[ALARMS] (live mode - suppressed) {text}")
-                return
             self.perception.speak(text)
         else:
             print(f"[ALARMS] {text}")

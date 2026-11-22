@@ -101,6 +101,7 @@ async def main():
     shared(SmartNotes).add_note = MagicMock(return_value=1)   # never write real notes
     srv._execute_power_action = MagicMock(return_value="[power]")
     srv._stop_speaking = MagicMock()
+    srv.hud_perception.voice_out = MagicMock(return_value=True)   # never play audio in tests
     if srv.knowledge:
         srv.knowledge.answer_question = MagicMock(return_value="[knowledge answer]")
     wa = getattr(srv, "whatsapp_handler", None)
@@ -112,7 +113,7 @@ async def main():
         srv._pending_power_action = None
         srv._pending_clarify = None
         try:
-            reply = srv._try_fast_path(text) or await srv.process_command(text, MagicMock())
+            reply = srv._try_fast_path(text) or await srv._run_turn(text, MagicMock())
         except Exception as e:
             reply = f"EXCEPTION {type(e).__name__}: {e}"
         out[text] = str(reply)
