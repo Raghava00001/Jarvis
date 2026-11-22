@@ -18,7 +18,7 @@ class TestIntentModel:
     @pytest.fixture(scope="class")
     def model(self):
         """Load model once for all tests (expensive startup)"""
-        from core.intent_model import IntentModel
+        from jarvis.core.intent_model import IntentModel
         return IntentModel(lazy=False)
     
     # === Core Intent Tests ===
@@ -124,7 +124,7 @@ class TestIntentModelEdgeCases:
     
     @pytest.fixture(scope="class")
     def model(self):
-        from core.intent_model import IntentModel
+        from jarvis.core.intent_model import IntentModel
         return IntentModel(lazy=False)
     
     def test_empty_string(self, model):

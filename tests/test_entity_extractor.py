@@ -15,7 +15,7 @@ class TestEntityExtractor:
     @pytest.fixture
     def extractor(self):
         sys.path.insert(0, str(Path(__file__).parent.parent / "jarvis"))
-        from core.entity_extractor import EntityExtractor
+        from jarvis.core.entity_extractor import EntityExtractor
         return EntityExtractor()
     
     # === Music Entities ===

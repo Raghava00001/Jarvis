@@ -232,7 +232,7 @@ def detect_mood_from_text(text: str, emotion_enabled: bool = False,
             try:
                 from jarvis.core.shared_camera import get_shared_camera
             except ImportError:
-                from core.shared_camera import get_shared_camera
+                from jarvis.core.shared_camera import get_shared_camera
             
             shared_cam = get_shared_camera()
             shared_cam.register("emotion")  # Register if not already

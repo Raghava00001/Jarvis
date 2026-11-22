@@ -17,14 +17,14 @@ from enum import Enum
 
 # Import StateManager for state transitions
 try:
-    from core.state_manager import StateManager, JARVISState, get_state_manager
+    from jarvis.core.state_manager import StateManager, JARVISState, get_state_manager
     STATE_MANAGER_AVAILABLE = True
 except ImportError:
     STATE_MANAGER_AVAILABLE = False
 
 # Import Voice Engine for Edge TTS
 try:
-    from core.voice_engine import VoiceEngine, get_voice_engine
+    from jarvis.core.voice_engine import VoiceEngine, get_voice_engine
     VOICE_ENGINE_AVAILABLE = True
 except ImportError:
     VOICE_ENGINE_AVAILABLE = False

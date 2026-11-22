@@ -431,7 +431,7 @@ class IntentRouter:
         
         # Fallback - try to import and create handler
         try:
-            from core.screen_control import ScreenControlHandler
+            from jarvis.core.screen_control import ScreenControlHandler
             handler = ScreenControlHandler()
             command = entities.get("raw_text", "")
             return handler.handle(command, entities)

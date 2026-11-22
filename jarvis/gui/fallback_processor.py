@@ -232,7 +232,7 @@ class FallbackProcessor:
                 if hasattr(self.server, 'youtube') and hasattr(self.server.youtube, 'search_and_play'):
                     self.server.youtube.search_and_play(query)
                 else:
-                    from core.youtube_downloader import YouTubeDownloader
+                    from jarvis.core.youtube_downloader import YouTubeDownloader
                     yt = YouTubeDownloader()
                     yt.search_and_play(query)
                 return f"Playing your request on YouTube{maybe_title(title)}."

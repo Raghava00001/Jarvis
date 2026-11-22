@@ -19,14 +19,14 @@ from datetime import datetime
 
 # Import StateManager
 try:
-    from core.state_manager import StateManager, JARVISState, StateContext, get_state_manager
+    from jarvis.core.state_manager import StateManager, JARVISState, StateContext, get_state_manager
     STATE_MANAGER_AVAILABLE = True
 except ImportError:
     STATE_MANAGER_AVAILABLE = False
 
 # Import Iron Man Globe
 try:
-    from gui.iron_man_globe import IronManGlobe, GlobeTheme
+    from jarvis.gui.iron_man_globe import IronManGlobe, GlobeTheme
     IRON_MAN_GLOBE_AVAILABLE = True
 except ImportError:
     IRON_MAN_GLOBE_AVAILABLE = False

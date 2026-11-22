@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 try:
     from jarvis.core.intent_router import Intent
 except ImportError:
-    from core.intent_router import Intent
+    from jarvis.core.intent_router import Intent
 import re
 
 

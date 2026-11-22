@@ -73,7 +73,7 @@ class HUDPerception:
         # M-09: Use module-level cached reference instead of importing every call
         try:
             if not hasattr(HUDPerception, '_voice_engine_ref'):
-                from core.voice_engine import get_voice_engine
+                from jarvis.core.voice_engine import get_voice_engine
                 HUDPerception._voice_engine_ref = get_voice_engine()
             engine = HUDPerception._voice_engine_ref
             

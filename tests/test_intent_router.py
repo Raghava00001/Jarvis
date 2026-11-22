@@ -82,9 +82,9 @@ class TestIntentRouter:
         """Set up router with mock handlers"""
         sys.path.insert(0, str(Path(__file__).parent.parent / "jarvis"))
         
-        from core.state_manager import StateManager
-        from core.personality import JARVISPersonalityCore
-        from core.intent_router import IntentRouter
+        from jarvis.core.state_manager import StateManager
+        from jarvis.core.personality import JARVISPersonalityCore
+        from jarvis.core.intent_router import IntentRouter
         
         state = StateManager()
         personality = JARVISPersonalityCore(state)
@@ -179,9 +179,9 @@ class TestIntentRouterState:
     def setup(self):
         sys.path.insert(0, str(Path(__file__).parent.parent / "jarvis"))
         
-        from core.state_manager import StateManager
-        from core.personality import JARVISPersonalityCore
-        from core.intent_router import IntentRouter
+        from jarvis.core.state_manager import StateManager
+        from jarvis.core.personality import JARVISPersonalityCore
+        from jarvis.core.intent_router import IntentRouter
         
         state = StateManager()
         personality = JARVISPersonalityCore(state)

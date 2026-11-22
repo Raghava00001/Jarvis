@@ -13,7 +13,7 @@ from enum import Enum
 try:
     from .state_manager import StateManager, UserMood, get_state_manager
 except ImportError:
-    from core.state_manager import StateManager, UserMood, get_state_manager
+    from jarvis.core.state_manager import StateManager, UserMood, get_state_manager
 
 
 class DecisionPriority(Enum):

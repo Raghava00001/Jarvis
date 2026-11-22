@@ -34,8 +34,8 @@ _jarvis_dir = os.path.dirname(_this_dir)                        # jarvis/
 _project_root = os.path.dirname(_jarvis_dir)                    # AI_Voice_Assistant/
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
-if _jarvis_dir not in sys.path:
-    sys.path.insert(0, _jarvis_dir)
+# NOTE: jarvis/ itself must NOT be on sys.path: that let modules load twice,
+# as core.X and jarvis.core.X (see jarvis/__init__.py).
 import queue
 import base64
 from dataclasses import dataclass
@@ -44,7 +44,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 # Structured pipeline logger
 try:
-    from core.logger import get_logger
+    from jarvis.core.logger import get_logger
     jlog = get_logger()
 except ImportError:
     jlog = None
@@ -101,8 +101,6 @@ _project_root = Path(__file__).parent.parent.parent.resolve()
 _jarvis_root = Path(__file__).parent.parent.resolve()
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
-if str(_jarvis_root) not in sys.path:
-    sys.path.insert(0, str(_jarvis_root))
 print(f"[WebSocket] Project root: {_project_root}")
 
 # Load .env file for API keys
@@ -942,13 +940,13 @@ class JARVISWebSocketServer:
         try:
             from jarvis.core.gesture_controller import get_gesture_action, execute_gesture_action
         except ImportError:
-            from core.gesture_controller import get_gesture_action, execute_gesture_action
+            from jarvis.core.gesture_controller import get_gesture_action, execute_gesture_action
         
         # Use shared camera instead of opening our own
         try:
             from jarvis.core.shared_camera import get_shared_camera
         except ImportError:
-            from core.shared_camera import get_shared_camera
+            from jarvis.core.shared_camera import get_shared_camera
         
         shared_cam = get_shared_camera()
         shared_cam.register("gesture")
@@ -2826,7 +2824,7 @@ class JARVISWebSocketServer:
             if intent_name in ('play_music', 'pause_music', 'next_track', 'previous_track'):
                 if jlog: jlog.route('music', intent_name)
                 try:
-                    from core.music_handler import MusicHandler
+                    from jarvis.core.music_handler import MusicHandler
                     mh = MusicHandler()
                     result = mh.handle_command(command)
                     if result:
@@ -2835,7 +2833,7 @@ class JARVISWebSocketServer:
                     print(f"[WebSocket] MusicHandler error: {e}")
                 # Fallback: use media keys via ctypes
                 try:
-                    from core.music_handler import MediaKeyController
+                    from jarvis.core.music_handler import MediaKeyController
                     mk = MediaKeyController()
                     if intent_name == 'play_music':
                         mk.play_pause()

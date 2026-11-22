@@ -13,8 +13,8 @@ from pathlib import Path
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from gui.advanced_hud import HUD, State as JARVISState, Theme as HUDColors
-from gui.waveform_visualizer import AudioWaveformVisualizer, CircularWaveform, VoiceActivityIndicator
+from jarvis.gui.advanced_hud import HUD, State as JARVISState, Theme as HUDColors
+from jarvis.gui.waveform_visualizer import AudioWaveformVisualizer, CircularWaveform, VoiceActivityIndicator
 
 
 class IntegratedJARVISHUD:

@@ -10,7 +10,7 @@ import random
 try:
     from jarvis.core.intent_router import HandlerResult, Intent
 except ImportError:
-    from core.intent_router import HandlerResult, Intent
+    from jarvis.core.intent_router import HandlerResult, Intent
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -805,7 +805,7 @@ def _get_entertainment(context):
             try:
                 from jarvis.core.entertainment import JARVISEntertainment
             except ImportError:
-                from core.entertainment import JARVISEntertainment
+                from jarvis.core.entertainment import JARVISEntertainment
             perception = context.get('perception') if context else None
             knowledge = context.get('knowledge') if context else None
             _entertainment = JARVISEntertainment(perception, knowledge)
@@ -1102,7 +1102,7 @@ def handle_send_message(cmd: str, entities: Dict, context: Any) -> HandlerResult
     if not whatsapp_handler:
         # Fallback to importing and running directly if not in context
         try:
-            from core.whatsapp_handler import WhatsAppHandler
+            from jarvis.core.whatsapp_handler import WhatsAppHandler
             whatsapp_handler = WhatsAppHandler(context.get('perception') if context else None)
         except ImportError:
             return HandlerResult(success=False, response=f"WhatsApp automation is not available, {title}.")

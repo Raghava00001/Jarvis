@@ -9,49 +9,49 @@ import time
 import threading
 from pathlib import Path
 
-from core.perception import PerceptionLayer
-from core.understanding import UnderstandingLayer
-from core.action import ActionLayer
-from core.knowledge import KnowledgeLayer
-from core.learning import LearningLayer
-from core.task_manager import TaskManager
-from core.news_handler import NewsHandler
-from core.system_control import SystemControl
-from core.habit_tracker import HabitTracker
-from core.hotkey_system import HotkeySystem
-from core.alarm_system import AlarmSystem
-from core.whatsapp_handler import WhatsAppHandler
-from core.calendar_integration import CalendarIntegration
-from core.email_handler import EmailHandler
-from core.context_memory import ContextMemory
-from core.proactive_assistant import ProactiveAssistant
+from jarvis.core.perception import PerceptionLayer
+from jarvis.core.understanding import UnderstandingLayer
+from jarvis.core.action import ActionLayer
+from jarvis.core.knowledge import KnowledgeLayer
+from jarvis.core.learning import LearningLayer
+from jarvis.core.task_manager import TaskManager
+from jarvis.core.news_handler import NewsHandler
+from jarvis.core.system_control import SystemControl
+from jarvis.core.habit_tracker import HabitTracker
+from jarvis.core.hotkey_system import HotkeySystem
+from jarvis.core.alarm_system import AlarmSystem
+from jarvis.core.whatsapp_handler import WhatsAppHandler
+from jarvis.core.calendar_integration import CalendarIntegration
+from jarvis.core.email_handler import EmailHandler
+from jarvis.core.context_memory import ContextMemory
+from jarvis.core.proactive_assistant import ProactiveAssistant
 
 # New enhanced modules
-from core.emotion_detector import EmotionDetector
-from core.wellness_monitor import WellnessMonitor
-from core.entertainment import JARVISEntertainment
-from core.weather_handler import WeatherHandler
-from core.dictionary_handler import DictionaryHandler
-from core.screenshot_handler import ScreenshotHandler
-from core.system_status import SystemStatus
-from core.chat_history import ChatHistory
-from core.youtube_downloader import YouTubeDownloader
-from core.ocr_handler import OCRHandler
-from core.pdf_handler import PDFHandler
-from core.screen_control import ScreenControlHandler
-from core.settings_manager import SettingsManager, HelpSystem
-from core.app_finder import AppFinder
-from core.app_switcher import AppSwitcher
-from core.face_recognition_auth import FaceRecognition, UserType
-from core.smart_notes import SmartNotes
-from core.reminder_manager import ReminderManager
-from core.calendar_manager import CalendarManager
-from core.clipboard_memory import ClipboardMemory
-from core.workflow_manager import WorkflowManager
+from jarvis.core.emotion_detector import EmotionDetector
+from jarvis.core.wellness_monitor import WellnessMonitor
+from jarvis.core.entertainment import JARVISEntertainment
+from jarvis.core.weather_handler import WeatherHandler
+from jarvis.core.dictionary_handler import DictionaryHandler
+from jarvis.core.screenshot_handler import ScreenshotHandler
+from jarvis.core.system_status import SystemStatus
+from jarvis.core.chat_history import ChatHistory
+from jarvis.core.youtube_downloader import YouTubeDownloader
+from jarvis.core.ocr_handler import OCRHandler
+from jarvis.core.pdf_handler import PDFHandler
+from jarvis.core.screen_control import ScreenControlHandler
+from jarvis.core.settings_manager import SettingsManager, HelpSystem
+from jarvis.core.app_finder import AppFinder
+from jarvis.core.app_switcher import AppSwitcher
+from jarvis.core.face_recognition_auth import FaceRecognition, UserType
+from jarvis.core.smart_notes import SmartNotes
+from jarvis.core.reminder_manager import ReminderManager
+from jarvis.core.calendar_manager import CalendarManager
+from jarvis.core.clipboard_memory import ClipboardMemory
+from jarvis.core.workflow_manager import WorkflowManager
 
 # Optional modules (may not be installed)
 try:
-    from core.gesture_controller import GestureController
+    from jarvis.core.gesture_controller import GestureController
     GESTURE_AVAILABLE = True
 except ImportError:
     GESTURE_AVAILABLE = False
@@ -59,13 +59,13 @@ except ImportError:
 
 # GUI components (optional)
 try:
-    from gui.globe_controller import GlobeController
+    from jarvis.gui.globe_controller import GlobeController
     GUI_AVAILABLE = True
 except ImportError:
     GUI_AVAILABLE = False
     print("[JARVIS] GUI interface not available")
 
-from utils.config import Config
+from jarvis.utils.config import Config
 
 
 class JARVISUltimate:
@@ -306,7 +306,7 @@ class JARVISUltimate:
 
         # ========== MULTI-COMMAND SUPPORT ==========
         # Split "open brave and search youtube" into separate commands
-        from core.intent_classifier import split_commands
+        from jarvis.core.intent_classifier import split_commands
         commands = split_commands(command)
         
         if len(commands) > 1:

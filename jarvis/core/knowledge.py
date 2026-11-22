@@ -192,7 +192,7 @@ class KnowledgeLayer:
 
         # Get personality prompt with mood awareness
         try:
-            from core.personality import JARVISPersonalityCore
+            from jarvis.core.personality import JARVISPersonalityCore
             personality = JARVISPersonalityCore(self.perception)
             if hasattr(personality, 'get_personality_prompt'):
                 personality_prompt = personality.get_personality_prompt(current_mood)
@@ -220,7 +220,7 @@ CHARACTER (Iron Man's JARVIS — Paul Bettany's portrayal):
         user_prompt = ""
         # Add recent conversation context for memory
         try:
-            from core.chat_history import get_chat_history
+            from jarvis.core.chat_history import get_chat_history
             chat = get_chat_history()
             recent = chat.get_recent(6)  # Last 3 exchanges
             if recent:

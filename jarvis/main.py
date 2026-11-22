@@ -4,7 +4,7 @@ Run this file to start JARVIS
 """
 
 import sys
-from core.jarvis_ultimate import JARVISUltimate
+from jarvis.core.jarvis_ultimate import JARVISUltimate
 
 
 def main():
