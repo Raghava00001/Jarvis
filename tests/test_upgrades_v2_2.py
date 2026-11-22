@@ -145,3 +145,24 @@ class TestTTSFallback:
     def test_hud_uses_fallback_path(self):
         src = (ROOT / "jarvis/gui/hud_types.py").read_text(encoding="utf-8")
         assert "target=engine.speak_with_fallback" in src
+
+
+# ─── Boot briefing ────────────────────────────────────────────────────────
+
+def test_boot_briefing_names_tasks(tmp_path):
+    """Tasks are saved under "task"; the briefing used to read "description"
+    and greeted the user with 'You have 11 pending tasks: Unknown, Unknown …'."""
+    import json
+    from jarvis.core.startup_orchestrator import StartupOrchestrator
+    (tmp_path / "tasks.json").write_text(json.dumps({"tasks": [
+        {"task": "buy milk", "completed": False},
+        {"task": "call mom", "completed": False},
+        {"task": "done already", "completed": True},
+        {"description": "legacy format", "completed": False},
+        {"task": "fourth", "completed": False},
+    ]}), encoding="utf-8")
+    orch = object.__new__(StartupOrchestrator)
+    orch.data_dir = tmp_path
+    text = orch._generate_task_summary()
+    assert "Unknown" not in text
+    assert "buy milk, call mom, legacy format and 1 more" in text
