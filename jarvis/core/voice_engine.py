@@ -203,19 +203,20 @@ class WhisperSTTBackend:
         self._model = None
         self._model_size = model_size
 
-        try:
-            import whisper
-            self._whisper = whisper
+        # Check only: importing whisper loads torch (~seconds). Import on first use.
+        import importlib.util
+        if importlib.util.find_spec("whisper") is not None:
             self.available = True
             print(f"[VOICE ENGINE] Whisper STT available (model: {model_size})")
-        except ImportError:
+        else:
             print("[VOICE ENGINE] Whisper not available (pip install openai-whisper)")
 
     def load_model(self):
         """Lazy-load the Whisper model (saves startup time)."""
         if self._model is None and self.available:
             print(f"[VOICE ENGINE] Loading Whisper {self._model_size} model...")
-            self._model = self._whisper.load_model(self._model_size)
+            import whisper
+            self._model = whisper.load_model(self._model_size)
             print("[VOICE ENGINE] Whisper model loaded")
 
     def transcribe_file(self, audio_path: str) -> Optional[str]:
