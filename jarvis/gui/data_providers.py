@@ -78,13 +78,15 @@ def get_weather_data(weather_handler=None, city: Optional[str] = None) -> Dict[s
     except Exception as e:
         print(f"[DataProvider] Weather error: {e}")
     
+    # Honest fallback: never show invented numbers as if they were real weather
     return {
         'type': 'weather',
-        'temp': 24,
-        'condition': 'Partly Cloudy',
-        'location': city or 'Hyderabad',
-        'humidity': 65,
-        'wind': 12
+        'temp': '--',
+        'condition': 'Weather unavailable',
+        'location': city or '',
+        'humidity': None,
+        'wind': None,
+        'unavailable': True,
     }
 
 
@@ -92,52 +94,9 @@ def get_weather_data(weather_handler=None, city: Optional[str] = None) -> Dict[s
 # NEWS DATA
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Fallback headlines by category (used when NewsHandler is unavailable)
-_FALLBACK_HEADLINES = {
-    'economics': [
-        'Global markets rally on positive economic data',
-        'Central banks signal cautious approach to rates',
-        'Tech sector leads economic recovery trends',
-        'Consumer spending shows strong momentum',
-        'Trade negotiations progress between major economies'
-    ],
-    'business': [
-        'Major tech companies report strong earnings',
-        'Startup funding reaches new quarterly high',
-        'Retail sector adapts to changing consumer habits',
-        'Energy companies invest in renewable transition',
-        'Financial services embrace digital transformation'
-    ],
-    'politics': [
-        'Parliament debates new economic policies',
-        'International summit addresses global challenges',
-        'Electoral reforms proposed by commission',
-        'Defense budget allocation under review',
-        'Environmental legislation gains support'
-    ],
-    'technology': [
-        'AI research achieves breakthrough in reasoning',
-        'Quantum computing milestone announced',
-        'Cybersecurity concerns drive new regulations',
-        'Space exploration reaches new frontiers',
-        'Clean energy tech innovations accelerate'
-    ],
-    'sports': [
-        'Championship finals set for weekend showdown',
-        'National team announces squad for tournament',
-        'Record-breaking performance stuns spectators',
-        'Transfer window sees major moves',
-        'Youth program produces rising stars'
-    ]
-}
-
-_DEFAULT_HEADLINES = [
-    'AI research achieves breakthrough in reasoning',
-    'Global markets rally on positive indicators',
-    'Space exploration milestone announced',
-    'Tech innovations reshape digital landscape',
-    'Climate summit announces new agreements'
-]
+# Shown when headlines can't be fetched. These used to be invented headlines
+# presented as if they were real news.
+NEWS_UNAVAILABLE = "Headlines unavailable right now. Check your internet connection."
 
 # Location → category mapping
 _LOCATION_CATEGORIES = {
@@ -179,12 +138,12 @@ def get_news_data(news_handler=None, category: str = 'general',
     except Exception as e:
         print(f"[DataProvider] News error: {e}")
     
-    # Fallback
-    default = _FALLBACK_HEADLINES.get(category, _DEFAULT_HEADLINES)
+    # Honest fallback: say headlines are unavailable instead of inventing them
     return {
         'type': 'news',
-        'items': default[:count],
-        'category': category
+        'items': [NEWS_UNAVAILABLE],
+        'category': category,
+        'unavailable': True,
     }
 
 

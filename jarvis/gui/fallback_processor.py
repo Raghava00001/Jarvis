@@ -80,6 +80,8 @@ class FallbackProcessor:
         # Weather
         if 'weather' in cmd:
             weather = self.server.get_weather_data()
+            if weather.get('unavailable'):
+                return f"I can't reach the weather service right now, {title}."
             return f"Current conditions in {weather['location']}: {weather['temp']}°C, " \
                    f"{weather['condition']}. Humidity at {weather['humidity']}%, " \
                    f"wind {weather['wind']} kilometers per hour."
