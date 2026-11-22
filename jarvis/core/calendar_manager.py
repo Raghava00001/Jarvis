@@ -7,6 +7,7 @@ Calendar Manager - Event and Schedule Management
 - Integration with system calendar (optional)
 """
 
+from jarvis.core.services import shared
 import sqlite3
 import threading
 from pathlib import Path
@@ -328,5 +329,5 @@ def get_calendar_manager(perception=None) -> CalendarManager:
     """Get or create calendar manager"""
     global _calendar_instance
     if _calendar_instance is None:
-        _calendar_instance = CalendarManager(perception)
+        _calendar_instance = shared(CalendarManager, lambda: CalendarManager(perception))
     return _calendar_instance

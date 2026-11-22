@@ -5,6 +5,7 @@ Routes intents to handlers with confidence checking.
 Uses dependency injection, respects state.
 """
 
+from jarvis.core.services import shared
 from typing import Dict, Any, Optional, Callable
 from dataclasses import dataclass
 from .state_manager import StateManager, get_state_manager
@@ -432,7 +433,7 @@ class IntentRouter:
         # Fallback - try to import and create handler
         try:
             from jarvis.core.screen_control import ScreenControlHandler
-            handler = ScreenControlHandler()
+            handler = shared(ScreenControlHandler)
             command = entities.get("raw_text", "")
             return handler.handle(command, entities)
         except Exception as e:

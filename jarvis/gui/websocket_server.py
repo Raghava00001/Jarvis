@@ -13,6 +13,7 @@ Connects Web HUD to JARVISUltimate with ALL features:
 - All JARVIS commands
 """
 
+from jarvis.core.services import shared
 import asyncio
 import websockets
 import json
@@ -609,7 +610,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.emotion_detector
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.emotion_detector: {e}")
         if getattr(self, '_emotion_detector', None) is None and EMOTION_AVAILABLE:
-            try: self._emotion_detector = EmotionDetector()
+            try: self._emotion_detector = shared(EmotionDetector)
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] emotion_detector: {e}")
                 return None
@@ -621,7 +622,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.face_auth
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.face_auth: {e}")
         if getattr(self, '_face_recognition', None) is None and FACE_AVAILABLE:
-            try: self._face_recognition = FaceRecognition(self.hud_perception)
+            try: self._face_recognition = shared(FaceRecognition, lambda: FaceRecognition(self.hud_perception))
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] face_recognition: {e}")
                 return None
@@ -633,7 +634,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.gesture
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.gesture: {e}")
         if getattr(self, '_gesture_controller', None) is None and GESTURE_AVAILABLE:
-            try: self._gesture_controller = GestureController(self.hud_perception)
+            try: self._gesture_controller = shared(GestureController, lambda: GestureController(self.hud_perception))
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] gesture_controller: {e}")
                 return None
@@ -645,7 +646,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.chat_history
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.chat_history: {e}")
         if getattr(self, '_chat_history', None) is None and CHAT_HISTORY_AVAILABLE:
-            try: self._chat_history = ChatHistory(self.hud_perception)
+            try: self._chat_history = shared(ChatHistory, lambda: ChatHistory(self.hud_perception))
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] chat_history: {e}")
                 return None
@@ -657,7 +658,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.context_memory
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.context_memory: {e}")
         if getattr(self, '_context_memory', None) is None and CONTEXT_MEMORY_AVAILABLE:
-            try: self._context_memory = ContextMemory()
+            try: self._context_memory = shared(ContextMemory)
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] context_memory: {e}")
                 return None
@@ -669,7 +670,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.knowledge
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.knowledge: {e}")
         if getattr(self, '_knowledge', None) is None and KNOWLEDGE_AVAILABLE:
-            try: self._knowledge = KnowledgeLayer(self.hud_perception)
+            try: self._knowledge = shared(KnowledgeLayer, lambda: KnowledgeLayer(self.hud_perception))
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] knowledge: {e}")
                 return None
@@ -681,7 +682,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.ocr
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.ocr: {e}")
         if getattr(self, '_ocr_handler', None) is None and OCR_AVAILABLE:
-            try: self._ocr_handler = OCRHandler(self.hud_perception)
+            try: self._ocr_handler = shared(OCRHandler, lambda: OCRHandler(self.hud_perception))
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] ocr_handler: {e}")
                 return None
@@ -693,7 +694,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.pdf
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.pdf: {e}")
         if getattr(self, '_pdf_handler', None) is None and PDF_AVAILABLE:
-            try: self._pdf_handler = PDFHandler(self.hud_perception, self.knowledge)
+            try: self._pdf_handler = shared(PDFHandler, lambda: PDFHandler(self.hud_perception, self.knowledge))
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] pdf_handler: {e}")
                 return None
@@ -705,7 +706,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.youtube
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.youtube: {e}")
         if getattr(self, '_youtube_downloader', None) is None and YOUTUBE_AVAILABLE:
-            try: self._youtube_downloader = YouTubeDownloader(self.hud_perception)
+            try: self._youtube_downloader = shared(YouTubeDownloader, lambda: YouTubeDownloader(self.hud_perception))
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] youtube_downloader: {e}")
                 return None
@@ -907,8 +908,8 @@ class JARVISWebSocketServer:
         
         if PERCEPTION_AVAILABLE:
             try:
-                self.perception = PerceptionLayer()
-                self.hud_perception = HUDPerception(self.perception)
+                self.perception = shared(PerceptionLayer)
+                self.hud_perception.attach(self.perception)
                 print("[WebSocket] Perception layer initialized")
             except Exception as e:
                 print(f"[WebSocket] Perception error: {e}")
@@ -1097,13 +1098,13 @@ class JARVISWebSocketServer:
         # Fast / Lightweight handlers
         if not getattr(self, 'news_handler', None) and NEWS_AVAILABLE:
             try:
-                self.news_handler = NewsHandler(self.hud_perception)
+                self.news_handler = shared(NewsHandler, lambda: NewsHandler(self.hud_perception))
             except Exception as e:
                 pass
         
         if not getattr(self, 'weather_handler', None) and WEATHER_AVAILABLE:
             try:
-                self.weather_handler = WeatherHandler(self.hud_perception)
+                self.weather_handler = shared(WeatherHandler, lambda: WeatherHandler(self.hud_perception))
             except Exception as e:
                 pass
         
@@ -1128,35 +1129,35 @@ class JARVISWebSocketServer:
         if HOTKEY_AVAILABLE:
             try:
                 # C-05: Pass a proper callback so hotkeys actually work
-                self.hotkey_system = HotkeySystem(
+                self.hotkey_system = shared(HotkeySystem, lambda: HotkeySystem(
                     self.hud_perception,
                     jarvis_callback=self._on_hotkey_action
-                )
+                ))
             except: pass
         
         # Reminders & Tasks 
         if REMINDER_AVAILABLE:
             try:
-                self.reminder_manager = ReminderManager(self.hud_perception)
+                self.reminder_manager = shared(ReminderManager, lambda: ReminderManager(self.hud_perception))
                 self.reminder_manager.start()
             except: pass
         
         if TASK_MANAGER_AVAILABLE:
             try:
-                self.task_manager_obj = TaskManager(self.hud_perception)
+                self.task_manager_obj = shared(TaskManager, lambda: TaskManager(self.hud_perception))
             except: pass
         
         # System control (needed for voice commands)
         if SYSTEM_CONTROL_AVAILABLE:
             try:
-                self.system_control = SystemControl(self.hud_perception)
+                self.system_control = shared(SystemControl, lambda: SystemControl(self.hud_perception))
             except Exception as e:
                 print(f"[WebSocket] System control init error: {e}")
         
         # Screenshot (needed for read_screen tool)
         if SCREENSHOT_AVAILABLE:
             try:
-                self.screenshot_handler = ScreenshotHandler(self.hud_perception)
+                self.screenshot_handler = shared(ScreenshotHandler, lambda: ScreenshotHandler(self.hud_perception))
             except Exception as e:
                 print(f"[WebSocket] Screenshot init error: {e}")
         
@@ -1188,9 +1189,11 @@ class JARVISWebSocketServer:
         def _prewarm_jarvis():
             if JARVIS_AVAILABLE:
                 try:
-                    self.jarvis = JARVISUltimate()
+                    # Build subsystems with the HUD perception and reuse every
+                    # service the server already created (see core/services.py)
+                    self.jarvis = JARVISUltimate(service_perception=self.hud_perception)
                     self.perception = self.jarvis.perception
-                    self.hud_perception = HUDPerception(self.perception)
+                    self.hud_perception.attach(self.perception)
                     # Re-apply Gemini Live flag (lost when hud_perception was recreated)
                     if getattr(self, 'live_engine', None):
                         self.hud_perception._gemini_live_active = True
@@ -1244,27 +1247,27 @@ class JARVISWebSocketServer:
                 self._brain = None
 
             deferred_modules = [
-                (EMOTION_AVAILABLE, '_emotion_detector', lambda: EmotionDetector(), "EmotionDetector"),
-                (FACE_AVAILABLE, '_face_recognition', lambda: FaceRecognition(self.hud_perception), "FaceRecognition"),
-                (GESTURE_AVAILABLE, '_gesture_controller', lambda: GestureController(self.hud_perception), "GestureController"),
-                (CHAT_HISTORY_AVAILABLE, '_chat_history', lambda: ChatHistory(self.hud_perception), "ChatHistory"),
-                (CONTEXT_MEMORY_AVAILABLE, '_context_memory', lambda: ContextMemory(), "ContextMemory"),
-                (KNOWLEDGE_AVAILABLE, '_knowledge', lambda: KnowledgeLayer(self.hud_perception), "KnowledgeLayer"),
-                (OCR_AVAILABLE, '_ocr_handler', lambda: OCRHandler(self.hud_perception), "OCR"),
-                (DICTIONARY_AVAILABLE, 'dictionary_handler', lambda: DictionaryHandler(self.hud_perception), "Dictionary"),
-                (ENTERTAINMENT_AVAILABLE, 'entertainment', lambda: JARVISEntertainment(self.hud_perception, self.knowledge), "Entertainment"),
-                (NOTES_AVAILABLE, 'smart_notes', lambda: SmartNotes(self.hud_perception), "Smart Notes"),
-                (ALARM_AVAILABLE, 'alarm_system', lambda: AlarmSystem(self.hud_perception), "Alarm"),
-                (SCREEN_CONTROL_AVAILABLE, 'screen_control', lambda: ScreenControlHandler(), "Screen Control"),
-                (WHATSAPP_AVAILABLE, 'whatsapp_handler', lambda: WhatsAppHandler(self.hud_perception), "WhatsApp"),
-                (CALENDAR_AVAILABLE, 'calendar', lambda: CalendarIntegration(self.hud_perception), "Calendar"),
-                (SOUND_EFFECTS_AVAILABLE, 'sound_effects', lambda: SoundEffects(), "Sound Effects"),
-                (PROACTIVE_AVAILABLE, 'proactive_assistant', lambda: ProactiveAssistant(self.hud_perception), "Proactive"),
-                (EMAIL_HANDLER_AVAILABLE, 'email_handler_obj', lambda: EmailHandler(self.hud_perception, getattr(self, '_knowledge', None)), "Email"),
-                (YOUTUBE_AVAILABLE, '_youtube_downloader', lambda: YouTubeDownloader(self.hud_perception), "YouTube"),
-                (HABIT_TRACKER_AVAILABLE, 'habit_tracker', lambda: HabitTracker(self.hud_perception), "Habits"),
-                (WELLNESS_AVAILABLE, 'wellness_monitor', lambda: WellnessMonitor(self.hud_perception), "Wellness"),
-                (PDF_AVAILABLE, '_pdf_handler', lambda: PDFHandler(self.hud_perception), "PDF"),
+                (EMOTION_AVAILABLE, '_emotion_detector', lambda: shared(EmotionDetector), "EmotionDetector"),
+                (FACE_AVAILABLE, '_face_recognition', lambda: shared(FaceRecognition, lambda: FaceRecognition(self.hud_perception)), "FaceRecognition"),
+                (GESTURE_AVAILABLE, '_gesture_controller', lambda: shared(GestureController, lambda: GestureController(self.hud_perception)), "GestureController"),
+                (CHAT_HISTORY_AVAILABLE, '_chat_history', lambda: shared(ChatHistory, lambda: ChatHistory(self.hud_perception)), "ChatHistory"),
+                (CONTEXT_MEMORY_AVAILABLE, '_context_memory', lambda: shared(ContextMemory), "ContextMemory"),
+                (KNOWLEDGE_AVAILABLE, '_knowledge', lambda: shared(KnowledgeLayer, lambda: KnowledgeLayer(self.hud_perception)), "KnowledgeLayer"),
+                (OCR_AVAILABLE, '_ocr_handler', lambda: shared(OCRHandler, lambda: OCRHandler(self.hud_perception)), "OCR"),
+                (DICTIONARY_AVAILABLE, 'dictionary_handler', lambda: shared(DictionaryHandler, lambda: DictionaryHandler(self.hud_perception)), "Dictionary"),
+                (ENTERTAINMENT_AVAILABLE, 'entertainment', lambda: shared(JARVISEntertainment, lambda: JARVISEntertainment(self.hud_perception, self.knowledge)), "Entertainment"),
+                (NOTES_AVAILABLE, 'smart_notes', lambda: shared(SmartNotes, lambda: SmartNotes(self.hud_perception)), "Smart Notes"),
+                (ALARM_AVAILABLE, 'alarm_system', lambda: shared(AlarmSystem, lambda: AlarmSystem(self.hud_perception)), "Alarm"),
+                (SCREEN_CONTROL_AVAILABLE, 'screen_control', lambda: shared(ScreenControlHandler), "Screen Control"),
+                (WHATSAPP_AVAILABLE, 'whatsapp_handler', lambda: shared(WhatsAppHandler, lambda: WhatsAppHandler(self.hud_perception)), "WhatsApp"),
+                (CALENDAR_AVAILABLE, 'calendar', lambda: shared(CalendarIntegration, lambda: CalendarIntegration(self.hud_perception)), "Calendar"),
+                (SOUND_EFFECTS_AVAILABLE, 'sound_effects', lambda: shared(SoundEffects), "Sound Effects"),
+                (PROACTIVE_AVAILABLE, 'proactive_assistant', lambda: shared(ProactiveAssistant, lambda: ProactiveAssistant(self.hud_perception)), "Proactive"),
+                (EMAIL_HANDLER_AVAILABLE, 'email_handler_obj', lambda: shared(EmailHandler, lambda: EmailHandler(self.hud_perception, getattr(self, '_knowledge', None))), "Email"),
+                (YOUTUBE_AVAILABLE, '_youtube_downloader', lambda: shared(YouTubeDownloader, lambda: YouTubeDownloader(self.hud_perception)), "YouTube"),
+                (HABIT_TRACKER_AVAILABLE, 'habit_tracker', lambda: shared(HabitTracker, lambda: HabitTracker(self.hud_perception)), "Habits"),
+                (WELLNESS_AVAILABLE, 'wellness_monitor', lambda: shared(WellnessMonitor, lambda: WellnessMonitor(self.hud_perception)), "Wellness"),
+                (PDF_AVAILABLE, '_pdf_handler', lambda: shared(PDFHandler, lambda: PDFHandler(self.hud_perception)), "PDF"),
                 (CLIPBOARD_AVAILABLE, '_clipboard_intelligence', lambda: getattr(self, '_init_clipboard', lambda: None)(), "Clipboard"),
             ]
             
@@ -2403,7 +2406,7 @@ class JARVISWebSocketServer:
                 # Search Start Menu
                 try:
                     from jarvis.core.app_finder import AppFinder
-                    finder = AppFinder()
+                    finder = shared(AppFinder)
                     success = finder.open_app(app_lower)
                     if success:
                         return f"Opening {app_name}, {title}."
@@ -2778,7 +2781,7 @@ class JARVISWebSocketServer:
                 if app_name:
                     try:
                         from jarvis.core.app_finder import AppFinder
-                        finder = AppFinder()
+                        finder = shared(AppFinder)
                         success = finder.open_app(app_name)
                         if success:
                             self.state_manager.active_app = app_name.lower()
@@ -2825,7 +2828,7 @@ class JARVISWebSocketServer:
                 if jlog: jlog.route('music', intent_name)
                 try:
                     from jarvis.core.music_handler import MusicHandler
-                    mh = MusicHandler()
+                    mh = shared(MusicHandler)
                     result = mh.handle_command(command)
                     if result:
                         return result

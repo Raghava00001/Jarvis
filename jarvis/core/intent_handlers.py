@@ -3,6 +3,7 @@ JARVIS Intent Handlers
 Dedicated handlers for each command type - extracted from _fallback_process
 """
 
+from jarvis.core.services import shared
 from datetime import datetime
 from typing import Any, Dict
 import random
@@ -808,7 +809,7 @@ def _get_entertainment(context):
                 from jarvis.core.entertainment import JARVISEntertainment
             perception = context.get('perception') if context else None
             knowledge = context.get('knowledge') if context else None
-            _entertainment = JARVISEntertainment(perception, knowledge)
+            _entertainment = shared(JARVISEntertainment, lambda: JARVISEntertainment(perception, knowledge))
         except Exception as e:
             print(f"[HANDLERS] Entertainment init error: {e}")
             return None
@@ -1103,7 +1104,7 @@ def handle_send_message(cmd: str, entities: Dict, context: Any) -> HandlerResult
         # Fallback to importing and running directly if not in context
         try:
             from jarvis.core.whatsapp_handler import WhatsAppHandler
-            whatsapp_handler = WhatsAppHandler(context.get('perception') if context else None)
+            whatsapp_handler = shared(WhatsAppHandler, lambda: WhatsAppHandler(context.get('perception') if context else None))
         except ImportError:
             return HandlerResult(success=False, response=f"WhatsApp automation is not available, {title}.")
             
@@ -1126,7 +1127,7 @@ def handle_ocr(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     if not ocr_handler:
         try:
             from jarvis.core.ocr_handler import OCRHandler
-            ocr_handler = OCRHandler()
+            ocr_handler = shared(OCRHandler)
         except ImportError:
             return HandlerResult(success=False, response=f"OCR is not available, {title}. Please install pytesseract.")
     
@@ -1167,7 +1168,7 @@ def handle_habit(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     
     try:
         from jarvis.core.habit_tracker import HabitTracker
-        tracker = HabitTracker()
+        tracker = shared(HabitTracker)
         
         cmd_lower = cmd.lower()
         if 'list' in cmd_lower or 'show' in cmd_lower or 'my habits' in cmd_lower:
@@ -1199,7 +1200,7 @@ def handle_email(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     
     try:
         from jarvis.core.email_handler import EmailHandler
-        email_handler = EmailHandler()
+        email_handler = shared(EmailHandler)
         
         cmd_lower = cmd.lower()
         if 'send' in cmd_lower:
@@ -1224,7 +1225,7 @@ def handle_calendar(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     
     try:
         from jarvis.core.calendar_manager import CalendarManager
-        cal = CalendarManager()
+        cal = shared(CalendarManager)
         
         cmd_lower = cmd.lower()
         if 'today' in cmd_lower or 'events' in cmd_lower or 'schedule' in cmd_lower:

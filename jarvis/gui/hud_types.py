@@ -40,10 +40,20 @@ class HUDPerception:
         self.last_speech_time = 0
         
         if original_perception:
-            self.assistant_name = getattr(original_perception, 'assistant_name', 'JARVIS')
-            self.user_title = getattr(original_perception, 'user_title', 'sir')
-            self.is_friday = self.assistant_name.upper() == 'FRIDAY'
-    
+            self.attach(original_perception)
+
+    def attach(self, original_perception):
+        """Connect the underlying PerceptionLayer to THIS object.
+
+        The server used to replace hud_perception with a new HUDPerception twice
+        during boot, so subsystems created earlier kept a stale copy (persona,
+        mute and Gemini Live flags then disagreed). Attach instead of replacing.
+        """
+        self.original = original_perception
+        self.assistant_name = getattr(original_perception, 'assistant_name', 'JARVIS')
+        self.user_title = getattr(original_perception, 'user_title', 'sir')
+        self.is_friday = self.assistant_name.upper() == 'FRIDAY'
+
     def speak(self, text):
         """Capture speech and add to queue - with deduplication"""
         # Prevent duplicate messages within 2 seconds (must run BEFORE any early return)

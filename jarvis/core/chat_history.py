@@ -8,6 +8,7 @@ Chat History - Production Grade
 - Privacy-conscious (no external calls)
 """
 
+from jarvis.core.services import shared
 import json
 import sqlite3
 from pathlib import Path
@@ -457,5 +458,5 @@ _history = None
 def get_chat_history(perception=None) -> ChatHistory:
     global _history
     if _history is None:
-        _history = ChatHistory(perception)
+        _history = shared(ChatHistory, lambda: ChatHistory(perception))
     return _history

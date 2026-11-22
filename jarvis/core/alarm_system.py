@@ -8,6 +8,7 @@ Alarm System - Production Grade
 - Thread-safe operations
 """
 
+from jarvis.core.services import shared
 import json
 import datetime
 import uuid
@@ -128,7 +129,9 @@ class AlarmScheduler:
         self.thread: Optional[threading.Thread] = None
         
     def start(self):
-        """Start the scheduler"""
+        """Start the scheduler (idempotent: a second call doesn't add a thread)"""
+        if self.running and self.thread and self.thread.is_alive():
+            return
         self.running = True
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
@@ -483,5 +486,5 @@ _system = None
 def get_alarm_system(perception=None) -> AlarmSystem:
     global _system
     if _system is None:
-        _system = AlarmSystem(perception)
+        _system = shared(AlarmSystem, lambda: AlarmSystem(perception))
     return _system

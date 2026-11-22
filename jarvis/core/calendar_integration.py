@@ -7,6 +7,7 @@ Google Calendar Integration - Production Grade
 - Simplified setup
 """
 
+from jarvis.core.services import shared
 import os
 import datetime
 from pathlib import Path
@@ -425,5 +426,5 @@ _calendar = None
 def get_calendar(perception=None) -> CalendarIntegration:
     global _calendar
     if _calendar is None:
-        _calendar = CalendarIntegration(perception)
+        _calendar = shared(CalendarIntegration, lambda: CalendarIntegration(perception))
     return _calendar

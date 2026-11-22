@@ -12,6 +12,7 @@ Requires: pip install spotipy
 Spotify Setup: https://developer.spotify.com/dashboard
 """
 
+from jarvis.core.services import shared
 import os
 import subprocess
 import webbrowser
@@ -491,7 +492,7 @@ _handler = None
 def get_music_handler(perception=None) -> MusicHandler:
     global _handler
     if _handler is None:
-        _handler = MusicHandler(perception)
+        _handler = shared(MusicHandler, lambda: MusicHandler(perception))
     return _handler
 
 

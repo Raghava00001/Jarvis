@@ -7,6 +7,7 @@ Clipboard Memory - Smart Clipboard History
 - Search clipboard history
 """
 
+from jarvis.core.services import shared
 import threading
 import time
 from typing import Optional, List
@@ -296,5 +297,5 @@ def get_clipboard_memory(perception=None) -> ClipboardMemory:
     """Get or create clipboard memory"""
     global _clipboard_instance
     if _clipboard_instance is None:
-        _clipboard_instance = ClipboardMemory(perception)
+        _clipboard_instance = shared(ClipboardMemory, lambda: ClipboardMemory(perception))
     return _clipboard_instance

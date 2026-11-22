@@ -7,6 +7,7 @@ App Finder - Production Grade
 - Clean caching with validation
 """
 
+from jarvis.core.services import shared
 import os
 import subprocess
 import time
@@ -605,7 +606,7 @@ class AppManager:
     """Combined finder and launcher for backward compatibility"""
     
     def __init__(self, perception=None):
-        self.finder = AppFinder(perception)
+        self.finder = shared(AppFinder, lambda: AppFinder(perception))
         self.launcher = AppLauncher(self.finder)
         
         # Expose common methods

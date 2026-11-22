@@ -1,3 +1,4 @@
+from jarvis.core.services import shared
 import json
 import re
 import os
@@ -233,7 +234,7 @@ class FallbackProcessor:
                     self.server.youtube.search_and_play(query)
                 else:
                     from jarvis.core.youtube_downloader import YouTubeDownloader
-                    yt = YouTubeDownloader()
+                    yt = shared(YouTubeDownloader)
                     yt.search_and_play(query)
                 return f"Playing your request on YouTube{maybe_title(title)}."
             
