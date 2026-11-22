@@ -119,7 +119,6 @@ class CalendarIntegration:
         # Load existing token
         if self.token_path.exists():
             try:
-                from google.oauth2.credentials import Credentials
                 creds = Credentials.from_authorized_user_file(str(self.token_path), self.SCOPES)
             except Exception as e:
                 print(f"[CALENDAR] Token load error: {e}")

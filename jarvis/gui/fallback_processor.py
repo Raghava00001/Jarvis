@@ -4,6 +4,7 @@ import re
 import os
 import random
 import subprocess
+import time
 import webbrowser
 from datetime import datetime
 from jarvis.gui.data_providers import maybe_title

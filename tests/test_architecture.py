@@ -201,3 +201,22 @@ def test_no_local_import_shadows_a_module_import():
                             offenders.append(f"{path.relative_to(ROOT)}:{node.lineno} {fn.name}() re-imports {name}")
                 stack.extend(ast.iter_child_nodes(node))
     assert offenders == [], "\n".join(offenders)
+
+
+# ─── static checks ────────────────────────────────────────────────────────
+
+def test_no_undefined_names():
+    """pyflakes found real crashes: action.search_web used `re` without importing
+    it, fallback_processor used `time`, and code moved out of websocket_server
+    lost its `time`/`threading` imports."""
+    pyflakes = pytest.importorskip("pyflakes.api")
+    import io
+    from pyflakes import reporter as pf_reporter
+
+    out = io.StringIO()
+    rep = pf_reporter.Reporter(out, out)
+    for path in sorted((ROOT / "jarvis").rglob("*.py")):
+        pyflakes.check(path.read_text(encoding="utf-8-sig"), str(path.relative_to(ROOT)), rep)
+    problems = [l for l in out.getvalue().splitlines()
+                if "undefined name" in l or "referenced before assignment" in l]
+    assert problems == [], "\n".join(problems)
