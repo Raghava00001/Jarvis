@@ -60,7 +60,7 @@ def candidate_files(root_dir: str):
                     yield os.path.relpath(os.path.join(dirpath, f), root_dir).replace("\\", "/")
 
 
-def create_release_zip(output_filename="jarvis-v2.1.0.zip"):
+def create_release_zip(output_filename="jarvis-v2.2.0.zip"):
     """
     Package the repository into a clean release ZIP for a GitHub release.
     Only git-tracked files are included, and EXCLUDE_PATTERNS is applied on top
