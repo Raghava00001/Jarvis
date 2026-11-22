@@ -96,7 +96,9 @@ class IntentModel:
         self.model = None
         self.intent_embeddings: Dict[str, np.ndarray] = {}
         self.example_embeddings: Dict[str, List[np.ndarray]] = {}  # For kNN
-        self.cache_path = Path(__file__).parent.parent / "data" / "intent_embeddings_v2.npz"
+        # v3: plain numeric arrays (loaded with allow_pickle=False) plus a
+        # fingerprint of the model + examples, so edited examples rebuild the cache.
+        self.cache_path = Path(__file__).parent.parent / "data" / "intent_embeddings_v3.npz"
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         
         self._loaded = False
@@ -136,29 +138,46 @@ class IntentModel:
         self._save_cache()
         print(f"[INTENT] Computed {len(self.intent_embeddings)} intent embeddings")
         
+    def _cache_fingerprint(self) -> str:
+        """Hash of the model name and every example, so any edit invalidates the cache."""
+        import hashlib
+        import json
+        payload = json.dumps({"model": self.model_name, "examples": INTENT_EXAMPLES},
+                             sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
     def _load_cache(self) -> bool:
-        """Load cached embeddings"""
+        """Load cached embeddings (no pickle; rejected if stale)."""
+        if not self.cache_path.exists():
+            return False
         try:
-            if self.cache_path.exists():
-                data = np.load(str(self.cache_path), allow_pickle=True)
-                self.intent_embeddings = dict(data['centroids'].item())
-                self.example_embeddings = dict(data['examples'].item())
-                
-                if len(self.intent_embeddings) == len(INTENT_EXAMPLES):
-                    print("[INTENT] Loaded cached embeddings")
-                    return True
-        except:
-            pass
-        return False
-        
+            with np.load(str(self.cache_path), allow_pickle=False) as data:
+                if str(data["__fingerprint__"]) != self._cache_fingerprint():
+                    print("[INTENT] Embedding cache is stale; recomputing")
+                    return False
+                centroids, examples = {}, {}
+                for key in data.files:
+                    if key.startswith("c::"):
+                        centroids[key[3:]] = data[key]
+                    elif key.startswith("e::"):
+                        examples[key[3:]] = list(data[key])
+        except Exception as e:
+            print(f"[INTENT] Embedding cache unreadable ({type(e).__name__}); recomputing")
+            return False
+        if set(centroids) != set(INTENT_EXAMPLES):
+            return False
+        self.intent_embeddings, self.example_embeddings = centroids, examples
+        print("[INTENT] Loaded cached embeddings")
+        return True
+
     def _save_cache(self):
-        """Save embeddings to cache"""
+        """Save embeddings as plain float arrays (safe to load without pickle)."""
         try:
-            np.savez(
-                str(self.cache_path), 
-                centroids=self.intent_embeddings,
-                examples=self.example_embeddings
-            )
+            arrays = {"__fingerprint__": np.array(self._cache_fingerprint())}
+            for intent, centroid in self.intent_embeddings.items():
+                arrays[f"c::{intent}"] = np.asarray(centroid, dtype=np.float32)
+                arrays[f"e::{intent}"] = np.asarray(self.example_embeddings[intent], dtype=np.float32)
+            np.savez_compressed(str(self.cache_path), **arrays)
         except Exception as e:
             print(f"[INTENT] Cache save error: {e}")
             

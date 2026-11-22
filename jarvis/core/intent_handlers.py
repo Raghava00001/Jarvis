@@ -1305,3 +1305,48 @@ HANDLER_MAP = {
     'calendar': handle_calendar,
 }
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BrainAdapter intent names → HANDLER_MAP names
+#
+# The ML classifier (intent_definitions.INTENT_EXAMPLES) uses names like
+# "get_time" or "volume_up", while handlers are registered as "time" and
+# "volume". Without this table most confident ML results matched no handler
+# and fell through to slower paths. Entries are (handler_name, default_entities);
+# defaults only fill entities the extractor did not set.
+#
+# Deliberately NOT mapped (handled earlier with dedicated, safer logic):
+#   shutdown / restart (confirmation flow), close_app (validated fast path),
+#   lock_screen, cancel_alarm, play_youtube; list_alarms is served by the
+#   router's own alarm-system branch.
+# ─────────────────────────────────────────────────────────────────────────────
+BRAIN_INTENT_ALIASES = {
+    'get_time': ('time', {}),
+    'get_date': ('date', {}),
+    'tell_joke': ('joke', {}),
+    'tell_story': ('story', {}),
+    'volume_up': ('volume', {'action': 'up'}),
+    'volume_down': ('volume', {'action': 'down'}),
+    'mute': ('volume', {'action': 'mute'}),
+    'brightness_up': ('brightness', {'action': 'up'}),
+    'brightness_down': ('brightness', {'action': 'down'}),
+    'skip_track': ('next_track', {}),
+    'resume_music': ('play_music', {}),
+    'search_web': ('search', {}),
+    'ask_question': ('conversation', {}),
+    'goodbye': ('farewell', {}),
+    'thank_you': ('thanks', {}),
+    'get_calendar': ('calendar', {}),
+    'create_event': ('calendar', {}),
+    'send_whatsapp': ('send_message', {}),
+}
+
+
+def resolve_brain_intent(intent: str, entities: Dict = None):
+    """Translate a BrainAdapter intent to its HANDLER_MAP name, filling default entities."""
+    entities = dict(entities or {})
+    target, defaults = BRAIN_INTENT_ALIASES.get(intent, (intent, {}))
+    for key, value in defaults.items():
+        entities.setdefault(key, value)
+    return target, entities

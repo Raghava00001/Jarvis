@@ -203,9 +203,12 @@ class StartupOrchestrator:
                         pending = [t for t in tasks if isinstance(t, dict) and not t.get("completed", False)]
                         if pending:
                             count = len(pending)
-                            top_tasks = [t.get("description", "Unknown") for t in pending[:3]]
+                            # TaskManager stores the text under "task"; older data used "description"
+                            top_tasks = [t.get("task") or t.get("description") or "Untitled task"
+                                         for t in pending[:3]]
                             task_list = ", ".join(top_tasks)
-                            return f"You have {count} pending task{'s' if count > 1 else ''}: {task_list}"
+                            more = f" and {count - 3} more" if count > 3 else ""
+                            return f"You have {count} pending task{'s' if count > 1 else ''}: {task_list}{more}"
         except Exception:
             pass
         return "No pending tasks."

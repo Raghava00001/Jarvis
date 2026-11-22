@@ -12,7 +12,7 @@ python-dotenv==1.2.2
 # Voice & speech
 SpeechRecognition==3.16.0
 PyAudio==0.2.14
-edge-tts==7.2.8
+edge-tts==7.3.1
 pyttsx3==2.99
 openai-whisper==20250625
 

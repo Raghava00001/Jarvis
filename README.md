@@ -12,6 +12,12 @@
 ## 🖥️ See It In Action
 
 <p align="center">
+  <img src="docs/jarvis_demo.gif" alt="JARVIS HUD demo: asking the time, a joke, a confirmed-restart prompt that is cancelled, and the news" width="900">
+  <br>
+  <em>Live demo: time, a joke, "restart my PC" asks for confirmation and is cancelled, then the news.</em>
+</p>
+
+<p align="center">
   <img src="docs/jarvis_hud_hero.png" alt="JARVIS Web HUD — main dashboard" width="900">
   <br>
   <em>The Web HUD: 3D globe, system vitals, news feed, chat and Feature Hub, updated live.</em>
@@ -23,7 +29,7 @@
   <em>Voice mode: waveform, live tool execution and spoken replies.</em>
 </p>
 
-> 🎥 To record your own demo, run `python docs/record_demo.py` while the HUD is open.
+> 🎥 To record your own demo GIF of just the HUD, start JARVIS and run `python docs/record_hud_demo.py`. It drives a headless Edge/Chrome and never captures the rest of your screen.
 
 ---
 
@@ -145,10 +151,22 @@ JARVIS can run commands on your PC, so I audited it and fixed these issues in v2
 | **XSS in the HUD** | LLM replies and news headlines went into `innerHTML`. | Chat text is inserted with `textContent`, and headlines are HTML-escaped. |
 | **HUD exposed on the LAN** | The HTTP server bound to all network interfaces and called `os.chdir` on the whole process. | It binds to `127.0.0.1` only and serves its directory without changing the working directory. |
 | **Personal data in the repo and release** | Chat/memory databases, face encodings, a face photo, logs and personal details were committed or zipped. | Untracked and gitignored. `zip_release.py` packages only git-tracked files and also excludes `*.db`, `*.pkl`, `*.log`, face data and keys. Personal details moved to `user_profile.json`. |
-| **Unsafe deserialization** | Face encodings and the Calendar token were stored as pickles. | Both use JSON now. Legacy `.pkl` files are ignored. |
+| **Unsafe deserialization** | Face encodings, the Calendar token and the committed intent-embedding cache (`allow_pickle=True`) were pickles. | All use JSON or plain numeric arrays now; legacy pickles are ignored. |
 | **Silent ML failure** | If the embedding model failed to load, classification quietly returned `(None, 0.0)`. | `IntentModelUnavailable` is raised. BrainAdapter logs an error and labels its keyword fallback `DEGRADED`. |
 
 Every fix has a regression test in `tests/test_security_regressions.py`.
+
+---
+
+## What's new in v2.2
+
+| Area | Before | After |
+|------|--------|-------|
+| **Routing** | BrainAdapter's intent names (`get_time`, `volume_up` …) didn't match the handler names (`time`, `volume` …), so only **11 of 29** everyday commands reached a handler. | A translation table plus a keyword safety net: **27 of 29** (the other two are handled earlier by the fast path). |
+| **Voice** | Microsoft's endpoint rejects `edge-tts 7.2.8` (HTTP 403) and the HUD had no fallback, so JARVIS went silent. | `edge-tts 7.3.1`, an offline pyttsx3 fallback, and a circuit breaker after 3 failures. |
+| **Embedding cache** | Loaded with pickle; only checked the number of intents, so edited examples kept stale vectors. | Plain arrays plus a SHA-256 fingerprint of the model and examples; reloads instantly and rebuilds when examples change. |
+| **Boot briefing** | "You have 11 pending tasks: Unknown, Unknown, Unknown". | Lists the real tasks ("… and 8 more"). |
+| **Startup** | A context-memory initialisation that always failed and logged an error. | Removed; it's loaded lazily on first use. |
 
 ---
 
@@ -159,10 +177,11 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-**157 tests pass:**
+**176 tests pass:**
 - smoke tests: boot, Gemini Live dedup and echo gate, BrainAdapter, persona switching
 - NLP and router unit tests
 - 67 security and regression tests
+- 19 tests for the v2.2 upgrades (routing, embedding cache, TTS fallback, boot briefing)
 
 CI runs the same suite on `windows-latest`.
 
