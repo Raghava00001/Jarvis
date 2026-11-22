@@ -20,6 +20,8 @@ from collections import defaultdict
 import re
 import time
 
+from jarvis.core.rss import parse_rss_items, google_news_search_url
+
 
 class SearchMode(Enum):
     """Search modes inspired by Perplexica"""
@@ -397,7 +399,7 @@ class AISearchHandler:
     def _search_news(self, query: str) -> List[SearchResult]:
         """Google News RSS"""
         response = self.request_manager.get(
-            f"https://news.google.com/rss/search?q={query}",
+            google_news_search_url(query),
             timeout=5.0,
         )
         
@@ -405,11 +407,8 @@ class AISearchHandler:
             return []
             
         try:
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(response.content, "xml")
-            
             results = []
-            for item in soup.find_all("item")[:5]:
+            for item in parse_rss_items(response.content, limit=5):
                 pub_date = None
                 if item.pubDate:
                     try:
@@ -430,9 +429,6 @@ class AISearchHandler:
                 
             return results
             
-        except ImportError:
-            print("[AI-SEARCH] BeautifulSoup not installed: pip install beautifulsoup4 lxml")
-            return []
         except Exception as e:
             print(f"[AI-SEARCH] News parse error: {e}")
             return []

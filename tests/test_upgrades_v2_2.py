@@ -33,7 +33,7 @@ class TestBrainIntentAliases:
     def test_every_classifier_intent_is_routable_or_deliberately_excluded(self):
         from jarvis.core.intent_definitions import INTENT_EXAMPLES
         from jarvis.core.intent_handlers import BRAIN_INTENT_ALIASES, HANDLER_MAP
-        deliberate = {"shutdown", "restart", "close_app", "lock_screen",
+        deliberate = {"shutdown", "restart", "close_app",
                       "cancel_alarm", "play_youtube", "list_alarms"}
         unroutable = {i for i in INTENT_EXAMPLES
                       if i not in HANDLER_MAP and i not in BRAIN_INTENT_ALIASES and i not in deliberate}

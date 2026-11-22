@@ -52,3 +52,9 @@ def start_app(name: str) -> None:
         # and passed as its own argument (the empty "" is the window title).
         subprocess.Popen(["cmd", "/c", "start", "", name],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def lock_workstation() -> bool:
+    """Lock the Windows session (same as Win+L). No shell involved."""
+    import ctypes
+    return bool(ctypes.windll.user32.LockWorkStation())

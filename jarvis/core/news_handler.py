@@ -4,7 +4,7 @@ Voice-optimized RSS news delivery
 """
 
 import requests
-from bs4 import BeautifulSoup
+from jarvis.core.rss import parse_rss_items, google_news_search_url
 import json
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -90,8 +90,7 @@ class NewsHandler:
             if response.status_code != 200:
                 raise RuntimeError("Bad response")
 
-            soup = BeautifulSoup(response.content, "xml")
-            items = soup.find_all("item")[:count]
+            items = parse_rss_items(response.content, limit=count)
 
             headlines = []
             for item in items:
@@ -165,14 +164,13 @@ class NewsHandler:
         """Search news by keyword (Flutter NewsApp style)"""
         try:
             # Use Google News search
-            search_url = f"https://news.google.com/rss/search?q={keyword}"
+            search_url = google_news_search_url(keyword)
             response = requests.get(search_url, timeout=8)
             
             if response.status_code != 200:
                 raise RuntimeError("Search failed")
             
-            soup = BeautifulSoup(response.content, "xml")
-            items = soup.find_all("item")[:count]
+            items = parse_rss_items(response.content, limit=count)
             
             headlines = []
             for item in items:
@@ -208,8 +206,7 @@ class NewsHandler:
         
         try:
             response = requests.get(url_or_type, timeout=8)
-            soup = BeautifulSoup(response.content, "xml")
-            items = soup.find_all("item")[:count]
+            items = parse_rss_items(response.content, limit=count)
             headlines = [self._clean_title(item.title.text.strip()) for item in items]
             
             # Cache

@@ -941,7 +941,8 @@ class GeminiLiveEngine:
                     else:
                         result = "Restart needs manual confirmation; it is disabled here."
                 elif action in ("lock", "lock_screen"):
-                    subprocess.run("rundll32.exe user32.dll,LockWorkStation", shell=True)
+                    from jarvis.core.safe_exec import lock_workstation
+                    lock_workstation()
                     result = "Screen locked."
                 elif "screenshot" in action:
                     handler = HANDLER_MAP.get("screenshot")

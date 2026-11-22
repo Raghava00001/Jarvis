@@ -195,10 +195,13 @@ def handle_weather(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         if isinstance(weather, dict):
             return HandlerResult(
                 success=True,
-                response=f"Current conditions in {weather.get('location', 'your area')}: "
-                         f"{weather.get('temp', 'N/A')}°C, {weather.get('condition', 'unknown')}. "
+                # WeatherHandler returns city/temp_c/description/wind_speed_kmh;
+                # the old keys (location/temp/condition/wind) always read N/A.
+                response=f"Current conditions in {weather.get('city') or weather.get('location') or 'your area'}: "
+                         f"{weather.get('temp_c', weather.get('temp', 'N/A'))}°C, "
+                         f"{(weather.get('description') or weather.get('condition') or 'unknown').strip()}. "
                          f"Humidity at {weather.get('humidity', 'N/A')}%, "
-                         f"wind {weather.get('wind', 'N/A')} kilometers per hour."
+                         f"wind {weather.get('wind_speed_kmh', weather.get('wind', 'N/A'))} kilometers per hour."
             )
     except Exception as e:
         print(f"[HANDLERS] Weather error: {e}")
@@ -1243,6 +1246,18 @@ def handle_calendar(cmd: str, entities: Dict, context: Any) -> HandlerResult:
 # HANDLER REGISTRY
 # ═══════════════════════════════════════════════════════════════
 
+def handle_lock_screen(cmd: str, entities: Dict, context: Any) -> HandlerResult:
+    """Lock the Windows session (Win+L). Fully reversible: just sign back in."""
+    title = context.get('title', 'sir') if context else 'sir'
+    try:
+        from jarvis.core.safe_exec import lock_workstation
+        if lock_workstation():
+            return HandlerResult(success=True, response=f"Locking the screen, {title}.")
+    except Exception as e:
+        print(f"[HANDLERS] Lock screen error: {e}")
+    return HandlerResult(success=False, response=f"I couldn't lock the screen, {title}.")
+
+
 HANDLER_MAP = {
     'greeting': handle_greeting,
     'farewell': handle_farewell,
@@ -1303,6 +1318,7 @@ HANDLER_MAP = {
     'habit': handle_habit,
     'email': handle_email,
     'calendar': handle_calendar,
+    'lock_screen': handle_lock_screen,
 }
 
 
@@ -1318,7 +1334,7 @@ HANDLER_MAP = {
 #
 # Deliberately NOT mapped (handled earlier with dedicated, safer logic):
 #   shutdown / restart (confirmation flow), close_app (validated fast path),
-#   lock_screen, cancel_alarm, play_youtube; list_alarms is served by the
+#   cancel_alarm, play_youtube; list_alarms is served by the
 #   router's own alarm-system branch.
 # ─────────────────────────────────────────────────────────────────────────────
 BRAIN_INTENT_ALIASES = {
