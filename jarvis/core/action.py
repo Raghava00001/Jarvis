@@ -4,6 +4,7 @@ Handles: Opening apps, time/date, jokes, web search, browser control, YouTube
 """
 
 import os
+import re
 import webbrowser
 from datetime import datetime
 import random
@@ -290,7 +291,6 @@ class ActionLayer:
     
     def youtube_search(self, text, title="sir"):
         """Search on YouTube"""
-        import re
         query = text.lower()
         # Use word boundaries to avoid stripping partial words
         # e.g. "play one piece on youtube" should keep "one" and "piece"

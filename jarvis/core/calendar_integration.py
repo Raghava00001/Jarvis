@@ -7,6 +7,7 @@ Google Calendar Integration - Production Grade
 - Simplified setup
 """
 
+from jarvis.core.services import shared
 import os
 import datetime
 from pathlib import Path
@@ -118,7 +119,6 @@ class CalendarIntegration:
         # Load existing token
         if self.token_path.exists():
             try:
-                from google.oauth2.credentials import Credentials
                 creds = Credentials.from_authorized_user_file(str(self.token_path), self.SCOPES)
             except Exception as e:
                 print(f"[CALENDAR] Token load error: {e}")
@@ -425,5 +425,5 @@ _calendar = None
 def get_calendar(perception=None) -> CalendarIntegration:
     global _calendar
     if _calendar is None:
-        _calendar = CalendarIntegration(perception)
+        _calendar = shared(CalendarIntegration, lambda: CalendarIntegration(perception))
     return _calendar

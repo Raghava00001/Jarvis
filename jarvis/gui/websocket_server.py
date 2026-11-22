@@ -24,6 +24,7 @@ from datetime import datetime
 import sys
 import os
 import re
+import subprocess
 
 # ═══════════════════════════════════════════════════════════════════
 # PATH SETUP: Ensure 'from jarvis.core.X' imports work regardless of CWD
@@ -34,8 +35,10 @@ _jarvis_dir = os.path.dirname(_this_dir)                        # jarvis/
 _project_root = os.path.dirname(_jarvis_dir)                    # AI_Voice_Assistant/
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
-if _jarvis_dir not in sys.path:
-    sys.path.insert(0, _jarvis_dir)
+# NOTE: jarvis/ itself must NOT be on sys.path: that let modules load twice,
+# as core.X and jarvis.core.X (see jarvis/__init__.py).
+
+from jarvis.core.services import shared  # after the path setup above
 import queue
 import base64
 from dataclasses import dataclass
@@ -44,7 +47,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 # Structured pipeline logger
 try:
-    from core.logger import get_logger
+    from jarvis.core.logger import get_logger
     jlog = get_logger()
 except ImportError:
     jlog = None
@@ -101,8 +104,6 @@ _project_root = Path(__file__).parent.parent.parent.resolve()
 _jarvis_root = Path(__file__).parent.parent.resolve()
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
-if str(_jarvis_root) not in sys.path:
-    sys.path.insert(0, str(_jarvis_root))
 print(f"[WebSocket] Project root: {_project_root}")
 
 # Load .env file for API keys
@@ -115,70 +116,23 @@ except ImportError:
     print("[WebSocket] python-dotenv not installed, using system env vars")
 
 
-# Browser origins allowed to open the WebSocket (the Web HUD served on :8080).
-# None = no Origin header (desktop_gui / Python clients); browsers always send one.
-HUD_HTTP_PORT = 8080
-ALLOWED_WS_ORIGINS = [
-    f"http://localhost:{HUD_HTTP_PORT}",
-    f"http://127.0.0.1:{HUD_HTTP_PORT}",
-    None,
-]
-
-# ── Power / exit command matching ────────────────────────────────────────────
-# Matched against the WHOLE command (after the wake word is stripped) so that
-# sentences like "how do I shutdown linux?" or "my phone rebooted" don't quit
-# JARVIS or restart the PC.
-WAKE_WORD_RE = re.compile(r'^(?:hey\s+)?(?:jarvis|friday)[,!.\s]*', re.I)
-JARVIS_EXIT_RE = re.compile(
-    r'^(?:please\s+)?(?:'
-    r'(?:shutdown|shut\s+down|power\s+off|go\s+offline)(?:\s+(?:jarvis|friday|yourself))?'
-    r'|(?:exit|quit|close)\s+(?:jarvis|friday)'
-    r'|(?:jarvis|friday)\s+(?:shutdown|shut\s+down)'
-    r')(?:\s+please)?[\s.!]*$'
+# Wake/exit/power phrase rules and WebSocket access checks live in command_rules.py
+from jarvis.gui.fast_path import try_fast_path
+from jarvis.gui.command_rules import (  # noqa: F401  (re-exported for tests/tools)
+    HUD_HTTP_PORT,
+    ALLOWED_WS_ORIGINS,
+    WAKE_WORD_RE,
+    JARVIS_EXIT_RE,
+    PC_SHUTDOWN_RE,
+    PC_RESTART_RE,
+    CONFIRM_RE,
+    CANCEL_RE,
+    POWER_CONFIRM_WINDOW_S,
+    check_ws_token,
+    normalize_command,
+    is_jarvis_exit_command,
+    detect_pc_power_action,
 )
-PC_SHUTDOWN_RE = re.compile(
-    r'\b(?:shut\s*down|switch\s+off|turn\s+off|power\s+off)\s+(?:the\s+|my\s+)?'
-    r'(?:laptop|computer|pc|system)\b'
-)
-PC_RESTART_RE = re.compile(
-    r'\b(?:restart|reboot)\s+(?:the\s+|my\s+)?(?:laptop|computer|pc|system)\b'
-    r'|^reboot[\s.!]*$'
-)
-CONFIRM_RE = re.compile(r'^(?:yes|yeah|yep|confirm(?:ed)?|do it|go ahead|proceed)\b')
-CANCEL_RE = re.compile(r"^(?:no|nope|cancel|abort|don'?t|never ?mind|stop)\b")
-POWER_CONFIRM_WINDOW_S = 30
-
-
-def check_ws_token(connection, request):
-    """websockets process_request hook: 403 unless ?token=<session token>."""
-    from http import HTTPStatus
-    from urllib.parse import urlsplit, parse_qs
-    import hmac
-    from jarvis.gui.session_token import get_ws_token
-    supplied = parse_qs(urlsplit(request.path).query).get("token", [""])[0]
-    if not hmac.compare_digest(supplied.encode(), get_ws_token().encode()):
-        print("[WebSocket] Rejected connection without a valid token")
-        return connection.respond(HTTPStatus.FORBIDDEN, "Missing or invalid token\n")
-    return None
-
-
-def normalize_command(text: str) -> str:
-    """Lower-case, trim and strip a leading wake word."""
-    return WAKE_WORD_RE.sub('', (text or '').lower().strip()).strip()
-
-
-def is_jarvis_exit_command(cmd: str) -> bool:
-    return bool(JARVIS_EXIT_RE.match(cmd))
-
-
-def detect_pc_power_action(cmd: str):
-    """Return 'shutdown', 'restart' or None for a normalized command."""
-    if PC_RESTART_RE.search(cmd):
-        return 'restart'
-    if PC_SHUTDOWN_RE.search(cmd):
-        return 'shutdown'
-    return None
-
 
 # Feature availability flags
 JARVIS_AVAILABLE = False
@@ -230,7 +184,9 @@ except ImportError:
     pass
 
 try:
-    from jarvis.core.emotion_detector import EmotionDetector, EmotionState
+    # EmotionState comes from mood_engine (imported above); importing the
+    # detector's EmotionState here used to silently replace it
+    from jarvis.core.emotion_detector import EmotionDetector
     EMOTION_AVAILABLE = True
     print("[WebSocket] Emotion detector available")
 except ImportError:
@@ -421,14 +377,8 @@ try:
 except ImportError:
     pass
 
-# Email Handler (Gmail)
-EMAIL_HANDLER_AVAILABLE = False
-try:
-    from jarvis.core.email_handler import EmailHandler
-    EMAIL_HANDLER_AVAILABLE = True
-    print("[WebSocket] Email handler available")
-except ImportError:
-    pass
+# Email Handler (Gmail): same import as EMAIL_AVAILABLE above
+EMAIL_HANDLER_AVAILABLE = EMAIL_AVAILABLE
 
 # YouTube Downloader
 YOUTUBE_AVAILABLE = False
@@ -611,7 +561,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.emotion_detector
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.emotion_detector: {e}")
         if getattr(self, '_emotion_detector', None) is None and EMOTION_AVAILABLE:
-            try: self._emotion_detector = EmotionDetector()
+            try: self._emotion_detector = shared(EmotionDetector)
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] emotion_detector: {e}")
                 return None
@@ -623,7 +573,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.face_auth
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.face_auth: {e}")
         if getattr(self, '_face_recognition', None) is None and FACE_AVAILABLE:
-            try: self._face_recognition = FaceRecognition(self.hud_perception)
+            try: self._face_recognition = shared(FaceRecognition, lambda: FaceRecognition(self.hud_perception))
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] face_recognition: {e}")
                 return None
@@ -635,7 +585,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.gesture
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.gesture: {e}")
         if getattr(self, '_gesture_controller', None) is None and GESTURE_AVAILABLE:
-            try: self._gesture_controller = GestureController(self.hud_perception)
+            try: self._gesture_controller = shared(GestureController, lambda: GestureController(self.hud_perception))
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] gesture_controller: {e}")
                 return None
@@ -647,7 +597,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.chat_history
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.chat_history: {e}")
         if getattr(self, '_chat_history', None) is None and CHAT_HISTORY_AVAILABLE:
-            try: self._chat_history = ChatHistory(self.hud_perception)
+            try: self._chat_history = shared(ChatHistory, lambda: ChatHistory(self.hud_perception))
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] chat_history: {e}")
                 return None
@@ -659,7 +609,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.context_memory
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.context_memory: {e}")
         if getattr(self, '_context_memory', None) is None and CONTEXT_MEMORY_AVAILABLE:
-            try: self._context_memory = ContextMemory()
+            try: self._context_memory = shared(ContextMemory)
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] context_memory: {e}")
                 return None
@@ -671,7 +621,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.knowledge
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.knowledge: {e}")
         if getattr(self, '_knowledge', None) is None and KNOWLEDGE_AVAILABLE:
-            try: self._knowledge = KnowledgeLayer(self.hud_perception)
+            try: self._knowledge = shared(KnowledgeLayer, lambda: KnowledgeLayer(self.hud_perception))
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] knowledge: {e}")
                 return None
@@ -683,7 +633,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.ocr
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.ocr: {e}")
         if getattr(self, '_ocr_handler', None) is None and OCR_AVAILABLE:
-            try: self._ocr_handler = OCRHandler(self.hud_perception)
+            try: self._ocr_handler = shared(OCRHandler, lambda: OCRHandler(self.hud_perception))
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] ocr_handler: {e}")
                 return None
@@ -695,7 +645,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.pdf
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.pdf: {e}")
         if getattr(self, '_pdf_handler', None) is None and PDF_AVAILABLE:
-            try: self._pdf_handler = PDFHandler(self.hud_perception, self.knowledge)
+            try: self._pdf_handler = shared(PDFHandler, lambda: PDFHandler(self.hud_perception, self.knowledge))
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] pdf_handler: {e}")
                 return None
@@ -707,7 +657,7 @@ class JARVISWebSocketServer:
             try: return self.jarvis.youtube
             except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.youtube: {e}")
         if getattr(self, '_youtube_downloader', None) is None and YOUTUBE_AVAILABLE:
-            try: self._youtube_downloader = YouTubeDownloader(self.hud_perception)
+            try: self._youtube_downloader = shared(YouTubeDownloader, lambda: YouTubeDownloader(self.hud_perception))
             except Exception as e:
                 print(f"[LAZY LOAD ERROR] youtube_downloader: {e}")
                 return None
@@ -909,8 +859,8 @@ class JARVISWebSocketServer:
         
         if PERCEPTION_AVAILABLE:
             try:
-                self.perception = PerceptionLayer()
-                self.hud_perception = HUDPerception(self.perception)
+                self.perception = shared(PerceptionLayer)
+                self.hud_perception.attach(self.perception)
                 print("[WebSocket] Perception layer initialized")
             except Exception as e:
                 print(f"[WebSocket] Perception error: {e}")
@@ -942,13 +892,13 @@ class JARVISWebSocketServer:
         try:
             from jarvis.core.gesture_controller import get_gesture_action, execute_gesture_action
         except ImportError:
-            from core.gesture_controller import get_gesture_action, execute_gesture_action
+            from jarvis.core.gesture_controller import get_gesture_action, execute_gesture_action
         
         # Use shared camera instead of opening our own
         try:
             from jarvis.core.shared_camera import get_shared_camera
         except ImportError:
-            from core.shared_camera import get_shared_camera
+            from jarvis.core.shared_camera import get_shared_camera
         
         shared_cam = get_shared_camera()
         shared_cam.register("gesture")
@@ -1099,13 +1049,13 @@ class JARVISWebSocketServer:
         # Fast / Lightweight handlers
         if not getattr(self, 'news_handler', None) and NEWS_AVAILABLE:
             try:
-                self.news_handler = NewsHandler(self.hud_perception)
+                self.news_handler = shared(NewsHandler, lambda: NewsHandler(self.hud_perception))
             except Exception as e:
                 pass
         
         if not getattr(self, 'weather_handler', None) and WEATHER_AVAILABLE:
             try:
-                self.weather_handler = WeatherHandler(self.hud_perception)
+                self.weather_handler = shared(WeatherHandler, lambda: WeatherHandler(self.hud_perception))
             except Exception as e:
                 pass
         
@@ -1130,35 +1080,35 @@ class JARVISWebSocketServer:
         if HOTKEY_AVAILABLE:
             try:
                 # C-05: Pass a proper callback so hotkeys actually work
-                self.hotkey_system = HotkeySystem(
+                self.hotkey_system = shared(HotkeySystem, lambda: HotkeySystem(
                     self.hud_perception,
                     jarvis_callback=self._on_hotkey_action
-                )
+                ))
             except: pass
         
         # Reminders & Tasks 
         if REMINDER_AVAILABLE:
             try:
-                self.reminder_manager = ReminderManager(self.hud_perception)
+                self.reminder_manager = shared(ReminderManager, lambda: ReminderManager(self.hud_perception))
                 self.reminder_manager.start()
             except: pass
         
         if TASK_MANAGER_AVAILABLE:
             try:
-                self.task_manager_obj = TaskManager(self.hud_perception)
+                self.task_manager_obj = shared(TaskManager, lambda: TaskManager(self.hud_perception))
             except: pass
         
         # System control (needed for voice commands)
         if SYSTEM_CONTROL_AVAILABLE:
             try:
-                self.system_control = SystemControl(self.hud_perception)
+                self.system_control = shared(SystemControl, lambda: SystemControl(self.hud_perception))
             except Exception as e:
                 print(f"[WebSocket] System control init error: {e}")
         
         # Screenshot (needed for read_screen tool)
         if SCREENSHOT_AVAILABLE:
             try:
-                self.screenshot_handler = ScreenshotHandler(self.hud_perception)
+                self.screenshot_handler = shared(ScreenshotHandler, lambda: ScreenshotHandler(self.hud_perception))
             except Exception as e:
                 print(f"[WebSocket] Screenshot init error: {e}")
         
@@ -1190,9 +1140,11 @@ class JARVISWebSocketServer:
         def _prewarm_jarvis():
             if JARVIS_AVAILABLE:
                 try:
-                    self.jarvis = JARVISUltimate()
+                    # Build subsystems with the HUD perception and reuse every
+                    # service the server already created (see core/services.py)
+                    self.jarvis = JARVISUltimate(service_perception=self.hud_perception)
                     self.perception = self.jarvis.perception
-                    self.hud_perception = HUDPerception(self.perception)
+                    self.hud_perception.attach(self.perception)
                     # Re-apply Gemini Live flag (lost when hud_perception was recreated)
                     if getattr(self, 'live_engine', None):
                         self.hud_perception._gemini_live_active = True
@@ -1246,27 +1198,27 @@ class JARVISWebSocketServer:
                 self._brain = None
 
             deferred_modules = [
-                (EMOTION_AVAILABLE, '_emotion_detector', lambda: EmotionDetector(), "EmotionDetector"),
-                (FACE_AVAILABLE, '_face_recognition', lambda: FaceRecognition(self.hud_perception), "FaceRecognition"),
-                (GESTURE_AVAILABLE, '_gesture_controller', lambda: GestureController(self.hud_perception), "GestureController"),
-                (CHAT_HISTORY_AVAILABLE, '_chat_history', lambda: ChatHistory(self.hud_perception), "ChatHistory"),
-                (CONTEXT_MEMORY_AVAILABLE, '_context_memory', lambda: ContextMemory(), "ContextMemory"),
-                (KNOWLEDGE_AVAILABLE, '_knowledge', lambda: KnowledgeLayer(self.hud_perception), "KnowledgeLayer"),
-                (OCR_AVAILABLE, '_ocr_handler', lambda: OCRHandler(self.hud_perception), "OCR"),
-                (DICTIONARY_AVAILABLE, 'dictionary_handler', lambda: DictionaryHandler(self.hud_perception), "Dictionary"),
-                (ENTERTAINMENT_AVAILABLE, 'entertainment', lambda: JARVISEntertainment(self.hud_perception, self.knowledge), "Entertainment"),
-                (NOTES_AVAILABLE, 'smart_notes', lambda: SmartNotes(self.hud_perception), "Smart Notes"),
-                (ALARM_AVAILABLE, 'alarm_system', lambda: AlarmSystem(self.hud_perception), "Alarm"),
-                (SCREEN_CONTROL_AVAILABLE, 'screen_control', lambda: ScreenControlHandler(), "Screen Control"),
-                (WHATSAPP_AVAILABLE, 'whatsapp_handler', lambda: WhatsAppHandler(self.hud_perception), "WhatsApp"),
-                (CALENDAR_AVAILABLE, 'calendar', lambda: CalendarIntegration(self.hud_perception), "Calendar"),
-                (SOUND_EFFECTS_AVAILABLE, 'sound_effects', lambda: SoundEffects(), "Sound Effects"),
-                (PROACTIVE_AVAILABLE, 'proactive_assistant', lambda: ProactiveAssistant(self.hud_perception), "Proactive"),
-                (EMAIL_HANDLER_AVAILABLE, 'email_handler_obj', lambda: EmailHandler(self.hud_perception, getattr(self, '_knowledge', None)), "Email"),
-                (YOUTUBE_AVAILABLE, '_youtube_downloader', lambda: YouTubeDownloader(self.hud_perception), "YouTube"),
-                (HABIT_TRACKER_AVAILABLE, 'habit_tracker', lambda: HabitTracker(self.hud_perception), "Habits"),
-                (WELLNESS_AVAILABLE, 'wellness_monitor', lambda: WellnessMonitor(self.hud_perception), "Wellness"),
-                (PDF_AVAILABLE, '_pdf_handler', lambda: PDFHandler(self.hud_perception), "PDF"),
+                (EMOTION_AVAILABLE, '_emotion_detector', lambda: shared(EmotionDetector), "EmotionDetector"),
+                (FACE_AVAILABLE, '_face_recognition', lambda: shared(FaceRecognition, lambda: FaceRecognition(self.hud_perception)), "FaceRecognition"),
+                (GESTURE_AVAILABLE, '_gesture_controller', lambda: shared(GestureController, lambda: GestureController(self.hud_perception)), "GestureController"),
+                (CHAT_HISTORY_AVAILABLE, '_chat_history', lambda: shared(ChatHistory, lambda: ChatHistory(self.hud_perception)), "ChatHistory"),
+                (CONTEXT_MEMORY_AVAILABLE, '_context_memory', lambda: shared(ContextMemory), "ContextMemory"),
+                (KNOWLEDGE_AVAILABLE, '_knowledge', lambda: shared(KnowledgeLayer, lambda: KnowledgeLayer(self.hud_perception)), "KnowledgeLayer"),
+                (OCR_AVAILABLE, '_ocr_handler', lambda: shared(OCRHandler, lambda: OCRHandler(self.hud_perception)), "OCR"),
+                (DICTIONARY_AVAILABLE, 'dictionary_handler', lambda: shared(DictionaryHandler, lambda: DictionaryHandler(self.hud_perception)), "Dictionary"),
+                (ENTERTAINMENT_AVAILABLE, 'entertainment', lambda: shared(JARVISEntertainment, lambda: JARVISEntertainment(self.hud_perception, self.knowledge)), "Entertainment"),
+                (NOTES_AVAILABLE, 'smart_notes', lambda: shared(SmartNotes, lambda: SmartNotes(self.hud_perception)), "Smart Notes"),
+                (ALARM_AVAILABLE, 'alarm_system', lambda: shared(AlarmSystem, lambda: AlarmSystem(self.hud_perception)), "Alarm"),
+                (SCREEN_CONTROL_AVAILABLE, 'screen_control', lambda: shared(ScreenControlHandler), "Screen Control"),
+                (WHATSAPP_AVAILABLE, 'whatsapp_handler', lambda: shared(WhatsAppHandler, lambda: WhatsAppHandler(self.hud_perception)), "WhatsApp"),
+                (CALENDAR_AVAILABLE, 'calendar', lambda: shared(CalendarIntegration, lambda: CalendarIntegration(self.hud_perception)), "Calendar"),
+                (SOUND_EFFECTS_AVAILABLE, 'sound_effects', lambda: shared(SoundEffects), "Sound Effects"),
+                (PROACTIVE_AVAILABLE, 'proactive_assistant', lambda: shared(ProactiveAssistant, lambda: ProactiveAssistant(self.hud_perception)), "Proactive"),
+                (EMAIL_HANDLER_AVAILABLE, 'email_handler_obj', lambda: shared(EmailHandler, lambda: EmailHandler(self.hud_perception, getattr(self, '_knowledge', None))), "Email"),
+                (YOUTUBE_AVAILABLE, '_youtube_downloader', lambda: shared(YouTubeDownloader, lambda: YouTubeDownloader(self.hud_perception)), "YouTube"),
+                (HABIT_TRACKER_AVAILABLE, 'habit_tracker', lambda: shared(HabitTracker, lambda: HabitTracker(self.hud_perception)), "Habits"),
+                (WELLNESS_AVAILABLE, 'wellness_monitor', lambda: shared(WellnessMonitor, lambda: WellnessMonitor(self.hud_perception)), "Wellness"),
+                (PDF_AVAILABLE, '_pdf_handler', lambda: shared(PDFHandler, lambda: PDFHandler(self.hud_perception)), "PDF"),
                 (CLIPBOARD_AVAILABLE, '_clipboard_intelligence', lambda: getattr(self, '_init_clipboard', lambda: None)(), "Clipboard"),
             ]
             
@@ -1300,7 +1252,6 @@ class JARVISWebSocketServer:
     def _init_clipboard(self):
         """Create ClipboardIntelligence with HUD suggestion callback."""
         def _push_clipboard_suggestion(suggestion):
-            import json
             msg = json.dumps({
                 'type': 'clipboard_suggestion',
                 'suggestion': suggestion.get('suggestion', ''),
@@ -1309,7 +1260,6 @@ class JARVISWebSocketServer:
             })
             for client in getattr(self, 'clients', set()):
                 try:
-                    import asyncio
                     asyncio.run_coroutine_threadsafe(
                         client.send(msg),
                         getattr(self, '_voice_loop', None) or asyncio.get_event_loop()
@@ -1525,7 +1475,7 @@ class JARVISWebSocketServer:
     def _on_hotkey_action(self, action):
         """Handle hotkey actions from HotkeySystem"""
         if action == "shutdown":
-            import os, signal
+            import signal
             print("[HOTKEY] Shutdown requested via hotkey")
             self.running = False
             os.kill(os.getpid(), signal.SIGTERM)
@@ -1561,7 +1511,6 @@ class JARVISWebSocketServer:
                 turn_complete=True
             )
         
-        import asyncio
         asyncio.run_coroutine_threadsafe(_inject(), le._loop)
     
     async def process_message(self, websocket, data):
@@ -1931,7 +1880,6 @@ class JARVISWebSocketServer:
                 f"Say 'confirm' within {POWER_CONFIRM_WINDOW_S} seconds, or 'cancel'.")
 
     def _execute_power_action(self, action: str, title: str) -> str:
-        import subprocess
         flag = '/s' if action == 'shutdown' else '/r'
         subprocess.Popen(['shutdown', flag, '/t', '5'])
         if action == 'shutdown':
@@ -1939,163 +1887,8 @@ class JARVISWebSocketServer:
         return f"Restarting the computer in 5 seconds{maybe_title(title)}."
 
     def _try_fast_path(self, text: str):
-        """Instant execution for common commands — no routing chain."""
-        cmd = text.lower().strip()
-        import re as _re
-        title = getattr(self, 'hud_perception', None)
-        title = title.user_title if title else 'sir'
-        
-        # ── CLOSE APP (instant via taskkill) ──
-        close_match = _re.match(r'^close\s+(.+)', cmd)
-        if close_match:
-            app = close_match.group(1).strip()
-            try:
-                import subprocess
-                # Map common names to process names
-                APP_PROCESS = {
-                    'whatsapp': 'WhatsApp', 'chrome': 'chrome',
-                    'brave': 'brave', 'firefox': 'firefox',
-                    'spotify': 'Spotify', 'discord': 'Discord',
-                    'notepad': 'notepad', 'calculator': 'Calculator',
-                    'edge': 'msedge', 'vscode': 'Code', 'vs code': 'Code',
-                    'telegram': 'Telegram', 'explorer': 'explorer',
-                }
-                proc = APP_PROCESS.get(app, app)
-                from jarvis.core.safe_exec import kill_process, is_safe_app_name
-                if not is_safe_app_name(proc):
-                    return f"I can't close '{app}', {title}. That isn't a valid app name."
-                kill_process(proc)
-                print(f"[FAST] Closed {app}")
-                return f"Closed {app}, {title}."
-            except Exception:
-                return None  # Fall through to normal pipeline
-        
-        # ── RESUME/PAUSE VIDEO (space key, not media keys) ──
-        if any(w in cmd for w in ['resume video', 'resume the video', 'play video',
-                                   'pause video', 'pause the video', 'resume youtube',
-                                   'play youtube', 'pause youtube']):
-            try:
-                import pyautogui
-                pyautogui.press('space')  # Space = play/pause in YouTube
-                action = 'Resumed' if 'resume' in cmd or 'play' in cmd else 'Paused'
-                print(f"[FAST] {action} video (space key)")
-                return f"{action} the video, {title}."
-            except Exception:
-                return None
-        
-        # ── SCREENSHOT (instant) ──
-        if 'screenshot' in cmd or 'screen capture' in cmd:
-            try:
-                import pyautogui
-                from pathlib import Path
-                import datetime
-                ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-                path = Path.home() / 'Pictures' / f'jarvis_screenshot_{ts}.png'
-                pyautogui.screenshot(str(path))
-                print(f"[FAST] Screenshot saved: {path}")
-                return f"Screenshot saved, {title}."
-            except Exception:
-                return None
-        
-        # ── VOLUME (instant) ──
-        if 'volume' in cmd:
-            if self.system_control:
-                if 'up' in cmd or 'increase' in cmd:
-                    self.system_control.volume_up()
-                    return f"Volume up, {title}."
-                elif 'down' in cmd or 'decrease' in cmd:
-                    self.system_control.volume_down()
-                    return f"Volume down, {title}."
-                elif 'mute' in cmd:
-                    self.system_control.mute_volume()
-                    return f"Muted, {title}."
-                num = _re.search(r'(\d+)', cmd)
-                if num:
-                    self.system_control.set_volume(int(num.group(1)))
-                    return f"Volume set to {num.group(1)}%, {title}."
-        
-        # ── BRIGHTNESS (instant) ──
-        if 'brightness' in cmd:
-            if self.system_control:
-                if 'up' in cmd or 'increase' in cmd:
-                    self.system_control.brightness_up()
-                    return f"Brightness up, {title}."
-                elif 'down' in cmd or 'decrease' in cmd:
-                    self.system_control.brightness_down()
-                    return f"Brightness down, {title}."
-                num = _re.search(r'(\d+)', cmd)
-                if num:
-                    self.system_control.set_brightness(int(num.group(1)))
-                    return f"Brightness set to {num.group(1)}%, {title}."
-        
-        # ── PLAY IN YOUTUBE (instant — prevents Spotify conflict) ──
-        yt_match = _re.search(r'play\s+(.+?)\s+(?:in|on)\s+youtube', cmd)
-        if yt_match:
-            query = yt_match.group(1).strip()
-            try:
-                import urllib.parse, webbrowser, threading
-                url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
-                webbrowser.open(url)
-                # Auto-click first video after page loads
-                def _auto_play():
-                    import time, pyautogui
-                    time.sleep(3.5)
-                    pyautogui.press('tab', presses=8, interval=0.05)
-                    time.sleep(0.2)
-                    pyautogui.press('enter')
-                threading.Thread(target=_auto_play, daemon=True).start()
-                print(f"[FAST] YouTube search: {query}")
-                return f"Playing {query} on YouTube, {title}."
-            except Exception:
-                return None
-        
-        # ── OPEN APP (instant) ──
-        open_match = _re.match(r'^(?:open|launch|start)\s+(.+)', cmd)
-        if open_match:
-            app = open_match.group(1).strip()
-            try:
-                # Try AppSwitcher first, then fallback to os.startfile
-                switcher = getattr(self, 'app_switcher', None)
-                if switcher and hasattr(switcher, 'open_app'):
-                    switcher.open_app(app)
-                else:
-                    from jarvis.core.safe_exec import start_app, is_safe_app_name
-                    if not is_safe_app_name(app):
-                        return f"I can't open '{app}', {title}. That isn't a valid app name."
-                    start_app(app)
-                print(f"[FAST] Opened {app}")
-                return f"Opening {app}, {title}."
-            except Exception:
-                return None
-        
-        # ── TIME (instant) ──
-        if cmd in ['time', 'what time is it', 'what is the time', 'tell me the time', "what's the time"]:
-            from datetime import datetime
-            now = datetime.now().strftime('%I:%M %p')
-            return f"It's {now}, {title}."
-        
-        # ── DATE (instant) ──
-        if cmd in ['date', 'what date is it', "what's the date", 'what is the date', "what's today's date"]:
-            from datetime import datetime
-            now = datetime.now().strftime('%A, %B %d, %Y')
-            return f"It's {now}, {title}."
-        
-        # ── STOP / PAUSE / RESUME VIDEO (instant) ──
-        if any(p in cmd for p in ['stop video', 'pause video', 'stop the video', 'pause the video',
-                                   'resume video', 'resume the video', 'unpause',
-                                   'stop playing', 'stop music', 'pause music',
-                                   'play pause', 'play/pause']):
-            try:
-                import pyautogui
-                pyautogui.press('space')
-                print(f"[FAST] Toggled playback")
-                if 'resume' in cmd or 'unpause' in cmd:
-                    return f"Resuming playback, {title}."
-                return f"Paused, {title}."
-            except Exception:
-                return None
-        
-        return None  # No fast path — use normal pipeline
+        """Instant execution for common commands (see fast_path.py)."""
+        return try_fast_path(self, text)
 
     def _split_compound_command(self, text: str) -> list:
         """Split compound commands — delegates to command_processor module."""
@@ -2146,6 +1939,19 @@ class JARVISWebSocketServer:
         # SHUTDOWN: Actually exit the JARVIS process
         # Uses word boundaries to avoid false matches (e.g. 'perplexity' has 'exit')
         # ══════════════════════════════════════════════════════════════════
+        # ── PENDING CLARIFICATION ("I'm 60% sure… Should I proceed?") ──
+        clarify = getattr(self, '_pending_clarify', None)
+        if clarify:
+            self._pending_clarify = None
+            original, expires_at = clarify
+            if time.time() <= expires_at:
+                if CONFIRM_RE.match(cmd):
+                    return (self._route_through_router(original, force=True)
+                            or f"I couldn't complete that{maybe_title(title)}.")
+                if CANCEL_RE.match(cmd):
+                    return f"Okay, never mind{maybe_title(title)}."
+            # anything else: treat as a new command
+
         # ── PENDING PC SHUTDOWN/RESTART: needs an explicit confirmation ──
         pending = self._get_pending_power_action()
         if pending:
@@ -2164,7 +1970,7 @@ class JARVISWebSocketServer:
 
         # Exit JARVIS only when the whole command is an exit command.
         if is_jarvis_exit_command(cmd):
-            import os, signal
+            import signal
             farewell = f"Shutting down all systems. Until next time{maybe_title(title)}."
             self._silent_response = True  # Don't speak the farewell
             # Schedule actual exit after response is sent
@@ -2235,7 +2041,6 @@ class JARVISWebSocketServer:
         # Chat History — classifier thinks this is 'story'
         if ('chat history' in cmd or 'show history' in cmd or 'conversation history' in cmd) and self.chat_history:
             if 'search' in cmd:
-                import re
                 match = re.search(r'search\s+(?:for\s+)?(.+)', cmd, re.I)
                 if match:
                     query = match.group(1).strip()
@@ -2270,7 +2075,7 @@ class JARVISWebSocketServer:
                 target = target.replace(p, '', 1)
             target = target.strip()
             try:
-                import pyautogui, subprocess
+                import pyautogui
                 result = subprocess.run(
                     ['powershell', '-command',
                      f'(Get-Process | Where-Object {{$_.MainWindowTitle -match "{target}"}} | Select-Object -First 1).MainWindowTitle'],
@@ -2323,7 +2128,6 @@ class JARVISWebSocketServer:
         open_match = _re.match(r'^(?:open|launch|start|run)\s+(.+)', cmd, _re.I)
         if open_match:
             app_name = open_match.group(1).strip()
-            import os, subprocess
             
             # Direct app map — no ML, no API, no lag
             DIRECT_APPS = {
@@ -2405,7 +2209,7 @@ class JARVISWebSocketServer:
                 # Search Start Menu
                 try:
                     from jarvis.core.app_finder import AppFinder
-                    finder = AppFinder()
+                    finder = shared(AppFinder)
                     success = finder.open_app(app_lower)
                     if success:
                         return f"Opening {app_name}, {title}."
@@ -2417,7 +2221,6 @@ class JARVISWebSocketServer:
         # Habits — classifier thinks this is 'conversation'
         if 'habit' in cmd and self.habit_tracker:
             if 'create' in cmd or 'add' in cmd or 'new' in cmd:
-                import re
                 match = re.search(r'(?:create|add|new)\s+habit\s+(.+?)(?:\s+every\s+|\s+daily|\s+hourly|$)', cmd, re.I)
                 if match:
                     desc = match.group(1).strip()
@@ -2436,7 +2239,6 @@ class JARVISWebSocketServer:
         # Tasks — classifier thinks this is 'conversation'
         if ('task' in cmd or 'todo' in cmd or 'to do' in cmd) and self.task_manager_obj:
             if 'add' in cmd or 'create' in cmd or 'new' in cmd:
-                import re
                 match = re.search(r'(?:add|create|new)\s+(?:a\s+)?task\s+(.+)', cmd, re.I)
                 if match:
                     desc = match.group(1).strip()
@@ -2572,7 +2374,6 @@ class JARVISWebSocketServer:
             import google.genai as _genai
             _api_key = getattr(self, '_gemini_key', None)
             if not _api_key:
-                import os
                 _api_key = os.getenv('GEMINI_API_KEY', '')
                 self._gemini_key = _api_key
             if _api_key:
@@ -2594,8 +2395,12 @@ class JARVISWebSocketServer:
         # Final fallback
         return await self._fallback_process(command, websocket)
     
-    def _route_through_router(self, command: str) -> str:
-        """Route command through direct handlers first, then IntentRouter"""
+    def _route_through_router(self, command: str, force: bool = False) -> str:
+        """Route command through direct handlers first, then IntentRouter.
+
+        force=True skips the brain's clarification question (the user already
+        answered 'yes' to it).
+        """
         
         try:
             title = self.hud_perception.user_title
@@ -2619,19 +2424,35 @@ class JARVISWebSocketServer:
                 # keyword classifier, which speaks HANDLER_MAP's names natively.
                 from jarvis.core.intent_handlers import resolve_brain_intent
                 intent_name, entities = resolve_brain_intent(brain_result.action,
-                                                             brain_result.entities)
+                                                             brain_result.entities, command)
                 # Names the router serves itself, outside HANDLER_MAP
                 router_native = {'list_alarms', 'read_clipboard', 'next', 'previous', 'scroll'}
+                kw_intent, kw_entities = classify_intent(command) if ROUTER_AVAILABLE else (None, {})
                 if ROUTER_AVAILABLE and intent_name not in HANDLER_MAP and intent_name not in router_native:
-                    kw_intent, kw_entities = classify_intent(command)
                     if kw_intent in HANDLER_MAP:
                         intent_name, entities = kw_intent, kw_entities
+                elif kw_intent == intent_name and kw_entities:
+                    # Both layers agree: fill entities the ML extractor missed
+                    # (e.g. the city in "weather in london") from the rule-based ones
+                    entities = {**kw_entities, **entities}
                 if jlog: jlog.intent(f"BRAIN:{intent_name}", entities=entities)
                 else: print(f"[WebSocket] BRAIN Intent: {intent_name}, Entities: {entities}, Conf: {brain_result.confidence:.2f}")
 
-                # If decision engine says CLARIFY or REFUSE, return that message
-                if brain_result.decision_type in ('clarify', 'refuse') and brain_result.decision_message:
+                if brain_result.decision_type == 'refuse' and brain_result.decision_message:
                     return brain_result.decision_message
+                # CLARIFY: the brain is unsure. If the rule-based keyword classifier
+                # independently names a specific handler, that corroborates it:
+                # proceed. Otherwise ask, and remember the command so "yes" runs it
+                # (the question used to be a dead end).
+                if brain_result.decision_type == 'clarify' and brain_result.decision_message and not force:
+                    kw_intent, kw_entities = classify_intent(command) if ROUTER_AVAILABLE else (None, {})
+                    if kw_intent == intent_name:
+                        pass  # corroborated
+                    elif kw_intent in HANDLER_MAP and kw_intent != 'conversation':
+                        intent_name, entities = kw_intent, kw_entities
+                    else:
+                        self._pending_clarify = (command, time.time() + POWER_CONFIRM_WINDOW_S)
+                        return brain_result.decision_message
                 # If decision engine says WARN, prepend warning
                 if brain_result.decision_type == 'warn' and brain_result.decision_message:
                     # Store warning to prepend to final response
@@ -2702,7 +2523,6 @@ class JARVISWebSocketServer:
                     return result if isinstance(result, str) else f"Volume muted, {title}."
                 else:
                     # No specific action, try to extract number from command
-                    import re
                     match = re.search(r'(\d+)\s*%?', command)
                     if match:
                         level = int(match.group(1))
@@ -2726,7 +2546,6 @@ class JARVISWebSocketServer:
                     result = self.system_control.brightness_down()
                     return result if isinstance(result, str) else f"Brightness decreased, {title}."
                 else:
-                    import re
                     match = re.search(r'(\d+)\s*%?', command)
                     if match:
                         level = int(match.group(1))
@@ -2737,8 +2556,7 @@ class JARVISWebSocketServer:
             
             # --- ALARM ---
             if intent_name == 'set_alarm' and self.alarm_system:
-                import re
-                from datetime import datetime, timedelta
+                from datetime import timedelta
                 cmd_lower = command.lower()
                 
                 # Handle relative time: "5 minutes from now", "in 10 minutes"
@@ -2755,7 +2573,14 @@ class JARVISWebSocketServer:
                     result = self.alarm_system.set_alarm(time_str, label)
                     return result if isinstance(result, str) else f"Alarm set for {time_str} ({amount} {'hours' if 'hour' in unit else 'minutes'} from now), {title}."
                 
-                # Handle absolute time from entities
+                # Handle absolute time from entities. The ML entity extractor
+                # gives time='07:00' (24h); the keyword classifier gives hour/minute.
+                if entities.get('hour') is None and entities.get('time'):
+                    tm = re.match(r'(\d{1,2}):(\d{2})', str(entities['time']))
+                    if tm:
+                        h24 = int(tm.group(1))
+                        entities = {**entities, 'hour': (h24 % 12) or 12, 'minute': int(tm.group(2)),
+                                    'period': 'PM' if h24 >= 12 else 'AM'}
                 hour = entities.get('hour')
                 minute = entities.get('minute', 0)
                 period = entities.get('period', '')
@@ -2780,7 +2605,7 @@ class JARVISWebSocketServer:
                 if app_name:
                     try:
                         from jarvis.core.app_finder import AppFinder
-                        finder = AppFinder()
+                        finder = shared(AppFinder)
                         success = finder.open_app(app_name)
                         if success:
                             self.state_manager.active_app = app_name.lower()
@@ -2826,8 +2651,8 @@ class JARVISWebSocketServer:
             if intent_name in ('play_music', 'pause_music', 'next_track', 'previous_track'):
                 if jlog: jlog.route('music', intent_name)
                 try:
-                    from core.music_handler import MusicHandler
-                    mh = MusicHandler()
+                    from jarvis.core.music_handler import MusicHandler
+                    mh = shared(MusicHandler)
                     result = mh.handle_command(command)
                     if result:
                         return result
@@ -2835,7 +2660,7 @@ class JARVISWebSocketServer:
                     print(f"[WebSocket] MusicHandler error: {e}")
                 # Fallback: use media keys via ctypes
                 try:
-                    from core.music_handler import MediaKeyController
+                    from jarvis.core.music_handler import MediaKeyController
                     mk = MediaKeyController()
                     if intent_name == 'play_music':
                         mk.play_pause()
@@ -2868,7 +2693,6 @@ class JARVISWebSocketServer:
             # --- READ CLIPBOARD ---
             if intent_name == 'read_clipboard':
                 try:
-                    import subprocess
                     text = subprocess.run(['powershell', '-command', 'Get-Clipboard'],
                                          capture_output=True, text=True, timeout=5).stdout.strip()
                     if text:

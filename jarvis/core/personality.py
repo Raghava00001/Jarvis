@@ -286,7 +286,6 @@ class JARVISPersonalityCore:
         if self.state:
             try:
                 s = self.state.get()
-                from .state_manager import UserMood
                 if s.user_mood == UserMood.TIRED and intent in [
                     "search", "search_web", "open_app", "ai_search"
                 ]:

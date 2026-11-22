@@ -18,7 +18,6 @@ project_root = current_dir.parent.parent
 jarvis_root = current_dir.parent
 
 sys.path.insert(0, str(project_root))
-sys.path.insert(0, str(jarvis_root))
 
 
 

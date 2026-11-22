@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
-    from .gesture_controller import GestureController, get_gesture_action, get_gesture_controller
+    from jarvis.core.gesture_controller import GestureController, get_gesture_action, get_gesture_controller
 except ImportError:
     GestureController = None
     get_gesture_action = None
@@ -37,7 +37,7 @@ except ImportError:
     get_emotion_fusion = lambda: None
 
 try:
-    from .face_recognition_auth import FaceRecognition
+    from jarvis.core.face_recognition_auth import FaceRecognition
 except ImportError:
     FaceRecognition = None
 

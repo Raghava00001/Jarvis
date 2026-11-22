@@ -18,10 +18,20 @@ HEAVY = ("torch", "tensorflow", "transformers", "sentence_transformers", "whispe
 
 def test_server_import_and_init_load_no_heavy_ml():
     """Run in a fresh interpreter so other tests' imports can't hide a regression."""
+    # The Phase 2 background thread (JARVISDeferredInit) is SUPPOSED to load the
+    # models; hold it back so we measure only the blocking startup path.
     code = (
-        "import sys, os; sys.path.insert(0, '.'); os.environ['JARVIS_USE_GEMINI_LIVE'] = '0'\n"
+        "import sys, os, threading; sys.path.insert(0, '.'); os.environ['JARVIS_USE_GEMINI_LIVE'] = '0'\n"
+        "held = []\n"
+        "_start = threading.Thread.start\n"
+        "def start(self):\n"
+        "    if self.name == 'JARVISDeferredInit':\n"
+        "        held.append(self); return\n"
+        "    return _start(self)\n"
+        "threading.Thread.start = start\n"
         "import jarvis.gui.websocket_server as w\n"
         "w.JARVISWebSocketServer()\n"
+        "print('DEFERRED=' + str(len(held)))\n"
         f"print('HEAVY=' + ','.join(m for m in {HEAVY!r} if m in sys.modules))\n"
     )
     out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True,
@@ -29,6 +39,7 @@ def test_server_import_and_init_load_no_heavy_ml():
     line = next((l for l in out.stdout.splitlines() if l.startswith("HEAVY=")), None)
     assert line is not None, out.stdout[-2000:] + out.stderr[-2000:]
     assert line == "HEAVY=", f"heavy ML imported at startup: {line}"
+    assert "DEFERRED=1" in out.stdout, "Phase 2 background warm-up thread no longer started"
 
 
 def test_availability_flags_still_detect_installed_packages():

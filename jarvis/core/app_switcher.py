@@ -7,6 +7,7 @@ App Switcher - Hands-Free Window Control
 - Minimize/maximize/close windows
 """
 
+from jarvis.core.services import shared
 import time
 from typing import Optional, List, Dict, Tuple
 from dataclasses import dataclass, field
@@ -352,5 +353,5 @@ def get_app_switcher(perception=None) -> AppSwitcher:
     """Get or create app switcher instance"""
     global _switcher_instance
     if _switcher_instance is None:
-        _switcher_instance = AppSwitcher(perception)
+        _switcher_instance = shared(AppSwitcher, lambda: AppSwitcher(perception))
     return _switcher_instance

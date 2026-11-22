@@ -13,7 +13,7 @@ from enum import Enum
 try:
     from .state_manager import StateManager, UserMood, get_state_manager
 except ImportError:
-    from core.state_manager import StateManager, UserMood, get_state_manager
+    from jarvis.core.state_manager import StateManager, UserMood, get_state_manager
 
 
 class DecisionPriority(Enum):
@@ -93,7 +93,6 @@ class DecisionEngine:
     
     def _track_intent(self, intent: str):
         """Track recent intents for repetition/rapid-fire detection."""
-        from datetime import datetime
         self._recent_intents.append((datetime.now(), intent))
         self._recent_intents = self._recent_intents[-10:]
         
@@ -207,8 +206,19 @@ class DecisionEngine:
                 
         return None
         
+    # Intents with no side effects: answering a slightly-unsure "hello" with
+    # "I'm 56% sure I understand. Should I proceed?" is worse than just answering.
+    LOW_RISK_INTENTS = frozenset({
+        "greeting", "goodbye", "help", "thank_you", "get_time", "get_date",
+        "tell_joke", "tell_story", "ask_question", "get_calendar", "list_alarms",
+        "weather", "news", "system_status", "identity", "creator", "how_are_you",
+        "poem", "dictionary", "list_reminders", "recall",
+    })
+
     def _consider_confidence(self, intent: str, confidence: float) -> Optional[Decision]:
         """Make decisions based on classification confidence"""
+        if intent in self.LOW_RISK_INTENTS:
+            return None
         
         # Very low confidence
         if confidence < 0.50:

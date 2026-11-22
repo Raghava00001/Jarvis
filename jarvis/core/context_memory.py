@@ -6,6 +6,7 @@ Context Memory - Unified Memory System
 - Entity resolution and pronoun handling
 """
 
+from jarvis.core.services import shared
 import sqlite3
 import json
 import re
@@ -485,5 +486,5 @@ _memory = None
 def get_context_memory(perception=None) -> ContextMemory:
     global _memory
     if _memory is None:
-        _memory = ContextMemory(perception)
+        _memory = shared(ContextMemory, lambda: ContextMemory(perception))
     return _memory

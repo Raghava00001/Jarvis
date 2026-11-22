@@ -13,8 +13,8 @@ from pathlib import Path
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from gui.advanced_hud import HUD, State as JARVISState, Theme as HUDColors
-from gui.waveform_visualizer import AudioWaveformVisualizer, CircularWaveform, VoiceActivityIndicator
+from jarvis.gui.advanced_hud import HUD, State as JARVISState, Theme as HUDColors
+from jarvis.gui.waveform_visualizer import AudioWaveformVisualizer, CircularWaveform, VoiceActivityIndicator
 
 
 class IntegratedJARVISHUD:
@@ -357,7 +357,7 @@ def run_integrated_hud():
         # FPS display
         font = pygame.font.Font(None, 16)
         fps_text = font.render(f"FPS: {int(clock.get_fps())}", True, HUDColors.TEXT_DIM)
-        screen.blit(fps_text, (10, self.height - 20) if hasattr(self, 'height') else (10, 880))
+        screen.blit(fps_text, (10, screen.get_height() - 20))
         
         pygame.display.flip()
         clock.tick(60)

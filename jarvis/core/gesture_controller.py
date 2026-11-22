@@ -7,6 +7,7 @@ Uses velocity-based detection for natural feel.
 Updated for MediaPipe Tasks API (0.10.x+)
 """
 
+from jarvis.core.services import shared
 import cv2
 import numpy as np
 import os
@@ -491,5 +492,5 @@ _controller = None
 def get_gesture_controller(perception=None) -> GestureController:
     global _controller
     if _controller is None:
-        _controller = GestureController(perception)
+        _controller = shared(GestureController, lambda: GestureController(perception))
     return _controller

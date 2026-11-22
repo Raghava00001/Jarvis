@@ -3,6 +3,7 @@ JARVIS Intent Handlers
 Dedicated handlers for each command type - extracted from _fallback_process
 """
 
+from jarvis.core.services import shared
 from datetime import datetime
 from typing import Any, Dict
 import random
@@ -10,7 +11,7 @@ import random
 try:
     from jarvis.core.intent_router import HandlerResult, Intent
 except ImportError:
-    from core.intent_router import HandlerResult, Intent
+    from jarvis.core.intent_router import HandlerResult, Intent
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -229,88 +230,6 @@ def handle_system_status(cmd: str, entities: Dict, context: Any) -> HandlerResul
 # ═══════════════════════════════════════════════════════════════
 # ENTERTAINMENT HANDLERS - Use Gemini AI
 # ═══════════════════════════════════════════════════════════════
-
-def handle_joke(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle joke requests - uses Gemini AI"""
-    knowledge = context.get('knowledge') if context else None
-    
-    if knowledge and hasattr(knowledge, 'answer_question'):
-        try:
-            prompt = """Tell me ONE funny joke. Requirements:
-            - Be creative and original
-            - Can be tech humor, wordplay, or observational comedy
-            - Keep it short (1-3 sentences max)
-            - Just the joke, no intro like "here's a joke"
-            - Make it actually funny, not cringe"""
-            joke = knowledge.answer_question(prompt)
-            if joke and len(joke) > 10:
-                return HandlerResult(success=True, response=joke)
-        except Exception as e:
-            print(f"[HANDLERS] Joke generation error: {e}")
-    
-    # Fallback
-    fallback_jokes = [
-        "Why do programmers prefer dark mode? Because light attracts bugs.",
-        "A SQL query walks into a bar and asks: Can I join you?",
-        "Why did the developer go broke? Because he used up all his cache."
-    ]
-    return HandlerResult(success=True, response=random.choice(fallback_jokes))
-
-
-def handle_story(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle story requests with genre support - uses Gemini AI"""
-    knowledge = context.get('knowledge') if context else None
-    cmd_lower = cmd.lower()
-    
-    # Detect genre
-    genre = "adventure"
-    if 'horror' in cmd_lower or 'scary' in cmd_lower:
-        genre = "horror"
-    elif 'funny' in cmd_lower or 'comedy' in cmd_lower:
-        genre = "comedy"
-    elif 'romance' in cmd_lower:
-        genre = "romance"
-    elif 'bedtime' in cmd_lower:
-        genre = "bedtime"
-    
-    if knowledge and hasattr(knowledge, 'answer_question'):
-        try:
-            prompt = f"""Tell a short {genre} story (2-3 paragraphs).
-            Make it engaging with vivid descriptions.
-            For horror: build suspense and atmosphere.
-            For comedy: include humor and a funny twist.
-            For romance: sweet and heartwarming.
-            Just tell the story directly, no intro."""
-            story = knowledge.answer_question(prompt)
-            if story and len(story) > 50:
-                return HandlerResult(success=True, response=story)
-        except Exception as e:
-            print(f"[HANDLERS] Story generation error: {e}")
-    
-    return HandlerResult(
-        success=True,
-        response="Once upon a time, in a world of code and algorithms, there lived a programmer who dreamed of creating the perfect AI assistant..."
-    )
-
-
-def handle_poem(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle poem requests - uses Gemini AI"""
-    knowledge = context.get('knowledge') if context else None
-    
-    if knowledge and hasattr(knowledge, 'answer_question'):
-        try:
-            prompt = "Write a short 4-6 line poem. Make it thoughtful and meaningful. Just the poem, no intro."
-            poem = knowledge.answer_question(prompt)
-            if poem and len(poem) > 20:
-                return HandlerResult(success=True, response=poem)
-        except Exception as e:
-            print(f"[HANDLERS] Poem generation error: {e}")
-    
-    return HandlerResult(
-        success=True,
-        response="Roses are red, violets are blue, I'm an AI here to help you."
-    )
-
 
 # ═══════════════════════════════════════════════════════════════
 # BATCH 2 HANDLERS - News, Screenshot, Notes, Apps
@@ -589,11 +508,14 @@ def handle_search(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     """Handle web search"""
     import webbrowser
     title = context.get('title', 'sir') if context else 'sir'
-    query = entities.get('query', '')
-    
+    import re as _re
+    from urllib.parse import quote_plus
+    # "search for X" used to search for "for X"
+    query = _re.sub(r"^(?:for|about|up|on)\s+", "", (entities.get('query') or '').strip(), flags=_re.I)
+
     if query:
         try:
-            webbrowser.open(f"https://www.google.com/search?q={query}")
+            webbrowser.open(f"https://www.google.com/search?q={quote_plus(query)}")
             return HandlerResult(success=True, response=f"Searching for '{query}', {title}.")
         except Exception as e:
             print(f"[HANDLERS] Search error: {e}")
@@ -691,7 +613,7 @@ def handle_set_reminder(cmd: str, entities: Dict, context: Any) -> HandlerResult
                 
                 # Format time for response
                 time_str = remind_at.strftime("%I:%M %p")
-                from datetime import datetime, timedelta
+                from datetime import timedelta
                 if remind_at.date() == datetime.now().date():
                     when = f"today at {time_str}"
                 elif remind_at.date() == (datetime.now() + timedelta(days=1)).date():
@@ -805,10 +727,10 @@ def _get_entertainment(context):
             try:
                 from jarvis.core.entertainment import JARVISEntertainment
             except ImportError:
-                from core.entertainment import JARVISEntertainment
+                from jarvis.core.entertainment import JARVISEntertainment
             perception = context.get('perception') if context else None
             knowledge = context.get('knowledge') if context else None
-            _entertainment = JARVISEntertainment(perception, knowledge)
+            _entertainment = shared(JARVISEntertainment, lambda: JARVISEntertainment(perception, knowledge))
         except Exception as e:
             print(f"[HANDLERS] Entertainment init error: {e}")
             return None
@@ -1102,14 +1024,20 @@ def handle_send_message(cmd: str, entities: Dict, context: Any) -> HandlerResult
     if not whatsapp_handler:
         # Fallback to importing and running directly if not in context
         try:
-            from core.whatsapp_handler import WhatsAppHandler
-            whatsapp_handler = WhatsAppHandler(context.get('perception') if context else None)
+            from jarvis.core.whatsapp_handler import WhatsAppHandler
+            whatsapp_handler = shared(WhatsAppHandler, lambda: WhatsAppHandler(context.get('perception') if context else None))
         except ImportError:
             return HandlerResult(success=False, response=f"WhatsApp automation is not available, {title}.")
             
-    contact = entities.get('contact')
-    message = entities.get('message')
-    
+    import re as _re
+    # "send a whatsapp to dad" gave contact="to dad" ("Message sent to to dad")
+    contact = _re.sub(r"^(?:to|for)\s+", "", (entities.get('contact') or '').strip(), flags=_re.I)
+    message = (entities.get('message') or '').strip()
+    if not contact:
+        return HandlerResult(success=False, response=f"Who should I message, {title}?")
+    if not message:
+        return HandlerResult(success=False, response=f"What should I say to {contact}, {title}?")
+
     result_text = whatsapp_handler.send_message(contact, message)
     return HandlerResult(success=True, response=result_text)
 
@@ -1126,7 +1054,7 @@ def handle_ocr(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     if not ocr_handler:
         try:
             from jarvis.core.ocr_handler import OCRHandler
-            ocr_handler = OCRHandler()
+            ocr_handler = shared(OCRHandler)
         except ImportError:
             return HandlerResult(success=False, response=f"OCR is not available, {title}. Please install pytesseract.")
     
@@ -1149,11 +1077,16 @@ def handle_screen_control(cmd: str, entities: Dict, context: Any) -> HandlerResu
     title = context.get('title', 'sir') if context else 'sir'
     
     try:
-        from jarvis.core.screen_control import ScreenController
-        controller = ScreenController()
-        raw_text = entities.get('raw_text', cmd)
-        result = controller.execute(raw_text)
-        return HandlerResult(success=True, response=result or f"Done, {title}.")
+        # The class is ScreenControlHandler; this used to import a non-existent
+        # ScreenController, so voice screen control always failed.
+        from jarvis.core.screen_control import ScreenControlHandler
+        controller = shared(ScreenControlHandler)
+        raw_text = entities.get('raw_text') or cmd
+        result = controller.handle(raw_text, entities)
+        if not result or result.startswith("I didn't understand"):
+            # let the router try other paths instead of answering with a non-action
+            return HandlerResult(success=False, response=f"I'm not sure which screen action you mean, {title}.")
+        return HandlerResult(success=True, response=result)
     except ImportError:
         return HandlerResult(success=False, response=f"Screen control is not available, {title}.")
     except Exception as e:
@@ -1167,7 +1100,7 @@ def handle_habit(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     
     try:
         from jarvis.core.habit_tracker import HabitTracker
-        tracker = HabitTracker()
+        tracker = shared(HabitTracker)
         
         cmd_lower = cmd.lower()
         if 'list' in cmd_lower or 'show' in cmd_lower or 'my habits' in cmd_lower:
@@ -1199,7 +1132,7 @@ def handle_email(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     
     try:
         from jarvis.core.email_handler import EmailHandler
-        email_handler = EmailHandler()
+        email_handler = shared(EmailHandler)
         
         cmd_lower = cmd.lower()
         if 'send' in cmd_lower:
@@ -1224,7 +1157,7 @@ def handle_calendar(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     
     try:
         from jarvis.core.calendar_manager import CalendarManager
-        cal = CalendarManager()
+        cal = shared(CalendarManager)
         
         cmd_lower = cmd.lower()
         if 'today' in cmd_lower or 'events' in cmd_lower or 'schedule' in cmd_lower:
@@ -1359,9 +1292,21 @@ BRAIN_INTENT_ALIASES = {
 }
 
 
-def resolve_brain_intent(intent: str, entities: Dict = None):
-    """Translate a BrainAdapter intent to its HANDLER_MAP name, filling default entities."""
+def _explicit_search(text: str) -> bool:
+    import re as _re
+    return bool(_re.match(r"^\s*(?:please\s+)?(?:search|google|look\s+up|find|browse)\b", text, _re.I))
+
+
+def resolve_brain_intent(intent: str, entities: Dict = None, text: str = ""):
+    """Translate a BrainAdapter intent to its HANDLER_MAP name, filling default entities.
+
+    search_web only opens a browser search when the user asked to search
+    ("search for…", "google…"). A plain question ("what is quantum computing")
+    goes to the conversation handler, which answers it.
+    """
     entities = dict(entities or {})
+    if intent == "search_web" and text and not _explicit_search(text):
+        return "conversation", entities
     target, defaults = BRAIN_INTENT_ALIASES.get(intent, (intent, {}))
     for key, value in defaults.items():
         entities.setdefault(key, value)

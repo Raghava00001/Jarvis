@@ -4,54 +4,55 @@ Integrates all layers into a unified system
 Enhanced with emotion detection, wellness monitoring, entertainment, and more
 """
 
+from jarvis.core.services import shared
 import sys
 import time
 import threading
 from pathlib import Path
 
-from core.perception import PerceptionLayer
-from core.understanding import UnderstandingLayer
-from core.action import ActionLayer
-from core.knowledge import KnowledgeLayer
-from core.learning import LearningLayer
-from core.task_manager import TaskManager
-from core.news_handler import NewsHandler
-from core.system_control import SystemControl
-from core.habit_tracker import HabitTracker
-from core.hotkey_system import HotkeySystem
-from core.alarm_system import AlarmSystem
-from core.whatsapp_handler import WhatsAppHandler
-from core.calendar_integration import CalendarIntegration
-from core.email_handler import EmailHandler
-from core.context_memory import ContextMemory
-from core.proactive_assistant import ProactiveAssistant
+from jarvis.core.perception import PerceptionLayer
+from jarvis.core.understanding import UnderstandingLayer
+from jarvis.core.action import ActionLayer
+from jarvis.core.knowledge import KnowledgeLayer
+from jarvis.core.learning import LearningLayer
+from jarvis.core.task_manager import TaskManager
+from jarvis.core.news_handler import NewsHandler
+from jarvis.core.system_control import SystemControl
+from jarvis.core.habit_tracker import HabitTracker
+from jarvis.core.hotkey_system import HotkeySystem
+from jarvis.core.alarm_system import AlarmSystem
+from jarvis.core.whatsapp_handler import WhatsAppHandler
+from jarvis.core.calendar_integration import CalendarIntegration
+from jarvis.core.email_handler import EmailHandler
+from jarvis.core.context_memory import ContextMemory
+from jarvis.core.proactive_assistant import ProactiveAssistant
 
 # New enhanced modules
-from core.emotion_detector import EmotionDetector
-from core.wellness_monitor import WellnessMonitor
-from core.entertainment import JARVISEntertainment
-from core.weather_handler import WeatherHandler
-from core.dictionary_handler import DictionaryHandler
-from core.screenshot_handler import ScreenshotHandler
-from core.system_status import SystemStatus
-from core.chat_history import ChatHistory
-from core.youtube_downloader import YouTubeDownloader
-from core.ocr_handler import OCRHandler
-from core.pdf_handler import PDFHandler
-from core.screen_control import ScreenControlHandler
-from core.settings_manager import SettingsManager, HelpSystem
-from core.app_finder import AppFinder
-from core.app_switcher import AppSwitcher
-from core.face_recognition_auth import FaceRecognition, UserType
-from core.smart_notes import SmartNotes
-from core.reminder_manager import ReminderManager
-from core.calendar_manager import CalendarManager
-from core.clipboard_memory import ClipboardMemory
-from core.workflow_manager import WorkflowManager
+from jarvis.core.emotion_detector import EmotionDetector
+from jarvis.core.wellness_monitor import WellnessMonitor
+from jarvis.core.entertainment import JARVISEntertainment
+from jarvis.core.weather_handler import WeatherHandler
+from jarvis.core.dictionary_handler import DictionaryHandler
+from jarvis.core.screenshot_handler import ScreenshotHandler
+from jarvis.core.system_status import SystemStatus
+from jarvis.core.chat_history import ChatHistory
+from jarvis.core.youtube_downloader import YouTubeDownloader
+from jarvis.core.ocr_handler import OCRHandler
+from jarvis.core.pdf_handler import PDFHandler
+from jarvis.core.screen_control import ScreenControlHandler
+from jarvis.core.settings_manager import SettingsManager, HelpSystem
+from jarvis.core.app_finder import AppFinder
+from jarvis.core.app_switcher import AppSwitcher
+from jarvis.core.face_recognition_auth import FaceRecognition, UserType
+from jarvis.core.smart_notes import SmartNotes
+from jarvis.core.reminder_manager import ReminderManager
+from jarvis.core.calendar_manager import CalendarManager
+from jarvis.core.clipboard_memory import ClipboardMemory
+from jarvis.core.workflow_manager import WorkflowManager
 
 # Optional modules (may not be installed)
 try:
-    from core.gesture_controller import GestureController
+    from jarvis.core.gesture_controller import GestureController
     GESTURE_AVAILABLE = True
 except ImportError:
     GESTURE_AVAILABLE = False
@@ -59,19 +60,23 @@ except ImportError:
 
 # GUI components (optional)
 try:
-    from gui.globe_controller import GlobeController
+    from jarvis.gui.globe_controller import GlobeController
     GUI_AVAILABLE = True
 except ImportError:
     GUI_AVAILABLE = False
     print("[JARVIS] GUI interface not available")
 
-from utils.config import Config
+from jarvis.utils.config import Config
 
 
 class JARVISUltimate:
     """Main JARVIS orchestrator - integrates all layers"""
 
-    def __init__(self):
+    def __init__(self, service_perception=None):
+        """service_perception: what subsystems speak through. The WebSocket server
+        passes its HUDPerception so speech reaches the HUD; standalone (main.py)
+        uses the local PerceptionLayer. Subsystems come from core/services.py, so
+        anything the server already built is reused, not duplicated."""
         print("\n" + "="*60)
         print("          JARVIS - ALL SYSTEMS INITIALIZING")
         print("="*60 + "\n")
@@ -83,22 +88,25 @@ class JARVISUltimate:
 
         # Initialize all layers
         print("Initializing Core Layers...")
-        self.perception = PerceptionLayer()
+        self.perception = shared(PerceptionLayer)
+        self._svc_perception = service_perception or self.perception
         self.understanding = UnderstandingLayer()
         self.learning = LearningLayer(self.understanding)
         self.action = ActionLayer(self.perception)
-        self.knowledge = KnowledgeLayer(self.perception)
+        self.knowledge = shared(KnowledgeLayer, lambda: KnowledgeLayer(self._svc_perception))
 
         print("Initializing Advanced Layers...")
-        self.task_manager = TaskManager(self.perception)
-        self.news_handler = NewsHandler(self.perception)
-        self.system_control = SystemControl(self.perception)
-        self.habit_tracker = HabitTracker(self.perception)
-        self.hotkey_system = HotkeySystem(self.perception)
-        self.alarm_system = AlarmSystem(self.perception)
-        self.whatsapp = WhatsAppHandler(self.perception)
-        self.calendar = CalendarIntegration(self.perception)
-        self.email = EmailHandler(self.perception, self.knowledge)
+        self.task_manager = shared(TaskManager, lambda: TaskManager(self._svc_perception))
+        self.news_handler = shared(NewsHandler, lambda: NewsHandler(self._svc_perception))
+        self.system_control = shared(SystemControl, lambda: SystemControl(self._svc_perception))
+        self.habit_tracker = shared(HabitTracker, lambda: HabitTracker(self._svc_perception))
+        self.hotkey_system = shared(HotkeySystem, lambda: HotkeySystem(self._svc_perception))
+        self.alarm_system = shared(AlarmSystem, lambda: AlarmSystem(self._svc_perception))
+        self.whatsapp = shared(WhatsAppHandler, lambda: WhatsAppHandler(self._svc_perception))
+        # Google Calendar sync (was overwritten by CalendarManager below, so
+        # get_upcoming_events() raised AttributeError)
+        self.calendar_integration = shared(CalendarIntegration, lambda: CalendarIntegration(self._svc_perception))
+        self.email = shared(EmailHandler, lambda: EmailHandler(self._svc_perception, self.knowledge))
 
         # Creator info
         self.creator = "Raghava"
@@ -116,10 +124,10 @@ class JARVISUltimate:
         self._entertainment = None
         
         # Fast modules
-        self.weather = WeatherHandler(self.perception)
-        self.dictionary = DictionaryHandler(self.perception)
-        self.screenshot = ScreenshotHandler(self.perception)
-        self.system_status = SystemStatus(self.perception)
+        self.weather = shared(WeatherHandler, lambda: WeatherHandler(self._svc_perception))
+        self.dictionary = shared(DictionaryHandler, lambda: DictionaryHandler(self._svc_perception))
+        self.screenshot = shared(ScreenshotHandler, lambda: ScreenshotHandler(self._svc_perception))
+        self.system_status = shared(SystemStatus, lambda: SystemStatus(self._svc_perception))
         
         # Deferred heavy modules
         self._chat_history = None
@@ -128,20 +136,20 @@ class JARVISUltimate:
         self._pdf = None
         
         # Fast core modules
-        self.screen_control = ScreenControlHandler()
-        self.settings = SettingsManager(self.perception)
+        self.screen_control = shared(ScreenControlHandler)
+        self.settings = shared(SettingsManager, lambda: SettingsManager(self._svc_perception))
         self.help_system = HelpSystem(self.perception)
-        self.app_finder = AppFinder(self.perception)
-        self.app_switcher = AppSwitcher(self.perception)
+        self.app_finder = shared(AppFinder, lambda: AppFinder(self._svc_perception))
+        self.app_switcher = shared(AppSwitcher, lambda: AppSwitcher(self._svc_perception))
         
         # Security/Face (Deferred)
         self._face_auth = None
         
         # Planners & Memory
         self._smart_notes = None
-        self.smart_reminders = ReminderManager(self.perception)
+        self.smart_reminders = shared(ReminderManager, lambda: ReminderManager(self._svc_perception))
         self.smart_reminders.start()  # Start background checker
-        self.calendar = CalendarManager(self.perception)
+        self.calendar = shared(CalendarManager, lambda: CalendarManager(self._svc_perception))
         self._clipboard = None
         self.workflow = WorkflowManager(self, self.perception)
         
@@ -161,67 +169,67 @@ class JARVISUltimate:
     def context_memory(self):
         if getattr(self, '_context_memory', None) is None:
             print("[JARVIS] Lazy loading ContextMemory...")
-            self._context_memory = ContextMemory()
+            self._context_memory = shared(ContextMemory)
         return self._context_memory
 
     @property
     def proactive(self):
         if getattr(self, '_proactive', None) is None:
-            self._proactive = ProactiveAssistant(self.perception, self.context_memory)
+            self._proactive = shared(ProactiveAssistant, lambda: ProactiveAssistant(self._svc_perception, self.context_memory))
         return self._proactive
 
     @property
     def emotion_detector(self):
         if getattr(self, '_emotion_detector', None) is None:
             print("[JARVIS] Lazy loading EmotionDetector...")
-            self._emotion_detector = EmotionDetector()
+            self._emotion_detector = shared(EmotionDetector)
         return self._emotion_detector
 
     @property
     def wellness(self):
         if getattr(self, '_wellness', None) is None:
-            self._wellness = WellnessMonitor(self.perception)
+            self._wellness = shared(WellnessMonitor, lambda: WellnessMonitor(self._svc_perception))
         return self._wellness
 
     @property
     def entertainment(self):
         if getattr(self, '_entertainment', None) is None:
-            self._entertainment = JARVISEntertainment(self.perception, self.knowledge)
+            self._entertainment = shared(JARVISEntertainment, lambda: JARVISEntertainment(self._svc_perception, self.knowledge))
         return self._entertainment
 
     @property
     def chat_history(self):
         if getattr(self, '_chat_history', None) is None:
             print("[JARVIS] Lazy loading ChatHistory...")
-            self._chat_history = ChatHistory(self.perception)
+            self._chat_history = shared(ChatHistory, lambda: ChatHistory(self._svc_perception))
         return self._chat_history
 
     @property
     def youtube(self):
         if getattr(self, '_youtube', None) is None:
             print("[JARVIS] Lazy loading YouTubeDownloader...")
-            self._youtube = YouTubeDownloader(self.perception)
+            self._youtube = shared(YouTubeDownloader, lambda: YouTubeDownloader(self._svc_perception))
         return self._youtube
 
     @property
     def ocr(self):
         if getattr(self, '_ocr', None) is None:
             print("[JARVIS] Lazy loading OCRHandler...")
-            self._ocr = OCRHandler(self.perception)
+            self._ocr = shared(OCRHandler, lambda: OCRHandler(self._svc_perception))
         return self._ocr
 
     @property
     def pdf(self):
         if getattr(self, '_pdf', None) is None:
             print("[JARVIS] Lazy loading PDFHandler...")
-            self._pdf = PDFHandler(self.perception, self.knowledge)
+            self._pdf = shared(PDFHandler, lambda: PDFHandler(self._svc_perception, self.knowledge))
         return self._pdf
 
     @property
     def face_auth(self):
         if getattr(self, '_face_auth', None) is None:
             print("[JARVIS] Lazy loading FaceRecognition...")
-            self._face_auth = FaceRecognition(self.perception)
+            self._face_auth = shared(FaceRecognition, lambda: FaceRecognition(self._svc_perception))
             if self._face_auth.is_available():
                 print("[JARVIS] Face recognition available")
         return self._face_auth
@@ -229,14 +237,14 @@ class JARVISUltimate:
     @property
     def smart_notes(self):
         if getattr(self, '_smart_notes', None) is None:
-            self._smart_notes = SmartNotes(self.perception)
+            self._smart_notes = shared(SmartNotes, lambda: SmartNotes(self._svc_perception))
         return self._smart_notes
 
     @property
     def clipboard(self):
         if getattr(self, '_clipboard', None) is None:
             print("[JARVIS] Lazy loading ClipboardMemory...")
-            self._clipboard = ClipboardMemory(self.perception)
+            self._clipboard = shared(ClipboardMemory, lambda: ClipboardMemory(self._svc_perception))
         return self._clipboard
 
     @property
@@ -245,7 +253,7 @@ class JARVISUltimate:
             if GESTURE_AVAILABLE:
                 try:
                     print("[JARVIS] Lazy loading GestureController...")
-                    self._gesture = GestureController(self.perception)
+                    self._gesture = shared(GestureController, lambda: GestureController(self._svc_perception))
                     print("[JARVIS] Gesture control available")
                 except Exception as e:
                     print(f"[JARVIS] Gesture init error: {e}")
@@ -306,7 +314,7 @@ class JARVISUltimate:
 
         # ========== MULTI-COMMAND SUPPORT ==========
         # Split "open brave and search youtube" into separate commands
-        from core.intent_classifier import split_commands
+        from jarvis.core.intent_classifier import split_commands
         commands = split_commands(command)
         
         if len(commands) > 1:
@@ -317,7 +325,6 @@ class JARVISUltimate:
                 if not result:
                     return False  # Exit if any command says to stop
                 # Small delay between commands
-                import time
                 time.sleep(0.5)
             return True
         
@@ -546,7 +553,7 @@ class JARVISUltimate:
 
         # ========== CALENDAR ==========
         elif intent == "calendar_events" or "calendar" in command_lower or "my events" in command_lower:
-            success = self.calendar.get_upcoming_events()
+            success = self.calendar_integration.get_upcoming_events()
         
         elif intent == "today_events" or "today's events" in command_lower or "events today" in command_lower:
             success = self.calendar.get_today_events()

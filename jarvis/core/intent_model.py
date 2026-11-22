@@ -12,6 +12,7 @@ import numpy as np
 from pathlib import Path
 from typing import Tuple, Optional, Dict, List, Union
 import json
+import re
 
 from .intent_definitions import INTENT_EXAMPLES, get_category
 
@@ -141,7 +142,6 @@ class IntentModel:
     def _cache_fingerprint(self) -> str:
         """Hash of the model name and every example, so any edit invalidates the cache."""
         import hashlib
-        import json
         payload = json.dumps({"model": self.model_name, "examples": INTENT_EXAMPLES},
                              sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -285,37 +285,38 @@ class IntentModel:
         """Keyword-only classification (works without the embedding model)."""
         return self._classify_keyword(text)
 
+    # Keyword fallback, used when the embedding score is below threshold.
+    # Patterns are whole-word regexes. It used to match substrings anywhere, so
+    # "sometimes" was a time request, "brunch" ran an app, "translate hello to
+    # spanish" was a greeting and "remind me" set an alarm. Greetings/goodbyes
+    # now only count at the start of the sentence.
+    _KEYWORD_RULES = [
+        ("set_timer", r"\b(?:timer|count\s*down)\b"),
+        ("set_reminder", r"\bremind\s+me\b"),
+        ("set_alarm", r"\b(?:alarm|wake\s+me)\b"),
+        ("volume_up", r"\b(?:volume\s+up|louder|(?:increase|turn\s+up|raise)\s+(?:the\s+)?volume|turn\s+(?:the\s+)?volume\s+up)\b"),
+        ("volume_down", r"\b(?:volume\s+down|quieter|(?:decrease|turn\s+down|lower)\s+(?:the\s+)?volume|turn\s+(?:the\s+)?volume\s+down)\b"),
+        ("pause_music", r"\b(?:pause|stop\s+(?:the\s+)?(?:music|song))\b"),
+        ("play_music", r"\b(?:play\s+(?:some\s+)?(?:music|songs?)|start\s+spotify|listen\s+to)\b"),
+        ("weather", r"\b(?:weather|forecast|temperature)\b"),
+        ("news", r"\b(?:news|headlines)\b"),
+        ("get_time", r"\bwhat(?:'?s|\s+is)?\s+(?:the\s+)?time\b|\btime\s+is\s+it\b|\bcurrent\s+time\b"),
+        ("get_date", r"\bwhat(?:'?s|\s+is)?\s+(?:the\s+|today'?s\s+)?date\b|\bwhat\s+day\s+is\b"),
+        ("open_app", r"^(?:please\s+)?(?:open|launch|start|run)\s+\w"),
+        ("close_app", r"^(?:please\s+)?(?:close|quit|terminate)\s+\w"),
+        ("search_web", r"^(?:please\s+)?(?:search|google|look\s+up|find)\b|\bwhat\s+is\b"),
+        ("greeting", r"^(?:hello|hi|hey|good\s+(?:morning|afternoon|evening))\b"),
+        ("goodbye", r"^(?:bye|goodbye|good\s+night|see\s+you)\b"),
+    ]
+
     def _classify_keyword(self, text: str) -> Tuple[Optional[str], float]:
-        """Fallback: keyword-based classification"""
-        text_lower = text.lower()
-        
-        keyword_map = {
-            "play_music": ["play music", "play song", "start spotify", "listen to", "play"],
-            "pause_music": ["pause", "stop music", "stop song"],
-            "set_alarm": ["alarm", "wake me", "remind me"],
-            "open_app": ["open", "launch", "start", "run"],
-            "close_app": ["close", "exit", "quit", "terminate"],
-            "search_web": ["search", "google", "look up", "find", "what is"],
-            "get_time": ["time", "what time", "clock"],
-            "get_date": ["date", "what day", "today"],
-            "volume_up": ["volume up", "louder", "increase volume"],
-            "volume_down": ["volume down", "quieter", "decrease volume"],
-            "greeting": ["hello", "hi ", "hey ", "good morning", "good afternoon"],
-            "goodbye": ["bye", "goodbye", "exit", "quit", "shutdown"],
-        }
-        
-        matched = []
-        for intent, keywords in keyword_map.items():
-            for kw in keywords:
-                if kw in text_lower:
-                    matched.append((intent, 0.75))
-                    break
-                    
-        if matched:
-            return matched[0]
-            
+        """Fallback: whole-word keyword classification."""
+        text_lower = text.lower().strip()
+        for intent, pattern in self._KEYWORD_RULES:
+            if re.search(pattern, text_lower):
+                return intent, 0.75
         return None, 0.0
-        
+
     def get_top_intents(self, text: str, top_k: int = 3) -> List[Tuple[str, float]]:
         """Get top K most likely intents with scores"""
         if not self._ensure_loaded():

@@ -1,8 +1,10 @@
+from jarvis.core.services import shared
 import json
 import re
 import os
 import random
 import subprocess
+import time
 import webbrowser
 from datetime import datetime
 from jarvis.gui.data_providers import maybe_title
@@ -232,8 +234,8 @@ class FallbackProcessor:
                 if hasattr(self.server, 'youtube') and hasattr(self.server.youtube, 'search_and_play'):
                     self.server.youtube.search_and_play(query)
                 else:
-                    from core.youtube_downloader import YouTubeDownloader
-                    yt = YouTubeDownloader()
+                    from jarvis.core.youtube_downloader import YouTubeDownloader
+                    yt = shared(YouTubeDownloader)
                     yt.search_and_play(query)
                 return f"Playing your request on YouTube{maybe_title(title)}."
             

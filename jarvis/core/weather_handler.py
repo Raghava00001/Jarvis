@@ -103,8 +103,9 @@ class WeatherHandler:
         """Get current weather for a city or auto-detected location"""
         title = self._get_title()
         
-        # Check cache
-        if self.cached_weather and self.cache_time:
+        # Check cache (per city: it used to return the last city for any request)
+        cache_key = (city or "").strip().lower()
+        if self.cached_weather and self.cache_time and getattr(self, "_cache_key", None) == cache_key:
             if (datetime.now() - self.cache_time).total_seconds() < self.cache_duration:
                 return self.cached_weather
         
@@ -125,6 +126,7 @@ class WeatherHandler:
         if weather:
             self.cached_weather = weather
             self.cache_time = datetime.now()
+            self._cache_key = cache_key
             return weather
         
         # Fallback to OpenWeatherMap if key available
@@ -133,6 +135,7 @@ class WeatherHandler:
             if weather:
                 self.cached_weather = weather
                 self.cache_time = datetime.now()
+                self._cache_key = cache_key
                 return weather
         
         # Don't speak weather errors — they interrupt conversations randomly
