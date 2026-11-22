@@ -325,7 +325,7 @@ class JARVISUltimate:
                 if not result:
                     return False  # Exit if any command says to stop
                 # Small delay between commands
-                import time
+                pass  # (module-level import used)
                 time.sleep(0.5)
             return True
         

@@ -25,6 +25,7 @@ from datetime import datetime
 import sys
 import os
 import re
+import subprocess
 
 # ═══════════════════════════════════════════════════════════════════
 # PATH SETUP: Ensure 'from jarvis.core.X' imports work regardless of CWD
@@ -1301,7 +1302,7 @@ class JARVISWebSocketServer:
     def _init_clipboard(self):
         """Create ClipboardIntelligence with HUD suggestion callback."""
         def _push_clipboard_suggestion(suggestion):
-            import json
+            pass  # (module-level import used)
             msg = json.dumps({
                 'type': 'clipboard_suggestion',
                 'suggestion': suggestion.get('suggestion', ''),
@@ -1310,7 +1311,7 @@ class JARVISWebSocketServer:
             })
             for client in getattr(self, 'clients', set()):
                 try:
-                    import asyncio
+                    pass  # (module-level import used)
                     asyncio.run_coroutine_threadsafe(
                         client.send(msg),
                         getattr(self, '_voice_loop', None) or asyncio.get_event_loop()
@@ -1526,7 +1527,7 @@ class JARVISWebSocketServer:
     def _on_hotkey_action(self, action):
         """Handle hotkey actions from HotkeySystem"""
         if action == "shutdown":
-            import os, signal
+            import signal
             print("[HOTKEY] Shutdown requested via hotkey")
             self.running = False
             os.kill(os.getpid(), signal.SIGTERM)
@@ -1562,7 +1563,7 @@ class JARVISWebSocketServer:
                 turn_complete=True
             )
         
-        import asyncio
+        pass  # (module-level import used)
         asyncio.run_coroutine_threadsafe(_inject(), le._loop)
     
     async def process_message(self, websocket, data):
@@ -1932,7 +1933,7 @@ class JARVISWebSocketServer:
                 f"Say 'confirm' within {POWER_CONFIRM_WINDOW_S} seconds, or 'cancel'.")
 
     def _execute_power_action(self, action: str, title: str) -> str:
-        import subprocess
+        pass  # (module-level import used)
         flag = '/s' if action == 'shutdown' else '/r'
         subprocess.Popen(['shutdown', flag, '/t', '5'])
         if action == 'shutdown':
@@ -1951,7 +1952,7 @@ class JARVISWebSocketServer:
         if close_match:
             app = close_match.group(1).strip()
             try:
-                import subprocess
+                pass  # (module-level import used)
                 # Map common names to process names
                 APP_PROCESS = {
                     'whatsapp': 'WhatsApp', 'chrome': 'chrome',
@@ -1988,9 +1989,8 @@ class JARVISWebSocketServer:
         if 'screenshot' in cmd or 'screen capture' in cmd:
             try:
                 import pyautogui
-                from pathlib import Path
-                import datetime
-                ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                pass  # (module-level import used)
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
                 path = Path.home() / 'Pictures' / f'jarvis_screenshot_{ts}.png'
                 pyautogui.screenshot(str(path))
                 print(f"[FAST] Screenshot saved: {path}")
@@ -2034,12 +2034,12 @@ class JARVISWebSocketServer:
         if yt_match:
             query = yt_match.group(1).strip()
             try:
-                import urllib.parse, webbrowser, threading
+                import urllib.parse, webbrowser
                 url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
                 webbrowser.open(url)
                 # Auto-click first video after page loads
                 def _auto_play():
-                    import time, pyautogui
+                    import pyautogui
                     time.sleep(3.5)
                     pyautogui.press('tab', presses=8, interval=0.05)
                     time.sleep(0.2)
@@ -2071,13 +2071,13 @@ class JARVISWebSocketServer:
         
         # ── TIME (instant) ──
         if cmd in ['time', 'what time is it', 'what is the time', 'tell me the time', "what's the time"]:
-            from datetime import datetime
+            pass  # (module-level import used)
             now = datetime.now().strftime('%I:%M %p')
             return f"It's {now}, {title}."
         
         # ── DATE (instant) ──
         if cmd in ['date', 'what date is it', "what's the date", 'what is the date', "what's today's date"]:
-            from datetime import datetime
+            pass  # (module-level import used)
             now = datetime.now().strftime('%A, %B %d, %Y')
             return f"It's {now}, {title}."
         
@@ -2165,7 +2165,7 @@ class JARVISWebSocketServer:
 
         # Exit JARVIS only when the whole command is an exit command.
         if is_jarvis_exit_command(cmd):
-            import os, signal
+            import signal
             farewell = f"Shutting down all systems. Until next time{maybe_title(title)}."
             self._silent_response = True  # Don't speak the farewell
             # Schedule actual exit after response is sent
@@ -2236,7 +2236,7 @@ class JARVISWebSocketServer:
         # Chat History — classifier thinks this is 'story'
         if ('chat history' in cmd or 'show history' in cmd or 'conversation history' in cmd) and self.chat_history:
             if 'search' in cmd:
-                import re
+                pass  # (module-level import used)
                 match = re.search(r'search\s+(?:for\s+)?(.+)', cmd, re.I)
                 if match:
                     query = match.group(1).strip()
@@ -2271,7 +2271,7 @@ class JARVISWebSocketServer:
                 target = target.replace(p, '', 1)
             target = target.strip()
             try:
-                import pyautogui, subprocess
+                import pyautogui
                 result = subprocess.run(
                     ['powershell', '-command',
                      f'(Get-Process | Where-Object {{$_.MainWindowTitle -match "{target}"}} | Select-Object -First 1).MainWindowTitle'],
@@ -2324,7 +2324,7 @@ class JARVISWebSocketServer:
         open_match = _re.match(r'^(?:open|launch|start|run)\s+(.+)', cmd, _re.I)
         if open_match:
             app_name = open_match.group(1).strip()
-            import os, subprocess
+            pass  # (module-level import used)
             
             # Direct app map — no ML, no API, no lag
             DIRECT_APPS = {
@@ -2418,7 +2418,7 @@ class JARVISWebSocketServer:
         # Habits — classifier thinks this is 'conversation'
         if 'habit' in cmd and self.habit_tracker:
             if 'create' in cmd or 'add' in cmd or 'new' in cmd:
-                import re
+                pass  # (module-level import used)
                 match = re.search(r'(?:create|add|new)\s+habit\s+(.+?)(?:\s+every\s+|\s+daily|\s+hourly|$)', cmd, re.I)
                 if match:
                     desc = match.group(1).strip()
@@ -2437,7 +2437,7 @@ class JARVISWebSocketServer:
         # Tasks — classifier thinks this is 'conversation'
         if ('task' in cmd or 'todo' in cmd or 'to do' in cmd) and self.task_manager_obj:
             if 'add' in cmd or 'create' in cmd or 'new' in cmd:
-                import re
+                pass  # (module-level import used)
                 match = re.search(r'(?:add|create|new)\s+(?:a\s+)?task\s+(.+)', cmd, re.I)
                 if match:
                     desc = match.group(1).strip()
@@ -2573,7 +2573,7 @@ class JARVISWebSocketServer:
             import google.genai as _genai
             _api_key = getattr(self, '_gemini_key', None)
             if not _api_key:
-                import os
+                pass  # (module-level import used)
                 _api_key = os.getenv('GEMINI_API_KEY', '')
                 self._gemini_key = _api_key
             if _api_key:
@@ -2703,7 +2703,7 @@ class JARVISWebSocketServer:
                     return result if isinstance(result, str) else f"Volume muted, {title}."
                 else:
                     # No specific action, try to extract number from command
-                    import re
+                    pass  # (module-level import used)
                     match = re.search(r'(\d+)\s*%?', command)
                     if match:
                         level = int(match.group(1))
@@ -2727,7 +2727,7 @@ class JARVISWebSocketServer:
                     result = self.system_control.brightness_down()
                     return result if isinstance(result, str) else f"Brightness decreased, {title}."
                 else:
-                    import re
+                    pass  # (module-level import used)
                     match = re.search(r'(\d+)\s*%?', command)
                     if match:
                         level = int(match.group(1))
@@ -2738,8 +2738,8 @@ class JARVISWebSocketServer:
             
             # --- ALARM ---
             if intent_name == 'set_alarm' and self.alarm_system:
-                import re
-                from datetime import datetime, timedelta
+                pass  # (module-level import used)
+                from datetime import timedelta
                 cmd_lower = command.lower()
                 
                 # Handle relative time: "5 minutes from now", "in 10 minutes"
@@ -2869,7 +2869,7 @@ class JARVISWebSocketServer:
             # --- READ CLIPBOARD ---
             if intent_name == 'read_clipboard':
                 try:
-                    import subprocess
+                    pass  # (module-level import used)
                     text = subprocess.run(['powershell', '-command', 'Get-Clipboard'],
                                          capture_output=True, text=True, timeout=5).stdout.strip()
                     if text:

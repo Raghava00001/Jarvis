@@ -692,7 +692,7 @@ def handle_set_reminder(cmd: str, entities: Dict, context: Any) -> HandlerResult
                 
                 # Format time for response
                 time_str = remind_at.strftime("%I:%M %p")
-                from datetime import datetime, timedelta
+                from datetime import timedelta
                 if remind_at.date() == datetime.now().date():
                     when = f"today at {time_str}"
                 elif remind_at.date() == (datetime.now() + timedelta(days=1)).date():

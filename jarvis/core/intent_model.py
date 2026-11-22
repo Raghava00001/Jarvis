@@ -141,7 +141,6 @@ class IntentModel:
     def _cache_fingerprint(self) -> str:
         """Hash of the model name and every example, so any edit invalidates the cache."""
         import hashlib
-        import json
         payload = json.dumps({"model": self.model_name, "examples": INTENT_EXAMPLES},
                              sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()

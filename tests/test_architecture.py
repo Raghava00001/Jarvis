@@ -172,3 +172,32 @@ def test_calendar_integration_is_not_overwritten():
     src = (ROOT / "jarvis/core/jarvis_ultimate.py").read_text(encoding="utf-8-sig")
     assert "self.calendar_integration = shared(CalendarIntegration" in src
     assert "self.calendar_integration.get_upcoming_events()" in src
+
+
+# ─── Python scoping trap ──────────────────────────────────────────────────
+
+def test_no_local_import_shadows_a_module_import():
+    """A local `import re` anywhere in a function makes `re` local to the WHOLE
+    function, so other branches raise UnboundLocalError. "bluetooth on" crashed
+    this way (subprocess imported further down process_command)."""
+    import ast
+    offenders = []
+    for path in sorted((ROOT / "jarvis").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        module_names = {(a.asname or a.name).split(".")[0]
+                        for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            stack = list(ast.iter_child_nodes(fn))
+            while stack:
+                node = stack.pop()
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                    continue
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    for a in node.names:
+                        name = (a.asname or a.name).split(".")[0]
+                        if name in module_names:
+                            offenders.append(f"{path.relative_to(ROOT)}:{node.lineno} {fn.name}() re-imports {name}")
+                stack.extend(ast.iter_child_nodes(node))
+    assert offenders == [], "\n".join(offenders)

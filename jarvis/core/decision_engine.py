@@ -93,7 +93,6 @@ class DecisionEngine:
     
     def _track_intent(self, intent: str):
         """Track recent intents for repetition/rapid-fire detection."""
-        from datetime import datetime
         self._recent_intents.append((datetime.now(), intent))
         self._recent_intents = self._recent_intents[-10:]
         
