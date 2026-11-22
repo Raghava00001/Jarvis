@@ -163,6 +163,28 @@ Every fix has a regression test in `tests/test_security_regressions.py`.
 
 ---
 
+## What's new in v2.6: architecture
+
+The layered design (perception → understanding → decision → action → output) now
+holds in the running code too. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+| Problem | Effect | Fix |
+|---|---|---|
+| 37 modules loaded twice (`core.X` and `jarvis.core.X`) | Two state managers in one JARVIS | One module identity; leftover `core.X` imports map to the same module |
+| Server and core each built ~25 subsystems | 2 alarm systems, 2 reminder checkers (reminders could fire twice), 2 hotkey registrations | `jarvis/core/services.py` registry: every subsystem exists once |
+| Local imports made names local to whole functions | "bluetooth on" crashed | Removed 37 shadowing imports; test forbids them |
+| Undefined names (pyflakes) | web search and "switch to <app>" crashed | Fixed; pyflakes test |
+| Classifier had no examples for 26 handlers; keyword fallback matched substrings | "weather in new york" → web search, "set a timer" → the time, "translate hello" → greeting | Examples per handler; whole-word rules |
+| Harmless commands asked "56% sure… proceed?" with no way to answer | "hello" and "help" got a question | Low-risk intents proceed; keyword layer corroborates; "yes" answers |
+| Weather cache ignored the city; "new york" parsed as "new" | London got Hyderabad's weather | Per-city cache, multi-word cities |
+| Screen control imported a class that doesn't exist | "scroll down", "next tab" never worked by voice | Fixed; added tab and zoom commands |
+| `python jarvis/gui/websocket_server.py` | Failed to start (found in live testing) | Fixed; test loads every entry point as a script |
+
+Unwired features (world monitor, AI search, unified perception, multimodal emotion)
+moved to `jarvis/experimental/` with a README on how to wire them in.
+
+---
+
 ## What's new in v2.5: 3× faster startup
 
 The HUD used to take **15.5 s** to come online, mostly spent importing torch, TensorFlow, Whisper and sentence-transformers just to check they were installed. Those checks now use `importlib.util.find_spec`, and the libraries load when first used (the existing Phase 2 background thread still warms the models).
@@ -218,7 +240,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-**220 tests pass:**
+**299 tests pass:**
 - smoke tests: boot, Gemini Live dedup and echo gate, BrainAdapter, persona switching
 - NLP and router unit tests
 - 67 security and regression tests
@@ -226,6 +248,8 @@ python -m pytest tests/ -q
 - 25 wake-word tests, including the real receive loop with a fake Live session
 - 15 tests for real news, honest fallbacks, spoken weather and lock screen
 - 4 fast-boot tests (no heavy ML imported at startup)
+- architecture invariants: one instance per subsystem, no module loaded twice, no shadowing imports, no undefined names, entry points start
+- routing corpus: real commands through the real pipeline, side effects stubbed
 
 CI runs the same suite on `windows-latest`.
 
@@ -250,9 +274,9 @@ docs/            # architecture notes, screenshots, demo recorder
 
 ## Known limitations / future work
 
-- **`websocket_server.py` is large** (~3,200 lines). Command logic still lives in several places (fast path, `process_command`, `fallback_processor`, `intent_handlers`, Gemini tools). The next refactor is a single tool registry that every path uses.
+- **`websocket_server.py` is still large** (~3,070 lines, down from 3,240). Command rules and the fast path now have their own modules, but some features are still implemented in more than one path (`process_command` keyword overrides, `fallback_processor`, Gemini tools). Next step: have those call the `HANDLER_MAP` handlers.
 - **Logging is mostly `print()`.** A structured logger exists (`core/logger.py`) but isn't used everywhere yet.
-- **Runtime data lives in two folders,** `jarvis/data/` and `jarvis_data/`.
+- **Runtime data lives in two folders,** `jarvis/data/` and `jarvis_data/`, and the two `tasks.json` files use different formats (`task` vs `description`).
 - **Windows only:** system control uses Windows APIs.
 - **Gemini API key required:** no offline LLM fallback.
 - **Single user:** designed as a personal assistant.
