@@ -840,7 +840,6 @@ class GeminiLiveEngine:
                         _yt_pag.press('tab', presses=8, interval=0.05)
                         _yt_time.sleep(0.2)
                         _yt_pag.press('enter')
-                    import threading
                     threading.Thread(target=_auto_play, daemon=True).start()
                     result = f"Playing {query} on YouTube."
 
@@ -868,8 +867,20 @@ class GeminiLiveEngine:
                         os.kill(os.getpid(), _sig.SIGTERM)
                     threading.Thread(target=_delayed_exit, daemon=True).start()
                 elif action in ("restart", "reboot"):
-                    result = "Restarting the system."
-                    subprocess.Popen('shutdown /r /t 3', shell=True)
+                    # Never restart straight from an LLM tool call: arm the
+                    # server's confirmation step; the user must say/type "confirm".
+                    # In live mode spoken replies go to Gemini, so a SECOND restart
+                    # call while one is pending (i.e. after JARVIS asked and the user
+                    # answered) counts as the confirmation.
+                    if self.server and hasattr(self.server, 'request_power_action'):
+                        if self.server._get_pending_power_action() == 'restart':
+                            self.server._pending_power_action = None
+                            result = self.server._execute_power_action('restart', '')
+                        else:
+                            result = self.server.request_power_action('restart')
+                            result += " (Ask the user to confirm; only call restart again if they say yes.)"
+                    else:
+                        result = "Restart needs manual confirmation; it is disabled here."
                 elif action in ("lock", "lock_screen"):
                     subprocess.run("rundll32.exe user32.dll,LockWorkStation", shell=True)
                     result = "Screen locked."
@@ -971,10 +982,12 @@ class GeminiLiveEngine:
                     result = f"Closed {app_name}." if success else f"Couldn't find {app_name} to close."
                 else:
                     # Fallback: use taskkill
-                    import subprocess
+                    from jarvis.core.safe_exec import kill_process
                     try:
-                        subprocess.run(f'taskkill /IM {app_name}.exe /F', shell=True, capture_output=True)
-                        result = f"Force closed {app_name}."
+                        if kill_process(app_name):
+                            result = f"Force closed {app_name}."
+                        else:
+                            result = f"Couldn't find {app_name} to close."
                     except Exception:
                         result = f"Couldn't close {app_name}."
 
@@ -1175,7 +1188,6 @@ class GeminiLiveEngine:
                     )
                     workflow = wm.parse_workflow(command)
                     if workflow:
-                        import threading
                         threading.Thread(
                             target=wm.execute_workflow,
                             args=(workflow,),
@@ -1183,7 +1195,6 @@ class GeminiLiveEngine:
                         ).start()
                         result = f"Running {len(workflow.steps)}-step workflow: {command}"
                     elif wm.is_workflow_command(command):
-                        import threading
                         threading.Thread(
                             target=wm.handle,
                             args=(command,),

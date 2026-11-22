@@ -115,6 +115,71 @@ except ImportError:
     print("[WebSocket] python-dotenv not installed, using system env vars")
 
 
+# Browser origins allowed to open the WebSocket (the Web HUD served on :8080).
+# None = no Origin header (desktop_gui / Python clients); browsers always send one.
+HUD_HTTP_PORT = 8080
+ALLOWED_WS_ORIGINS = [
+    f"http://localhost:{HUD_HTTP_PORT}",
+    f"http://127.0.0.1:{HUD_HTTP_PORT}",
+    None,
+]
+
+# ── Power / exit command matching ────────────────────────────────────────────
+# Matched against the WHOLE command (after the wake word is stripped) so that
+# sentences like "how do I shutdown linux?" or "my phone rebooted" don't quit
+# JARVIS or restart the PC.
+WAKE_WORD_RE = re.compile(r'^(?:hey\s+)?(?:jarvis|friday)[,!.\s]*', re.I)
+JARVIS_EXIT_RE = re.compile(
+    r'^(?:please\s+)?(?:'
+    r'(?:shutdown|shut\s+down|power\s+off|go\s+offline)(?:\s+(?:jarvis|friday|yourself))?'
+    r'|(?:exit|quit|close)\s+(?:jarvis|friday)'
+    r'|(?:jarvis|friday)\s+(?:shutdown|shut\s+down)'
+    r')(?:\s+please)?[\s.!]*$'
+)
+PC_SHUTDOWN_RE = re.compile(
+    r'\b(?:shut\s*down|switch\s+off|turn\s+off|power\s+off)\s+(?:the\s+|my\s+)?'
+    r'(?:laptop|computer|pc|system)\b'
+)
+PC_RESTART_RE = re.compile(
+    r'\b(?:restart|reboot)\s+(?:the\s+|my\s+)?(?:laptop|computer|pc|system)\b'
+    r'|^reboot[\s.!]*$'
+)
+CONFIRM_RE = re.compile(r'^(?:yes|yeah|yep|confirm(?:ed)?|do it|go ahead|proceed)\b')
+CANCEL_RE = re.compile(r"^(?:no|nope|cancel|abort|don'?t|never ?mind|stop)\b")
+POWER_CONFIRM_WINDOW_S = 30
+
+
+def check_ws_token(connection, request):
+    """websockets process_request hook: 403 unless ?token=<session token>."""
+    from http import HTTPStatus
+    from urllib.parse import urlsplit, parse_qs
+    import hmac
+    from jarvis.gui.session_token import get_ws_token
+    supplied = parse_qs(urlsplit(request.path).query).get("token", [""])[0]
+    if not hmac.compare_digest(supplied.encode(), get_ws_token().encode()):
+        print("[WebSocket] Rejected connection without a valid token")
+        return connection.respond(HTTPStatus.FORBIDDEN, "Missing or invalid token\n")
+    return None
+
+
+def normalize_command(text: str) -> str:
+    """Lower-case, trim and strip a leading wake word."""
+    return WAKE_WORD_RE.sub('', (text or '').lower().strip()).strip()
+
+
+def is_jarvis_exit_command(cmd: str) -> bool:
+    return bool(JARVIS_EXIT_RE.match(cmd))
+
+
+def detect_pc_power_action(cmd: str):
+    """Return 'shutdown', 'restart' or None for a normalized command."""
+    if PC_RESTART_RE.search(cmd):
+        return 'restart'
+    if PC_SHUTDOWN_RE.search(cmd):
+        return 'shutdown'
+    return None
+
+
 # Feature availability flags
 JARVIS_AVAILABLE = False
 PERCEPTION_AVAILABLE = False
@@ -451,6 +516,8 @@ class JARVISWebSocketServer:
         self.log("Starting __init__")
         self.host = host
         self.port = port
+        # Pending PC shutdown/restart awaiting the user's 'confirm': (action, expires_at)
+        self._pending_power_action = None
         self.clients = set()
         self._client_channels = {}   # {websocket: set('command','stats','live','sensors')}
         self._client_queues = {}     # {websocket: asyncio.Queue} — per-client backpressure
@@ -1549,7 +1616,19 @@ class JARVISWebSocketServer:
             
             # C-01: When Gemini Live is active, route text/command/chat INTO the live session
             # instead of running the legacy command pipeline. This prevents dual responses.
-            if _live_active and msg_type in ('text_input', 'command', 'chat') and text.strip():
+            # EXCEPTION: Local shutdown/exit commands bypass routing to guarantee clean termination.
+            # Power commands and confirmations are handled locally (never by the LLM).
+            is_local_power = False
+            if text.strip():
+                cmd_check = normalize_command(text)
+                is_local_power = (
+                    is_jarvis_exit_command(cmd_check)
+                    or detect_pc_power_action(cmd_check) is not None
+                    or (self._get_pending_power_action() is not None
+                        and bool(CONFIRM_RE.match(cmd_check) or CANCEL_RE.match(cmd_check)))
+                )
+
+            if _live_active and msg_type in ('text_input', 'command', 'chat') and text.strip() and not is_local_power:
                 try:
                     # Push user text into the Gemini Live session as a text turn
                     self._push_live_text(text)
@@ -1817,6 +1896,36 @@ class JARVISWebSocketServer:
         elif msg_type == 'get_features':
             await self._send_to(websocket, json.dumps(self.get_feature_status()))
     
+    # ── PC power actions (always confirmed) ──────────────────────────────
+    def _get_pending_power_action(self):
+        pending = getattr(self, '_pending_power_action', None)
+        if not pending:
+            return None
+        action, expires_at = pending
+        if time.time() > expires_at:
+            self._pending_power_action = None
+            return None
+        return action
+
+    def request_power_action(self, action: str, title: str = None) -> str:
+        """Arm a PC shutdown/restart; it only runs after the user confirms."""
+        if action not in ('shutdown', 'restart'):
+            raise ValueError(action)
+        if title is None:
+            title = getattr(getattr(self, 'hud_perception', None), 'user_title', '')
+        self._pending_power_action = (action, time.time() + POWER_CONFIRM_WINDOW_S)
+        verb = 'shut down' if action == 'shutdown' else 'restart'
+        return (f"Are you sure you want me to {verb} the computer{maybe_title(title)}? "
+                f"Say 'confirm' within {POWER_CONFIRM_WINDOW_S} seconds, or 'cancel'.")
+
+    def _execute_power_action(self, action: str, title: str) -> str:
+        import subprocess
+        flag = '/s' if action == 'shutdown' else '/r'
+        subprocess.Popen(['shutdown', flag, '/t', '5'])
+        if action == 'shutdown':
+            return f"Shutting down the computer in 5 seconds{maybe_title(title)}. Save your work."
+        return f"Restarting the computer in 5 seconds{maybe_title(title)}."
+
     def _try_fast_path(self, text: str):
         """Instant execution for common commands — no routing chain."""
         cmd = text.lower().strip()
@@ -1840,8 +1949,10 @@ class JARVISWebSocketServer:
                     'telegram': 'Telegram', 'explorer': 'explorer',
                 }
                 proc = APP_PROCESS.get(app, app)
-                subprocess.run(f'taskkill /IM {proc}.exe /F', shell=True,
-                             capture_output=True, timeout=3)
+                from jarvis.core.safe_exec import kill_process, is_safe_app_name
+                if not is_safe_app_name(proc):
+                    return f"I can't close '{app}', {title}. That isn't a valid app name."
+                kill_process(proc)
                 print(f"[FAST] Closed {app}")
                 return f"Closed {app}, {title}."
             except Exception:
@@ -1936,8 +2047,10 @@ class JARVISWebSocketServer:
                 if switcher and hasattr(switcher, 'open_app'):
                     switcher.open_app(app)
                 else:
-                    import subprocess
-                    subprocess.Popen(f'start {app}', shell=True)
+                    from jarvis.core.safe_exec import start_app, is_safe_app_name
+                    if not is_safe_app_name(app):
+                        return f"I can't open '{app}', {title}. That isn't a valid app name."
+                    start_app(app)
                 print(f"[FAST] Opened {app}")
                 return f"Opening {app}, {title}."
             except Exception:
@@ -1987,7 +2100,7 @@ class JARVISWebSocketServer:
         # Voice input includes the wake word — strip it before routing
         # ══════════════════════════════════════════════════════════════════
         # M-07: Using module-level re import instead of inline
-        cmd = re.sub(r'^(?:hey\s+)?(?:jarvis|friday)[,!.\s]*', '', cmd, flags=re.I).strip()
+        cmd = normalize_command(cmd)
         if not cmd:
             hour = datetime.now().hour
             greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening" if hour < 21 else "Hey there"
@@ -2021,11 +2134,24 @@ class JARVISWebSocketServer:
         # SHUTDOWN: Actually exit the JARVIS process
         # Uses word boundaries to avoid false matches (e.g. 'perplexity' has 'exit')
         # ══════════════════════════════════════════════════════════════════
-        # M-07: Using module-level re import instead of inline
-        shutdown_patterns = [r'\bshutdown\b', r'\bshut\s+down\b', r'\bpower\s+off\b', 
-                            r'\bgo\s+offline\b', r'\bexit\s+jarvis\b', r'\bquit\s+jarvis\b',
-                            r'\bjarvis\s+shutdown\b']
-        if any(re.search(p, cmd) for p in shutdown_patterns):
+        # ── PENDING PC SHUTDOWN/RESTART: needs an explicit confirmation ──
+        pending = self._get_pending_power_action()
+        if pending:
+            if CONFIRM_RE.match(cmd):
+                self._pending_power_action = None
+                return self._execute_power_action(pending, title)
+            if CANCEL_RE.match(cmd):
+                self._pending_power_action = None
+                return f"Cancelled the {pending}{maybe_title(title)}."
+            # Anything else drops the pending request and is processed normally.
+            self._pending_power_action = None
+
+        power_action = detect_pc_power_action(cmd)
+        if power_action:
+            return self.request_power_action(power_action, title)
+
+        # Exit JARVIS only when the whole command is an exit command.
+        if is_jarvis_exit_command(cmd):
             import os, signal
             farewell = f"Shutting down all systems. Until next time{maybe_title(title)}."
             self._silent_response = True  # Don't speak the farewell
@@ -2072,19 +2198,9 @@ class JARVISWebSocketServer:
         # ══════════════════════════════════════════════════════════════════
         # LAPTOP SHUTDOWN / RESTART
         # ══════════════════════════════════════════════════════════════════
-        if any(p in cmd for p in ['switch off laptop', 'shutdown laptop', 'shut down laptop',
-                                   'turn off laptop', 'switch off computer', 'shutdown computer',
-                                   'turn off computer', 'power off laptop', 'power off computer',
-                                   'switch off the laptop', 'turn off the laptop', 'shut down the laptop',
-                                   'switch off the computer', 'turn off the computer']):
-            subprocess.Popen(['shutdown', '/s', '/t', '5'], shell=True)
-            return f"Shutting down the laptop in 5 seconds{maybe_title(title)}. Save your work."
-        
-        if any(p in cmd for p in ['restart laptop', 'restart computer', 'reboot',
-                                   'restart the laptop', 'restart the computer']):
-            subprocess.Popen(['shutdown', '/r', '/t', '5'], shell=True)
-            return f"Restarting the laptop in 5 seconds{maybe_title(title)}."
-        
+        # Handled (with confirmation) near the top of process_command via
+        # detect_pc_power_action() / request_power_action().
+
         # ══════════════════════════════════════════════════════════════════
         # PRE-ROUTER OVERRIDES: Commands the ML classifier gets wrong
         # These explicit keyword matches run BEFORE the intent router
@@ -3053,7 +3169,15 @@ class JARVISWebSocketServer:
             # Start gesture processing thread
             self._start_gesture_thread()
                 
-            async with websockets.serve(self.handle_client, self.host, self.port):
+            # SECURITY: only the local HUD page (or a non-browser local client,
+            # which sends no Origin header) may connect. Without this check any
+            # website open in the user's browser could drive JARVIS via
+            # ws://localhost:8765 and run commands on this PC.
+            # SECURITY (2): every client must also present the per-session token
+            # (injected into the HUD page / read by local Python clients).
+            async with websockets.serve(self.handle_client, self.host, self.port,
+                                        origins=ALLOWED_WS_ORIGINS,
+                                        process_request=check_ws_token):
                 with open(self.log_file, "a") as f:
                     f.write(f"[{datetime.now()}] Server running, waiting for connections...\n")
                 await asyncio.Future()
@@ -3084,6 +3208,9 @@ class JARVISWebSocketServer:
 
 
 if __name__ == "__main__":
+    # Serve the HUD too: it carries the session token the WebSocket requires.
+    from jarvis.gui.web_hud_launcher import start_http_server
+    start_http_server(HUD_HTTP_PORT)
     server = JARVISWebSocketServer()
     try:
         asyncio.run(server.start())

@@ -415,10 +415,10 @@ def handle_open_app(cmd: str, entities: Dict, context: Any) -> HandlerResult:
                 subprocess.Popen(target, shell=True)
         else:
             # Try to open directly — Windows will find it if it's in PATH or Start Menu
-            try:
-                os.startfile(app)
-            except Exception:
-                subprocess.Popen(f'start {app}', shell=True)
+            from jarvis.core.safe_exec import start_app, is_safe_app_name
+            if not is_safe_app_name(app):
+                return HandlerResult(success=False, response=f"Couldn't open {app}.")
+            start_app(app)
         return HandlerResult(success=True, response=f"Opening {app}.")
     except Exception as e:
         print(f"[HANDLERS] Open app error: {e}")

@@ -1370,6 +1370,18 @@
     <div id="connectionStatus">CONNECTING...</div>
 
     <script>
+        // Per-session WebSocket token. The HUD HTTP server replaces the
+        // placeholder when it serves this page; other websites can't read it.
+        window.JARVIS_WS_TOKEN = "__JARVIS_WS_TOKEN__";
+
+        // Escape untrusted text (LLM replies, news headlines) before it goes
+        // into innerHTML, so it can't inject script into the HUD.
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
         // ═══════════════════════════════════════════════════════════════
         // DRAGGABLE PANELS WITH POSITION PERSISTENCE
         // ═══════════════════════════════════════════════════════════════
@@ -1818,7 +1830,7 @@
 
         function connectWebSocket() {
             try {
-                const socket = new WebSocket('ws://localhost:8765');
+                const socket = new WebSocket('ws://localhost:8765/?token=' + encodeURIComponent(window.JARVIS_WS_TOKEN));
 
                 socket.onopen = () => {
                     console.log('[WS] Connected to JARVIS');
@@ -2130,7 +2142,7 @@
         function updateNews(items) {
             const content = document.getElementById('newsContent');
             content.innerHTML = items.map(item =>
-                `<div class="news-item"><span class="news-bullet">◆</span><span>${item}</span></div>`
+                `<div class="news-item"><span class="news-bullet">◆</span><span>${escapeHtml(item)}</span></div>`
             ).join('');
             // Also feed Feature Hub news tab
             updateHubNews(items);
@@ -2182,7 +2194,11 @@
             div.className = `chat-message ${sender}`;
 
             const senderName = sender === 'user' ? 'YOU' : sender.toUpperCase();
-            div.innerHTML = `<div class="chat-sender">${senderName}</div>${text}`;
+            const senderDiv = document.createElement('div');
+            senderDiv.className = 'chat-sender';
+            senderDiv.textContent = senderName;
+            div.appendChild(senderDiv);
+            div.appendChild(document.createTextNode(String(text ?? '')));
 
             messages.appendChild(div);
             messages.scrollTop = messages.scrollHeight;
@@ -2434,9 +2450,9 @@
                 const timeAgo = i === 0 ? 'JUST NOW' : (i * 3) + 'M AGO';
 
                 return `<div class="hub-news-card${priority}">
-                    <div class="hub-news-title"><span class="hub-news-idx">${String(i+1).padStart(2,'0')}</span> ${item}</div>
+                    <div class="hub-news-title"><span class="hub-news-idx">${String(i+1).padStart(2,'0')}</span> ${escapeHtml(item)}</div>
                     <div class="hub-news-meta">
-                        <span class="hub-news-source">${source}</span>
+                        <span class="hub-news-source">${escapeHtml(source)}</span>
                         <span class="hub-news-time">${timeAgo}</span>
                     </div>
                 </div>`;
@@ -2522,7 +2538,7 @@
             const el = document.getElementById('hubEmoHistory');
             if (!el) return;
             el.innerHTML = emotionHistory.map(e =>
-                `<div class="emo-history-item"><span>${e.mood.toUpperCase()}</span><span style="color:rgba(0,212,255,0.3)">${e.time}</span></div>`
+                `<div class="emo-history-item"><span>${escapeHtml(String(e.mood).toUpperCase())}</span><span style="color:rgba(0,212,255,0.3)">${escapeHtml(e.time)}</span></div>`
             ).join('');
         }
 

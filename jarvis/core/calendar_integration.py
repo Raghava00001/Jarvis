@@ -60,7 +60,7 @@ class CalendarIntegration:
         # Data paths
         self.data_dir = Path(__file__).parent.parent / "data"
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.token_path = self.data_dir / "calendar_token.pickle"
+        self.token_path = self.data_dir / "calendar_token.json"  # JSON, not pickle
         self.credentials_path = self.data_dir / "calendar_credentials.json"
         
         # Timezone - detect system timezone
@@ -118,8 +118,8 @@ class CalendarIntegration:
         # Load existing token
         if self.token_path.exists():
             try:
-                with open(self.token_path, 'rb') as token:
-                    creds = pickle.load(token)
+                from google.oauth2.credentials import Credentials
+                creds = Credentials.from_authorized_user_file(str(self.token_path), self.SCOPES)
             except Exception as e:
                 print(f"[CALENDAR] Token load error: {e}")
                 
@@ -138,7 +138,8 @@ class CalendarIntegration:
                         flow = InstalledAppFlow.from_client_secrets_file(
                             str(self.credentials_path), self.SCOPES
                         )
-                        creds = flow.run_local_server(port=8080)
+                        # port=0: any free port (8080 is the JARVIS HUD)
+                        creds = flow.run_local_server(port=0)
                     except Exception as e:
                         print(f"[CALENDAR] Auth error: {e}")
                         self.available = False
@@ -151,8 +152,7 @@ class CalendarIntegration:
                     
             # Save token
             try:
-                with open(self.token_path, 'wb') as token:
-                    pickle.dump(creds, token)
+                self.token_path.write_text(creds.to_json(), encoding="utf-8")
             except Exception as e:
                 print(f"[CALENDAR] Token save error: {e}")
                 

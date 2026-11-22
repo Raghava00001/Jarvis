@@ -447,7 +447,10 @@ class FallbackProcessor:
                 }
                 
                 browser_cmd = browser_cmds.get(browser, 'msedge')
-                encoded_query = query.replace(' ', '+')
+                # quote_plus: the URL is passed through cmd (shell=True), so
+                # characters like & | ^ in the query must be percent-encoded.
+                import urllib.parse
+                encoded_query = urllib.parse.quote_plus(query)
                 
                 try:
                     # Open specific browser with search URL
