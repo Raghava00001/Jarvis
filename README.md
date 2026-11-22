@@ -1,6 +1,6 @@
 # 🤖 J.A.R.V.I.S. — AI Desktop Assistant
 
-[![J.A.R.V.I.S. CI Pipeline](https://github.com/Raghava001-web/Jarvis/actions/workflows/ci.yml/badge.svg)](https://github.com/Raghava001-web/Jarvis/actions/workflows/ci.yml)
+[![J.A.R.V.I.S. CI Pipeline](https://github.com/Raghava00001/Jarvis/actions/workflows/ci.yml/badge.svg)](https://github.com/Raghava00001/Jarvis/actions/workflows/ci.yml)
 
 > **Just A Rather Very Intelligent System**
 > A voice-first desktop assistant for Windows: real-time two-way voice through Gemini Live, an Iron Man–style Web HUD, real system control (apps, volume, brightness, screenshots), and optional gesture, face and emotion features.
@@ -80,7 +80,7 @@
 **Requirements:** Windows 10/11, Python 3.12, a [Gemini API key](https://aistudio.google.com/apikey), mic and speakers. A webcam is optional.
 
 ```powershell
-git clone https://github.com/Raghava001-web/Jarvis.git
+git clone https://github.com/Raghava00001/Jarvis.git
 cd Jarvis
 python -m venv .venv
 .venv\Scripts\activate
