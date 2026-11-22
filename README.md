@@ -159,10 +159,10 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-**155 tests pass:**
+**157 tests pass:**
 - smoke tests: boot, Gemini Live dedup and echo gate, BrainAdapter, persona switching
 - NLP and router unit tests
-- 65 security regression tests
+- 67 security and regression tests
 
 CI runs the same suite on `windows-latest`.
 
