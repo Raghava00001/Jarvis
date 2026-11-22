@@ -220,3 +220,30 @@ def test_no_undefined_names():
     problems = [l for l in out.getvalue().splitlines()
                 if "undefined name" in l or "referenced before assignment" in l]
     assert problems == [], "\n".join(problems)
+
+
+# ─── entry points load when run as scripts ────────────────────────────────
+
+@pytest.mark.parametrize("script", [
+    "jarvis/gui/websocket_server.py",   # README: python jarvis/gui/websocket_server.py
+    "jarvis/gui/desktop_gui.py",
+    "jarvis/gui/web_hud_launcher.py",
+    "jarvis/main.py",
+])
+def test_entry_point_imports_when_run_as_a_script(script, tmp_path):
+    """Run as a script, only the script's own folder is on sys.path, not the
+    project root. An import placed above the path setup broke
+    `python jarvis/gui/websocket_server.py` (ModuleNotFoundError: jarvis)."""
+    path = (ROOT / script).resolve()
+    code = (
+        "import sys, os, runpy\n"
+        f"banned = {{os.path.normcase({str(ROOT)!r}), os.path.normcase({str(ROOT / 'jarvis')!r})}}\n"
+        f"sys.path = [{str(path.parent)!r}] + [p for p in sys.path[1:] "
+        "if p and os.path.normcase(os.path.abspath(p)) not in banned]\n"
+        f"runpy.run_path({str(path)!r}, run_name='loaded_as_script')\n"
+        "print('LOADED_OK')\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, capture_output=True, text=True,
+                         encoding="utf-8", errors="replace", timeout=240,
+                         env={**__import__("os").environ, "JARVIS_USE_GEMINI_LIVE": "0"})
+    assert "LOADED_OK" in out.stdout, (out.stdout[-1500:] + out.stderr[-2500:])

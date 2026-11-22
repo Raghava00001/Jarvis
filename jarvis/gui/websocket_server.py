@@ -13,7 +13,6 @@ Connects Web HUD to JARVISUltimate with ALL features:
 - All JARVIS commands
 """
 
-from jarvis.core.services import shared
 import asyncio
 import websockets
 import json
@@ -38,6 +37,8 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 # NOTE: jarvis/ itself must NOT be on sys.path: that let modules load twice,
 # as core.X and jarvis.core.X (see jarvis/__init__.py).
+
+from jarvis.core.services import shared  # after the path setup above
 import queue
 import base64
 from dataclasses import dataclass

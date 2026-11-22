@@ -4,7 +4,12 @@ Run this file to start JARVIS
 """
 
 import sys
-from jarvis.core.jarvis_ultimate import JARVISUltimate
+from pathlib import Path
+
+# Allow `python jarvis/main.py` from anywhere: make the project root importable
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from jarvis.core.jarvis_ultimate import JARVISUltimate  # noqa: E402
 
 
 def main():
