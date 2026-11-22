@@ -1,0 +1,36 @@
+# ═══════════════════════════════════════════════
+#  JARVIS - optional feature dependencies
+#  Each feature is skipped gracefully when its package is missing.
+#  These are not installed in the reference environment, so they
+#  have lower bounds instead of exact pins.
+# ═══════════════════════════════════════════════
+
+# Brightness control
+screen-brightness-control>=0.9.0
+
+# OCR (also needs the Tesseract binary installed)
+pytesseract>=0.3.10
+
+# Face recognition (face_recognition needs a C++ compiler for dlib;
+# facenet-pytorch is the pure-PyTorch alternative)
+# face_recognition>=1.3.0
+facenet-pytorch>=2.5.3
+
+# Emotion detection (heavy: TensorFlow-based)
+deepface>=0.0.79
+fer>=22.5.1
+librosa>=0.10.0
+
+# Entity extraction upgrade (falls back to regex)
+spacy>=3.7.0
+
+# Location for weather
+geocoder>=1.38.1
+
+# Google Calendar
+google-auth==2.49.1
+google-auth-oauthlib>=1.2.0
+google-api-python-client>=2.100.0
+
+# Spotify
+spotipy>=2.23.0
