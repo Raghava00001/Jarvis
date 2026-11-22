@@ -1302,7 +1302,6 @@ class JARVISWebSocketServer:
     def _init_clipboard(self):
         """Create ClipboardIntelligence with HUD suggestion callback."""
         def _push_clipboard_suggestion(suggestion):
-            pass  # (module-level import used)
             msg = json.dumps({
                 'type': 'clipboard_suggestion',
                 'suggestion': suggestion.get('suggestion', ''),
@@ -1311,7 +1310,6 @@ class JARVISWebSocketServer:
             })
             for client in getattr(self, 'clients', set()):
                 try:
-                    pass  # (module-level import used)
                     asyncio.run_coroutine_threadsafe(
                         client.send(msg),
                         getattr(self, '_voice_loop', None) or asyncio.get_event_loop()
@@ -1563,7 +1561,6 @@ class JARVISWebSocketServer:
                 turn_complete=True
             )
         
-        pass  # (module-level import used)
         asyncio.run_coroutine_threadsafe(_inject(), le._loop)
     
     async def process_message(self, websocket, data):
@@ -1933,7 +1930,6 @@ class JARVISWebSocketServer:
                 f"Say 'confirm' within {POWER_CONFIRM_WINDOW_S} seconds, or 'cancel'.")
 
     def _execute_power_action(self, action: str, title: str) -> str:
-        pass  # (module-level import used)
         flag = '/s' if action == 'shutdown' else '/r'
         subprocess.Popen(['shutdown', flag, '/t', '5'])
         if action == 'shutdown':
@@ -1952,7 +1948,6 @@ class JARVISWebSocketServer:
         if close_match:
             app = close_match.group(1).strip()
             try:
-                pass  # (module-level import used)
                 # Map common names to process names
                 APP_PROCESS = {
                     'whatsapp': 'WhatsApp', 'chrome': 'chrome',
@@ -1989,7 +1984,6 @@ class JARVISWebSocketServer:
         if 'screenshot' in cmd or 'screen capture' in cmd:
             try:
                 import pyautogui
-                pass  # (module-level import used)
                 ts = datetime.now().strftime('%Y%m%d_%H%M%S')
                 path = Path.home() / 'Pictures' / f'jarvis_screenshot_{ts}.png'
                 pyautogui.screenshot(str(path))
@@ -2071,13 +2065,11 @@ class JARVISWebSocketServer:
         
         # ── TIME (instant) ──
         if cmd in ['time', 'what time is it', 'what is the time', 'tell me the time', "what's the time"]:
-            pass  # (module-level import used)
             now = datetime.now().strftime('%I:%M %p')
             return f"It's {now}, {title}."
         
         # ── DATE (instant) ──
         if cmd in ['date', 'what date is it', "what's the date", 'what is the date', "what's today's date"]:
-            pass  # (module-level import used)
             now = datetime.now().strftime('%A, %B %d, %Y')
             return f"It's {now}, {title}."
         
@@ -2147,6 +2139,19 @@ class JARVISWebSocketServer:
         # SHUTDOWN: Actually exit the JARVIS process
         # Uses word boundaries to avoid false matches (e.g. 'perplexity' has 'exit')
         # ══════════════════════════════════════════════════════════════════
+        # ── PENDING CLARIFICATION ("I'm 60% sure… Should I proceed?") ──
+        clarify = getattr(self, '_pending_clarify', None)
+        if clarify:
+            self._pending_clarify = None
+            original, expires_at = clarify
+            if time.time() <= expires_at:
+                if CONFIRM_RE.match(cmd):
+                    return (self._route_through_router(original, force=True)
+                            or f"I couldn't complete that{maybe_title(title)}.")
+                if CANCEL_RE.match(cmd):
+                    return f"Okay, never mind{maybe_title(title)}."
+            # anything else: treat as a new command
+
         # ── PENDING PC SHUTDOWN/RESTART: needs an explicit confirmation ──
         pending = self._get_pending_power_action()
         if pending:
@@ -2236,7 +2241,6 @@ class JARVISWebSocketServer:
         # Chat History — classifier thinks this is 'story'
         if ('chat history' in cmd or 'show history' in cmd or 'conversation history' in cmd) and self.chat_history:
             if 'search' in cmd:
-                pass  # (module-level import used)
                 match = re.search(r'search\s+(?:for\s+)?(.+)', cmd, re.I)
                 if match:
                     query = match.group(1).strip()
@@ -2324,7 +2328,6 @@ class JARVISWebSocketServer:
         open_match = _re.match(r'^(?:open|launch|start|run)\s+(.+)', cmd, _re.I)
         if open_match:
             app_name = open_match.group(1).strip()
-            pass  # (module-level import used)
             
             # Direct app map — no ML, no API, no lag
             DIRECT_APPS = {
@@ -2418,7 +2421,6 @@ class JARVISWebSocketServer:
         # Habits — classifier thinks this is 'conversation'
         if 'habit' in cmd and self.habit_tracker:
             if 'create' in cmd or 'add' in cmd or 'new' in cmd:
-                pass  # (module-level import used)
                 match = re.search(r'(?:create|add|new)\s+habit\s+(.+?)(?:\s+every\s+|\s+daily|\s+hourly|$)', cmd, re.I)
                 if match:
                     desc = match.group(1).strip()
@@ -2437,7 +2439,6 @@ class JARVISWebSocketServer:
         # Tasks — classifier thinks this is 'conversation'
         if ('task' in cmd or 'todo' in cmd or 'to do' in cmd) and self.task_manager_obj:
             if 'add' in cmd or 'create' in cmd or 'new' in cmd:
-                pass  # (module-level import used)
                 match = re.search(r'(?:add|create|new)\s+(?:a\s+)?task\s+(.+)', cmd, re.I)
                 if match:
                     desc = match.group(1).strip()
@@ -2573,7 +2574,6 @@ class JARVISWebSocketServer:
             import google.genai as _genai
             _api_key = getattr(self, '_gemini_key', None)
             if not _api_key:
-                pass  # (module-level import used)
                 _api_key = os.getenv('GEMINI_API_KEY', '')
                 self._gemini_key = _api_key
             if _api_key:
@@ -2595,8 +2595,12 @@ class JARVISWebSocketServer:
         # Final fallback
         return await self._fallback_process(command, websocket)
     
-    def _route_through_router(self, command: str) -> str:
-        """Route command through direct handlers first, then IntentRouter"""
+    def _route_through_router(self, command: str, force: bool = False) -> str:
+        """Route command through direct handlers first, then IntentRouter.
+
+        force=True skips the brain's clarification question (the user already
+        answered 'yes' to it).
+        """
         
         try:
             title = self.hud_perception.user_title
@@ -2620,19 +2624,35 @@ class JARVISWebSocketServer:
                 # keyword classifier, which speaks HANDLER_MAP's names natively.
                 from jarvis.core.intent_handlers import resolve_brain_intent
                 intent_name, entities = resolve_brain_intent(brain_result.action,
-                                                             brain_result.entities)
+                                                             brain_result.entities, command)
                 # Names the router serves itself, outside HANDLER_MAP
                 router_native = {'list_alarms', 'read_clipboard', 'next', 'previous', 'scroll'}
+                kw_intent, kw_entities = classify_intent(command) if ROUTER_AVAILABLE else (None, {})
                 if ROUTER_AVAILABLE and intent_name not in HANDLER_MAP and intent_name not in router_native:
-                    kw_intent, kw_entities = classify_intent(command)
                     if kw_intent in HANDLER_MAP:
                         intent_name, entities = kw_intent, kw_entities
+                elif kw_intent == intent_name and kw_entities:
+                    # Both layers agree: fill entities the ML extractor missed
+                    # (e.g. the city in "weather in london") from the rule-based ones
+                    entities = {**kw_entities, **entities}
                 if jlog: jlog.intent(f"BRAIN:{intent_name}", entities=entities)
                 else: print(f"[WebSocket] BRAIN Intent: {intent_name}, Entities: {entities}, Conf: {brain_result.confidence:.2f}")
 
-                # If decision engine says CLARIFY or REFUSE, return that message
-                if brain_result.decision_type in ('clarify', 'refuse') and brain_result.decision_message:
+                if brain_result.decision_type == 'refuse' and brain_result.decision_message:
                     return brain_result.decision_message
+                # CLARIFY: the brain is unsure. If the rule-based keyword classifier
+                # independently names a specific handler, that corroborates it:
+                # proceed. Otherwise ask, and remember the command so "yes" runs it
+                # (the question used to be a dead end).
+                if brain_result.decision_type == 'clarify' and brain_result.decision_message and not force:
+                    kw_intent, kw_entities = classify_intent(command) if ROUTER_AVAILABLE else (None, {})
+                    if kw_intent == intent_name:
+                        pass  # corroborated
+                    elif kw_intent in HANDLER_MAP and kw_intent != 'conversation':
+                        intent_name, entities = kw_intent, kw_entities
+                    else:
+                        self._pending_clarify = (command, time.time() + POWER_CONFIRM_WINDOW_S)
+                        return brain_result.decision_message
                 # If decision engine says WARN, prepend warning
                 if brain_result.decision_type == 'warn' and brain_result.decision_message:
                     # Store warning to prepend to final response
@@ -2703,7 +2723,6 @@ class JARVISWebSocketServer:
                     return result if isinstance(result, str) else f"Volume muted, {title}."
                 else:
                     # No specific action, try to extract number from command
-                    pass  # (module-level import used)
                     match = re.search(r'(\d+)\s*%?', command)
                     if match:
                         level = int(match.group(1))
@@ -2727,7 +2746,6 @@ class JARVISWebSocketServer:
                     result = self.system_control.brightness_down()
                     return result if isinstance(result, str) else f"Brightness decreased, {title}."
                 else:
-                    pass  # (module-level import used)
                     match = re.search(r'(\d+)\s*%?', command)
                     if match:
                         level = int(match.group(1))
@@ -2738,7 +2756,6 @@ class JARVISWebSocketServer:
             
             # --- ALARM ---
             if intent_name == 'set_alarm' and self.alarm_system:
-                pass  # (module-level import used)
                 from datetime import timedelta
                 cmd_lower = command.lower()
                 
@@ -2756,7 +2773,14 @@ class JARVISWebSocketServer:
                     result = self.alarm_system.set_alarm(time_str, label)
                     return result if isinstance(result, str) else f"Alarm set for {time_str} ({amount} {'hours' if 'hour' in unit else 'minutes'} from now), {title}."
                 
-                # Handle absolute time from entities
+                # Handle absolute time from entities. The ML entity extractor
+                # gives time='07:00' (24h); the keyword classifier gives hour/minute.
+                if entities.get('hour') is None and entities.get('time'):
+                    tm = re.match(r'(\d{1,2}):(\d{2})', str(entities['time']))
+                    if tm:
+                        h24 = int(tm.group(1))
+                        entities = {**entities, 'hour': (h24 % 12) or 12, 'minute': int(tm.group(2)),
+                                    'period': 'PM' if h24 >= 12 else 'AM'}
                 hour = entities.get('hour')
                 minute = entities.get('minute', 0)
                 period = entities.get('period', '')
@@ -2869,7 +2893,6 @@ class JARVISWebSocketServer:
             # --- READ CLIPBOARD ---
             if intent_name == 'read_clipboard':
                 try:
-                    pass  # (module-level import used)
                     text = subprocess.run(['powershell', '-command', 'Get-Clipboard'],
                                          capture_output=True, text=True, timeout=5).stdout.strip()
                     if text:

@@ -228,9 +228,8 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     # ═══════════════════════════════════════════════════════════
     if 'weather' in cmd:
         # Try to extract city
-        pass  # (module-level import used)
         city_patterns = [
-            r'weather (?:in|for|at) (\w+)',
+            r"weather (?:like )?(?:in|for|at) ([a-z][a-z .'-]*?)(?:\s+(?:today|now|tomorrow|right now|please))?[?.!]*$",
             r'(\w+) weather'
         ]
         for pattern in city_patterns:
@@ -247,7 +246,6 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     # ═══════════════════════════════════════════════════════════
     # Search news by keyword
     if 'search news' in cmd or 'news about' in cmd or 'news on' in cmd:
-        pass  # (module-level import used)
         keyword = re.sub(r'(search news|news about|news on|for|about)\s*', '', cmd).strip()
         if keyword:
             entities['keyword'] = keyword
@@ -363,7 +361,6 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         return 'list_notes', {}
     
     if any(phrase in cmd for phrase in ['set alarm', 'alarm for', 'alarm in', 'set an alarm', 'wake me']):
-        pass  # (module-level import used)
         # Check for relative time first: "5 min from now", "in 10 minutes"
         relative_match = re.search(r'(\d+)\s*(min|minute|minutes|hour|hours|hr|hrs)', cmd)
         if relative_match:
@@ -404,7 +401,6 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         elif 'mute' in cmd:
             entities['action'] = 'mute'
         else:
-            pass  # (module-level import used)
             match = re.search(r'(\d+)\s*%?', cmd)
             if match:
                 entities['level'] = int(match.group(1))
@@ -421,7 +417,6 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         elif 'down' in cmd or 'decrease' in cmd:
             entities['action'] = 'down'
         else:
-            pass  # (module-level import used)
             match = re.search(r'(\d+)\s*%?', cmd)
             if match:
                 entities['level'] = int(match.group(1))
@@ -450,7 +445,6 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     # "open whatsapp and text hena saying hi"
     # "send whatsapp to john message what's up"
     if 'whatsapp' in cmd or 'whatsapp to' in cmd or 'send message' in cmd or 'text ' in cmd:
-        pass  # (module-level import used)
         
         # Clean up common prefixes that confuse the regex
         clean_cmd = re.sub(r'^(?:open\s+whatsapp\s+and\s+)?(text|send message to|whatsapp)\s+', r'\1 ', cmd, flags=re.I)
@@ -478,7 +472,6 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         
         # Special case: "open youtube search for X" → should search YouTube, not open app
         if 'youtube' in app and ('search' in app or 'find' in app or 'look' in app):
-            pass  # (module-level import used)
             # Extract the search query after youtube + search/find/look keywords
             query_match = re.sub(r'youtube\s*(and\s+)?(search|find|look)\s*(for|up)?\s*', '', app).strip()
             if query_match:
@@ -520,7 +513,6 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         song = cmd.replace('play ', '').strip()
         # "play X in youtube" / "play X on youtube" → YouTube search, NOT Spotify
         if any(yt in cmd for yt in ['in youtube', 'on youtube', 'youtube', 'in yt', 'on yt']):
-            pass  # (module-level import used)
             query = re.sub(r'\s*(in|on)\s*(youtube|yt)\s*$', '', song, flags=re.I).strip()
             entities['query'] = query
             return 'youtube_search', entities
@@ -551,7 +543,6 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     
     if any(phrase in cmd for phrase in ['remember that', 'remember this', 'save this',
                                          'remember my', 'remember i', 'remember the']):
-        pass  # (module-level import used)
         fact = re.sub(r'(remember that|remember this|save this|remember my|remember i|remember the|remember)\s*', '', cmd).strip()
         entities['fact'] = fact
         return 'remember', entities

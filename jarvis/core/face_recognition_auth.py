@@ -608,7 +608,6 @@ class FaceRecognition:
                             self.authenticate()
                         finally:
                             self._is_authenticating = False
-                    pass  # (module-level import used)
                     threading.Thread(target=_run_auth, daemon=True).start()
                     return False, "Please look at the camera for verification, then repeat your command."
                 

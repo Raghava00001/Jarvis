@@ -584,7 +584,6 @@ class GeminiLiveEngine:
         text = text.strip()
         
         # ── Local dedup ──
-        pass  # (module-level import used)
         now = _time.time()
         last = self._last_push
         
@@ -1200,7 +1199,6 @@ class GeminiLiveEngine:
                     else:
                         import pyautogui
                         ss = pyautogui.screenshot()
-                        pass  # (module-level import used)
                         p = Path.home() / "Pictures" / f"jarvis_screenshot_{datetime.datetime.now().strftime('%H%M%S')}.png"
                         ss.save(str(p))
                         result = f"Screenshot saved to {p.name}."

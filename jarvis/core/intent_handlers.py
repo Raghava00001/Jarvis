@@ -590,11 +590,14 @@ def handle_search(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     """Handle web search"""
     import webbrowser
     title = context.get('title', 'sir') if context else 'sir'
-    query = entities.get('query', '')
-    
+    import re as _re
+    from urllib.parse import quote_plus
+    # "search for X" used to search for "for X"
+    query = _re.sub(r"^(?:for|about|up|on)\s+", "", (entities.get('query') or '').strip(), flags=_re.I)
+
     if query:
         try:
-            webbrowser.open(f"https://www.google.com/search?q={query}")
+            webbrowser.open(f"https://www.google.com/search?q={quote_plus(query)}")
             return HandlerResult(success=True, response=f"Searching for '{query}', {title}.")
         except Exception as e:
             print(f"[HANDLERS] Search error: {e}")
@@ -1108,9 +1111,15 @@ def handle_send_message(cmd: str, entities: Dict, context: Any) -> HandlerResult
         except ImportError:
             return HandlerResult(success=False, response=f"WhatsApp automation is not available, {title}.")
             
-    contact = entities.get('contact')
-    message = entities.get('message')
-    
+    import re as _re
+    # "send a whatsapp to dad" gave contact="to dad" ("Message sent to to dad")
+    contact = _re.sub(r"^(?:to|for)\s+", "", (entities.get('contact') or '').strip(), flags=_re.I)
+    message = (entities.get('message') or '').strip()
+    if not contact:
+        return HandlerResult(success=False, response=f"Who should I message, {title}?")
+    if not message:
+        return HandlerResult(success=False, response=f"What should I say to {contact}, {title}?")
+
     result_text = whatsapp_handler.send_message(contact, message)
     return HandlerResult(success=True, response=result_text)
 
@@ -1150,11 +1159,16 @@ def handle_screen_control(cmd: str, entities: Dict, context: Any) -> HandlerResu
     title = context.get('title', 'sir') if context else 'sir'
     
     try:
-        from jarvis.core.screen_control import ScreenController
-        controller = ScreenController()
-        raw_text = entities.get('raw_text', cmd)
-        result = controller.execute(raw_text)
-        return HandlerResult(success=True, response=result or f"Done, {title}.")
+        # The class is ScreenControlHandler; this used to import a non-existent
+        # ScreenController, so voice screen control always failed.
+        from jarvis.core.screen_control import ScreenControlHandler
+        controller = shared(ScreenControlHandler)
+        raw_text = entities.get('raw_text') or cmd
+        result = controller.handle(raw_text, entities)
+        if not result or result.startswith("I didn't understand"):
+            # let the router try other paths instead of answering with a non-action
+            return HandlerResult(success=False, response=f"I'm not sure which screen action you mean, {title}.")
+        return HandlerResult(success=True, response=result)
     except ImportError:
         return HandlerResult(success=False, response=f"Screen control is not available, {title}.")
     except Exception as e:
@@ -1360,9 +1374,21 @@ BRAIN_INTENT_ALIASES = {
 }
 
 
-def resolve_brain_intent(intent: str, entities: Dict = None):
-    """Translate a BrainAdapter intent to its HANDLER_MAP name, filling default entities."""
+def _explicit_search(text: str) -> bool:
+    import re as _re
+    return bool(_re.match(r"^\s*(?:please\s+)?(?:search|google|look\s+up|find|browse)\b", text, _re.I))
+
+
+def resolve_brain_intent(intent: str, entities: Dict = None, text: str = ""):
+    """Translate a BrainAdapter intent to its HANDLER_MAP name, filling default entities.
+
+    search_web only opens a browser search when the user asked to search
+    ("search for…", "google…"). A plain question ("what is quantum computing")
+    goes to the conversation handler, which answers it.
+    """
     entities = dict(entities or {})
+    if intent == "search_web" and text and not _explicit_search(text):
+        return "conversation", entities
     target, defaults = BRAIN_INTENT_ALIASES.get(intent, (intent, {}))
     for key, value in defaults.items():
         entities.setdefault(key, value)

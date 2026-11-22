@@ -132,7 +132,8 @@ INTENT_EXAMPLES = {
     ],
     
     "ask_question": [
-        "what is the weather today",
+        "translate hello to spanish",
+        "how do you say thank you in french",
         "how far is the moon",
         "tell me about python",
         "explain quantum computing",
@@ -289,6 +290,121 @@ INTENT_EXAMPLES = {
         "thanks jarvis",
         "appreciate it",
         "thanks a lot",
+    ],
+
+    # ── Intents below are named after their HANDLER_MAP handler. Before v2.6
+    # the classifier had no examples for them, so e.g. "what is the weather in
+    # new york" was confidently classified as a web search and "set a timer"
+    # as "what time is it".
+    "weather": [
+        "what's the weather like",
+        "what is the weather in new york",
+        "weather in london",
+        "is it going to rain today",
+        "how hot is it outside",
+        "temperature outside",
+        "weather forecast",
+    ],
+    "news": [
+        "tell me the news",
+        "latest headlines",
+        "what's happening in the world",
+        "sports news",
+        "technology news",
+        "read me the news",
+    ],
+    "set_timer": [
+        "set a timer for 5 minutes",
+        "start a 10 minute timer",
+        "timer for 30 seconds",
+        "count down 2 minutes",
+        "set a timer",
+    ],
+    "set_reminder": [
+        "remind me to drink water in 10 minutes",
+        "remind me to call mom at 6",
+        "set a reminder for the meeting",
+        "don't let me forget to take my medicine",
+    ],
+    "list_reminders": [
+        "show my reminders",
+        "what are my reminders",
+        "list reminders",
+        "do i have any reminders",
+    ],
+    "system_status": [
+        "system status",
+        "battery level",
+        "how much battery is left",
+        "cpu usage",
+        "how much memory am i using",
+        "check system health",
+    ],
+    "screen_control": [
+        "scroll down",
+        "scroll up",
+        "minimize window",
+        "maximize window",
+        "next tab",
+        "close this tab",
+        "zoom in",
+    ],
+    "screenshot": [
+        "take a screenshot",
+        "capture the screen",
+        "screenshot this",
+        "grab a screen capture",
+    ],
+    "identity": [
+        "who are you",
+        "what are you",
+        "what is your name",
+        "introduce yourself",
+    ],
+    "creator": [
+        "who created you",
+        "who made you",
+        "who built you",
+        "who is your creator",
+    ],
+    "how_are_you": [
+        "how are you",
+        "how are you doing",
+        "how's it going jarvis",
+        "are you okay",
+    ],
+    "switch_to_friday": [
+        "switch to friday",
+        "activate friday",
+        "change voice to friday",
+    ],
+    "switch_to_jarvis": [
+        "switch to jarvis",
+        "activate jarvis",
+        "change voice back to jarvis",
+    ],
+    "dictionary": [
+        "define serendipity",
+        "what does ephemeral mean",
+        "meaning of the word ubiquitous",
+        "dictionary lookup for resilience",
+    ],
+    "poem": [
+        "tell me a poem",
+        "write a poem about the sea",
+        "recite a poem",
+    ],
+    "remember": [
+        "remember that my car is parked on level 3",
+        "remember my wifi password is in the drawer",
+        "make a note that the meeting moved to friday",
+        "take a note buy eggs",
+    ],
+    "recall": [
+        "what did i ask you to remember",
+        "where did i park my car",
+        "show my notes",
+        "what do you remember about me",
     ],
 }
 

@@ -110,6 +110,16 @@ class ScreenControlHandler:
             return self._hotkey("ctrl", "a")
         elif "save" in command_lower:
             return self._hotkey("ctrl", "s")
+        elif "next tab" in command_lower:
+            return self._hotkey("ctrl", "tab")
+        elif "previous tab" in command_lower or "last tab" in command_lower:
+            return self._hotkey("ctrl", "shift", "tab")
+        elif "new tab" in command_lower:
+            return self._hotkey("ctrl", "t")
+        elif "zoom in" in command_lower:
+            return self._hotkey("ctrl", "+")
+        elif "zoom out" in command_lower:
+            return self._hotkey("ctrl", "-")
         elif "close" in command_lower and ("window" in command_lower or "tab" in command_lower):
             return self._hotkey("ctrl", "w")
         elif "switch window" in command_lower or "alt tab" in command_lower:
