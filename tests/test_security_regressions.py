@@ -213,6 +213,31 @@ class TestPowerCommands:
         assert popen.call_args[0][0] == ["shutdown", "/r", "/t", "5"]
 
 
+class TestLiveRoutingNoDoubleExecution:
+    """A typed command handed to Gemini Live must not also run locally.
+
+    Bug: a logging call after the hand-off raised, the except-branch fell
+    through to the fast path, and every command ran twice (e.g. two Notepads).
+    """
+
+    def test_routed_text_skips_local_pipeline(self, server, ws_module):
+        server.live_engine = SimpleNamespace(_running=True)
+        server._push_live_text = MagicMock()
+        server._try_fast_path = MagicMock(return_value="ran locally")
+        server.process_command = MagicMock()
+        failing_logger = MagicMock()
+        failing_logger.info.side_effect = AttributeError("no attribute 'info'")
+        with patch.object(ws_module, "jlog", failing_logger):
+            asyncio.run(server.process_message(MagicMock(), {"type": "command", "text": "open notepad"}))
+        server._push_live_text.assert_called_once_with("open notepad")
+        server._try_fast_path.assert_not_called()
+        server.process_command.assert_not_called()
+
+    def test_logger_has_info(self):
+        from jarvis.core.logger import get_logger
+        assert callable(getattr(get_logger(), "info", None))
+
+
 # ─── 4. HUD HTTP server + XSS ─────────────────────────────────────────────
 
 class TestHudServer:

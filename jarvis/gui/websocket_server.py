@@ -1632,14 +1632,21 @@ class JARVISWebSocketServer:
                 try:
                     # Push user text into the Gemini Live session as a text turn
                     self._push_live_text(text)
-                    if jlog:
-                        jlog.info(f'Routed to Gemini Live: "{text[:60]}"')
-                    else:
-                        print(f"[WebSocket] Routed text to Gemini Live: {text[:60]}")
-                    return
                 except Exception as _live_err:
                     print(f"[WebSocket] Live text injection failed, falling through: {_live_err}")
                     # Fall through to legacy pipeline as safety net
+                else:
+                    # Gemini owns this turn now. Never fall through after a
+                    # successful push (a logging error here used to run every
+                    # typed command twice: once by Gemini, once by the fast path).
+                    try:
+                        if jlog:
+                            jlog.info(f'Routed to Gemini Live: "{text[:60]}"')
+                        else:
+                            print(f"[WebSocket] Routed text to Gemini Live: {text[:60]}")
+                    except Exception:
+                        pass
+                    return
             if not text:
                 return
             
@@ -1755,7 +1762,10 @@ class JARVISWebSocketServer:
             result = {
                 'type': 'result',
                 'action': action,
-                'response': response if not getattr(self, "live_engine", None) else "",
+                # In live mode Gemini voices its own replies, so local text is
+                # blanked to avoid duplicates. Power commands are never sent to
+                # Gemini, so their confirmation prompt must still be shown.
+                'response': response if (not getattr(self, "live_engine", None) or is_local_power) else "",
                 'confidence': confidence,
                 'mood': mood,
                 'silent': getattr(self, '_silent_response', False),

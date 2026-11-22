@@ -391,6 +391,7 @@ def handle_open_app(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         'firefox': 'firefox',
         'notepad': 'notepad',
         'calculator': 'calc',
+        'paint': 'mspaint',
         'spotify': 'spotify:',
         'telegram': 'telegram:',
         'discord': 'discord:',
