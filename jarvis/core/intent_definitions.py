@@ -397,14 +397,23 @@ INTENT_EXAMPLES = {
     "remember": [
         "remember that my car is parked on level 3",
         "remember my wifi password is in the drawer",
-        "make a note that the meeting moved to friday",
+    ],
+    "take_note": [
         "take a note buy eggs",
+        "make a note that the meeting moved to friday",
+        "note that the wifi password is in the drawer",
+        "write down call the bank tomorrow",
     ],
     "recall": [
         "what did i ask you to remember",
         "where did i park my car",
-        "show my notes",
         "what do you remember about me",
+    ],
+    "list_notes": [
+        "show my notes",
+        "read my notes",
+        "what are my notes",
+        "list all my notes",
     ],
 }
 

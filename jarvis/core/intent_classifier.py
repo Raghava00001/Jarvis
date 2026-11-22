@@ -138,6 +138,26 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     """
     cmd = command.lower().strip()
     entities = {}
+
+    # ── Commands that had no rule and fell through to the AI chat (v2.7) ──
+    # Translation: answered by the conversation/LLM handler. "translate hello
+    # to spanish" used to be treated as a greeting because of "hello".
+    if re.match(r"^(?:please\s+)?translate\b", cmd) or re.search(r"\bhow do (?:you|i) say\b", cmd):
+        return 'conversation', {}
+    # Clipboard: the router reads it directly (it used to be answered by the AI)
+    if re.search(r"\b(?:read|show|what'?s|what is)\b.*\bclipboard\b", cmd) or cmd == 'clipboard':
+        return 'read_clipboard', {}
+    # Screen reading -> OCR handler ("screenshot" doesn't match: no word boundary)
+    if re.search(r"\b(?:read|what(?:'s| does| is))\b.*\bscreen\b", cmd):
+        return 'ocr', {}
+    # Notes: saved with SmartNotes (they used to go to the AI chat and were lost)
+    note = (re.match(r"^(?:please\s+)?(?:take|make|add|write)\s+(?:a\s+)?note"
+                     r"(?:\s+(?:that|to|saying))?\s*:?\s*(.*)$", cmd)
+            or re.match(r"^(?:note that|note down|write down)\s+(.*)$", cmd))
+    if note:
+        return 'take_note', {'content': note.group(1).strip()}
+    if re.search(r"\b(?:show|list|read)\s+(?:me\s+)?(?:all\s+)?(?:my\s+)?notes\b|\bwhat are my notes\b", cmd):
+        return 'list_notes', {}
     
     # ═══════════════════════════════════════════════════════════
     # CONTEXT-AWARE RESOLUTION (check first for vague commands)

@@ -1059,7 +1059,10 @@ def handle_ocr(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             return HandlerResult(success=False, response=f"OCR is not available, {title}. Please install pytesseract.")
     
     if not ocr_handler.is_available():
-        return HandlerResult(success=False, response=f"OCR engine is not installed, {title}. Install Tesseract OCR to use this feature.")
+        # success=True: this IS the answer. As a failure, the router fell
+        # through to the AI, which made up what was on the screen.
+        return HandlerResult(success=True, response=f"I can't read the screen yet, {title}: screen reading needs "
+                                                    f"Tesseract OCR (pip install pytesseract, plus the Tesseract app).")
     
     try:
         text = ocr_handler.read_screen()
@@ -1191,6 +1194,36 @@ def handle_lock_screen(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     return HandlerResult(success=False, response=f"I couldn't lock the screen, {title}.")
 
 
+def handle_take_note(cmd: str, entities: Dict, context: Any) -> HandlerResult:
+    """Save a note ("take a note buy eggs")."""
+    title = context.get('title', 'sir') if context else 'sir'
+    content = (entities.get('content') or '').strip()
+    if not content:
+        return HandlerResult(success=False, response=f"What should the note say, {title}?")
+    try:
+        from jarvis.core.smart_notes import SmartNotes
+        shared(SmartNotes, lambda: SmartNotes(context.get('perception') if context else None)).add_note(content)
+        return HandlerResult(success=True, response=f"Noted, {title}: {content}.")
+    except Exception as e:
+        print(f"[HANDLERS] Note error: {e}")
+        return HandlerResult(success=False, response=f"I couldn't save that note, {title}.")
+
+
+def handle_list_notes(cmd: str, entities: Dict, context: Any) -> HandlerResult:
+    """Read back the most recent notes."""
+    title = context.get('title', 'sir') if context else 'sir'
+    try:
+        from jarvis.core.smart_notes import SmartNotes
+        notes = shared(SmartNotes, lambda: SmartNotes(context.get('perception') if context else None)).get_recent_notes(5)
+    except Exception as e:
+        print(f"[HANDLERS] Notes error: {e}")
+        return HandlerResult(success=False, response=f"I couldn't open your notes, {title}.")
+    if not notes:
+        return HandlerResult(success=True, response=f"You have no notes yet, {title}.")
+    items = "; ".join(n.content for n in notes)
+    return HandlerResult(success=True, response=f"Your latest notes, {title}: {items}.")
+
+
 HANDLER_MAP = {
     'greeting': handle_greeting,
     'farewell': handle_farewell,
@@ -1252,6 +1285,8 @@ HANDLER_MAP = {
     'email': handle_email,
     'calendar': handle_calendar,
     'lock_screen': handle_lock_screen,
+    'take_note': handle_take_note,
+    'list_notes': handle_list_notes,
 }
 
 

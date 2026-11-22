@@ -1886,6 +1886,17 @@ class JARVISWebSocketServer:
             return f"Shutting down the computer in 5 seconds{maybe_title(title)}. Save your work."
         return f"Restarting the computer in 5 seconds{maybe_title(title)}."
 
+    def _run_on_loop(self, coro):
+        """Schedule a coroutine on the server's event loop from any thread."""
+        try:
+            asyncio.get_running_loop()
+            return asyncio.ensure_future(coro)
+        except RuntimeError:
+            loop = getattr(self, '_voice_loop', None)
+            if loop and loop.is_running():
+                return asyncio.run_coroutine_threadsafe(coro, loop)
+            coro.close()  # no loop to run it on (e.g. tests)
+
     def _try_fast_path(self, text: str):
         """Instant execution for common commands (see fast_path.py)."""
         return try_fast_path(self, text)
@@ -1946,8 +1957,10 @@ class JARVISWebSocketServer:
             original, expires_at = clarify
             if time.time() <= expires_at:
                 if CONFIRM_RE.match(cmd):
-                    return (self._route_through_router(original, force=True)
-                            or f"I couldn't complete that{maybe_title(title)}.")
+                    import functools
+                    reply = await asyncio.get_event_loop().run_in_executor(
+                        None, functools.partial(self._route_through_router, original, force=True))
+                    return reply or f"I couldn't complete that{maybe_title(title)}."
                 if CANCEL_RE.match(cmd):
                     return f"Okay, never mind{maybe_title(title)}."
             # anything else: treat as a new command
@@ -2283,6 +2296,12 @@ class JARVISWebSocketServer:
                 result = self.email_handler_obj.send_email(to_email, subject, body)
                 return result
             
+            # "send email to bob saying hi": no address. This used to fall
+            # through to the default branch and check the inbox instead.
+            if _re.search(r'\bsend\b', cmd) and 'remind' not in cmd:
+                return (f"I need an email address to send that{maybe_title(title)}. "
+                        f"Try: send email to name@example.com saying hello.")
+
             # Send reminder email to self
             if 'remind' in cmd and 'email' in cmd:
                 reminder_text = _re.sub(r'.*(?:remind|email).*?(?:to|about|that)\s+', '', cmd, flags=_re.I).strip()
@@ -2314,7 +2333,11 @@ class JARVISWebSocketServer:
         # TRY INTENTROUTER FIRST - Clean, simple responses
         # This prevents verbose Gemini AI responses for known commands
         # ══════════════════════════════════════════════════════════════════
-        router_response = self._route_through_router(command)
+        # The router's handlers make blocking network calls (LLM, weather, news).
+        # Run it in a worker thread so one slow request can't freeze the server:
+        # a hung LLM call used to stop every reply and HUD update.
+        router_response = await asyncio.get_event_loop().run_in_executor(
+            None, self._route_through_router, command)
         # Check if router gave a REAL answer (not a fallback error)
         _error_phrases = ['trouble connecting', 'knowledge base', 'currently offline', 
                           'encountered an issue', 'Set GROQ_API_KEY']
@@ -2369,30 +2392,22 @@ class JARVISWebSocketServer:
             # Process through our HUD handlers directly
             return await self._fallback_process(command, websocket)
         
-        # For general queries, use fast Gemini API (skip heavy JARVIS pipeline)
-        try:
-            import google.genai as _genai
-            _api_key = getattr(self, '_gemini_key', None)
-            if not _api_key:
-                _api_key = os.getenv('GEMINI_API_KEY', '')
-                self._gemini_key = _api_key
-            if _api_key:
-                _client = _genai.Client(api_key=_api_key)
-                _resp = await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(None, lambda: _client.models.generate_content(
-                        model='gemini-2.0-flash',
-                        contents=f"You are JARVIS, a witty AI assistant. Keep replies to 1-2 sentences. Address user as 'sir'. Never break character. User says: {command}"
-                    )),
-                    timeout=5.0
-                )
-                if _resp and _resp.text:
-                    return _resp.text.strip()
-        except asyncio.TimeoutError:
-            print(f"[WebSocket] Gemini API timed out (5s)")
-        except Exception as e:
-            print(f"[WebSocket] Gemini API error: {e}")
-        
-        # Final fallback
+        # For general queries, ask the text model (see core/llm.py)
+        from jarvis.core.llm import ask_gemini, gemini_client
+        if gemini_client() is not None:
+            try:
+                reply = await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(None, ask_gemini, command), timeout=10.0)
+            except asyncio.TimeoutError:
+                print("[WebSocket] Gemini API timed out (10s)")
+                reply = None
+            if reply:
+                return reply
+            # The keyword fallback would answer an unrelated question with e.g.
+            # a greeting ("translate hello…" -> "Good morning."). Be honest instead.
+            return f"I couldn't reach the AI service just now{maybe_title(title)}. Please try again in a moment."
+
+        # No Gemini key: keyword-based fallback
         return await self._fallback_process(command, websocket)
     
     def _route_through_router(self, command: str, force: bool = False) -> str:
@@ -2678,17 +2693,8 @@ class JARVISWebSocketServer:
                     print(f"[WebSocket] MediaKey error: {e}")
             
             # --- OCR / READ SCREEN ---
-            if intent_name == 'ocr':
-                if self.ocr_handler and hasattr(self.ocr_handler, 'read_screen'):
-                    try:
-                        text = self.ocr_handler.read_screen()
-                        if text:
-                            short_text = text[:200] + '...' if len(text) > 200 else text
-                            return f"I found this text on screen: {short_text}"
-                        return f"No readable text found on screen, {title}."
-                    except Exception as e:
-                        return f"Screen reading error: {e}"
-                return f"OCR not available, {title}. Install pytesseract."
+            # OCR: handled by HANDLER_MAP['ocr'] (handle_ocr). This inline copy
+            # skipped the Tesseract availability check and said "No readable text".
             
             # --- READ CLIPBOARD ---
             if intent_name == 'read_clipboard':
@@ -2747,13 +2753,12 @@ class JARVISWebSocketServer:
                                     self.hud_perception.switch_to_jarvis()
                             # COORD-FIX: Forward news/weather data to HUD
                             elif data_type == 'news' and result.data.get('items'):
-                                try:
-                                    asyncio.create_task(self._broadcast({
-                                        'type': 'news_update',
-                                        'items': result.data['items']
-                                    }))
-                                except Exception:
-                                    pass  # Non-critical — speech still works
+                                # The router runs in a worker thread (see process_command),
+                                # so hand the broadcast back to the server's event loop.
+                                self._run_on_loop(self._broadcast({
+                                    'type': 'news_update',
+                                    'items': result.data['items']
+                                }))
                         return result.response
                 except Exception as e:
                     if jlog: jlog.error(f'Handler dispatch failed: {intent_name}', e)
