@@ -142,12 +142,18 @@ class EdgeTTSBackend:
             print(f"[VOICE ENGINE] Edge TTS error: {e}")
             return None
 
-    def speak_blocking(self, text: str) -> bool:
-        """Speak text synchronously using pygame for playback."""
+    def speak_blocking(self, text: str, cancelled=None) -> bool:
+        """Speak text synchronously using pygame for playback.
+
+        cancelled(): checked after synthesis (a network call); if it returns True
+        the line is dropped, so 'stop' also silences a line still being fetched.
+        """
         audio_path = self.speak_to_file(text)
         if not audio_path:
             return False
         try:
+            if cancelled is not None and cancelled():
+                return True  # handled: the user stopped it
             self._play_audio(audio_path)
             return True
         finally:
@@ -300,6 +306,8 @@ class VoiceEngine:
         self.audio_lock = threading.RLock()
         self._speech_queue = queue.Queue()
         self._speech_worker = None
+        # Bumped by stop(): lines queued or being synthesised before it are dropped
+        self._generation = 0
 
         tts_name = "Edge TTS" if self.use_edge_tts else "pyttsx3"
         stt_name = "Whisper" if self.use_whisper else "Google STT"
@@ -331,13 +339,16 @@ class VoiceEngine:
                 self._speech_worker = threading.Thread(target=self._speech_loop, daemon=True,
                                                        name="JARVISSpeech")
                 self._speech_worker.start()
-        self._speech_queue.put(text)
+        self._speech_queue.put((self._generation, text))
 
     def _speech_loop(self):
         while True:
-            text = self._speech_queue.get()
-            if text is None:
+            item = self._speech_queue.get()
+            if item is None:
                 return
+            generation, text = item
+            if generation != self._generation:
+                continue  # stopped after it was queued
             try:
                 self.speak_with_fallback(text)
             except Exception as e:
@@ -360,8 +371,10 @@ class VoiceEngine:
         if self.use_edge_tts:
             self.is_speaking = True
             self.stop_flag = False
+            generation = self._generation
             try:
-                ok = self.edge_tts.speak_blocking(text)
+                ok = self.edge_tts.speak_blocking(
+                    text, cancelled=lambda: generation != self._generation)
             finally:
                 self.is_speaking = False
             if ok:
@@ -403,7 +416,8 @@ class VoiceEngine:
         return None
 
     def stop(self):
-        """Stop current speech and drop queued lines."""
+        """Stop current speech and drop queued lines (including one being synthesised)."""
+        self._generation += 1
         self.clear_queue()
         self.stop_flag = True
         if self.edge_tts:
@@ -415,6 +429,11 @@ class VoiceEngine:
         if self.use_whisper:
             return self.whisper_stt.transcribe_file(audio_path)
         return None
+
+    @property
+    def busy(self) -> bool:
+        """True while a line is playing or waiting to play (the mic should ignore that time)."""
+        return self.is_speaking or not self._speech_queue.empty()
 
     @property
     def has_edge_tts(self) -> bool:
@@ -430,12 +449,15 @@ class VoiceEngine:
 # ═══════════════════════════════════════════════════════════════════
 
 _voice_engine: Optional[VoiceEngine] = None
+_voice_engine_lock = threading.Lock()
 
 def get_voice_engine(**kwargs) -> VoiceEngine:
-    """Get or create the global VoiceEngine singleton."""
+    """Get or create the global VoiceEngine singleton (thread-safe: boot threads race here)."""
     global _voice_engine
     if _voice_engine is None:
-        _voice_engine = VoiceEngine(**kwargs)
+        with _voice_engine_lock:
+            if _voice_engine is None:
+                _voice_engine = VoiceEngine(**kwargs)
     return _voice_engine
 
 
