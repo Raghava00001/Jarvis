@@ -163,6 +163,18 @@ Every fix has a regression test in `tests/test_security_regressions.py`.
 
 ---
 
+## What's new in v2.4: real data, honestly shown
+
+| Issue | Before | After |
+|-------|--------|-------|
+| **News** | The RSS parser needed `lxml`, which was never installed. Every fetch failed silently, so the HUD showed **invented headlines** as if they were news. | A small standard-library RSS parser (`jarvis/core/rss.py`): real Google News headlines, no new dependency. |
+| **Fallbacks** | When weather or news failed, the HUD showed made-up data ("24°, Partly Cloudy"). | It says "Weather unavailable" / "Headlines unavailable" instead. |
+| **Spoken weather** | Read fields the weather service never returns: "Current conditions in your area: N/A°C, unknown". | "Current conditions in Hyderabad: 23°C, Clear. Humidity at 69%, wind 8 km/h." |
+| **"Lock my screen"** | No handler, so it went to general chat. | Locks Windows (Win+L) via the Windows API, no shell. |
+| **News search** | Search words went into the URL unencoded (`&` broke queries). | Properly encoded. |
+
+---
+
 ## What's new in v2.3: wake word
 
 During live testing JARVIS acted on background speech (paused a video, reopened Paint) because Gemini Live hears everything and nothing filtered it. Now:
@@ -193,12 +205,13 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-**201 tests pass:**
+**216 tests pass:**
 - smoke tests: boot, Gemini Live dedup and echo gate, BrainAdapter, persona switching
 - NLP and router unit tests
 - 67 security and regression tests
 - 19 tests for the v2.2 upgrades (routing, embedding cache, TTS fallback, boot briefing)
 - 25 wake-word tests, including the real receive loop with a fake Live session
+- 15 tests for real news, honest fallbacks, spoken weather and lock screen
 
 CI runs the same suite on `windows-latest`.
 
