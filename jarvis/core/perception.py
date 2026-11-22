@@ -267,26 +267,31 @@ class PerceptionLayer:
                     edge_used = False
             
             # ━━━ PYTTSX3 FALLBACK ━━━
+            # Under the engine's audio lock: SAPI and pygame.mixer must never be
+            # driven from two threads at once (that crashed the process)
+            import contextlib
+            _audio_lock = getattr(self._voice_engine, 'audio_lock', None) or contextlib.nullcontext()
             if not edge_used:
-                engine = pyttsx3.init()
-                engine.setProperty('rate', rate)
-                engine.setProperty('volume', volume)
+                with _audio_lock:
+                    engine = pyttsx3.init()
+                    engine.setProperty('rate', rate)
+                    engine.setProperty('volume', volume)
                 
-                # Set voice based on current assistant
-                voice_id = self._get_current_voice_id()
-                if voice_id:
-                    engine.setProperty('voice', voice_id)
+                    # Set voice based on current assistant
+                    voice_id = self._get_current_voice_id()
+                    if voice_id:
+                        engine.setProperty('voice', voice_id)
                 
-                # Connect to check for stop flag
-                def on_word(name, location, length):
-                    if self.stop_speaking_flag:
-                        engine.stop()
+                    # Connect to check for stop flag
+                    def on_word(name, location, length):
+                        if self.stop_speaking_flag:
+                            engine.stop()
                 
-                engine.connect('started-word', on_word)
-                engine.say(text)
-                engine.runAndWait()
-                engine.stop()
-                del engine
+                    engine.connect('started-word', on_word)
+                    engine.say(text)
+                    engine.runAndWait()
+                    engine.stop()
+                    del engine
         except Exception as e:
             print(f"ERROR - Speech error: {e}")
         finally:

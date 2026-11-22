@@ -179,6 +179,7 @@ holds in the running code too. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | Weather cache ignored the city; "new york" parsed as "new" | London got Hyderabad's weather | Per-city cache, multi-word cities |
 | Screen control imported a class that doesn't exist | "scroll down", "next tab" never worked by voice | Fixed; added tab and zoom commands |
 | `python jarvis/gui/websocket_server.py` | Failed to start (found in live testing) | Fixed; test loads every entry point as a script |
+| A thread per spoken reply | Several threads played audio through pygame at once: native crash (0xC0000005) in 3 of 6 long sessions | One speech queue + audio lock: 0 crashes in 6 sessions; replies no longer overlap |
 
 Unwired features (world monitor, AI search, unified perception, multimodal emotion)
 moved to `jarvis/experimental/` with a README on how to wire them in.
@@ -240,7 +241,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-**299 tests pass:**
+**301 tests pass:**
 - smoke tests: boot, Gemini Live dedup and echo gate, BrainAdapter, persona switching
 - NLP and router unit tests
 - 67 security and regression tests

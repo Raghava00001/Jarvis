@@ -116,6 +116,10 @@ class TestTTSFallback:
         eng.is_speaking = False
         eng.stop_flag = False
         eng._edge_failures = 0
+        import queue, threading
+        eng.audio_lock = threading.RLock()
+        eng._speech_queue = queue.Queue()
+        eng._speech_worker = None
         return eng
 
     def test_circuit_breaker_disables_failing_edge_tts(self):
@@ -142,9 +146,48 @@ class TestTTSFallback:
             assert eng.speak_with_fallback("hello") == "pyttsx3"
         fake.say.assert_called_once_with("hello")
 
-    def test_hud_uses_fallback_path(self):
+    def test_hud_queues_speech_on_the_single_worker(self):
         src = (ROOT / "jarvis/gui/hud_types.py").read_text(encoding="utf-8")
-        assert "target=engine.speak_with_fallback" in src
+        assert "engine.say(text)" in src
+        assert "target=engine.speak_with_fallback" not in src
+
+    def test_speech_never_overlaps(self):
+        """A thread per HUD reply let several threads drive pygame.mixer at once:
+        a native access violation (0xC0000005) in long sessions."""
+        import threading, time
+        eng = self._engine()
+        active, peak, spoken = [0], [0], []
+        lock = threading.Lock()
+
+        def fake_play(text):
+            with lock:
+                active[0] += 1
+                peak[0] = max(peak[0], active[0])
+            time.sleep(0.02)
+            spoken.append(text)
+            with lock:
+                active[0] -= 1
+            return True
+
+        eng.edge_tts.speak_blocking.side_effect = fake_play
+        threads = [threading.Thread(target=eng.say, args=(f"line {i}",)) for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        eng.speak("direct call from another layer")  # perception's blocking path
+        deadline = time.time() + 5
+        while len(spoken) < 9 and time.time() < deadline:
+            time.sleep(0.02)
+        assert len(spoken) == 9
+        assert peak[0] == 1, f"{peak[0]} lines played at the same time"
+
+    def test_stop_drops_queued_lines(self):
+        eng = self._engine()
+        for i in range(5):
+            eng._speech_queue.put(f"line {i}")
+        eng.stop()
+        assert eng._speech_queue.empty()
 
 
 # ─── Boot briefing ────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ Usage:
 
 import os
 import io
+import queue
 import tempfile
 import threading
 import time
@@ -292,6 +293,13 @@ class VoiceEngine:
         # Circuit breaker: stop calling a failing cloud TTS after a few errors
         # in a row, so each reply doesn't wait on a dead service.
         self._edge_failures = 0
+        # Speech is serialised: one worker thread speaks queued lines in order,
+        # and audio_lock guards every playback path. Before, each HUD reply spawned
+        # its own thread, so several threads drove pygame.mixer / pyttsx3 (SAPI COM)
+        # at once, which is not thread-safe and crashed the process (0xC0000005).
+        self.audio_lock = threading.RLock()
+        self._speech_queue = queue.Queue()
+        self._speech_worker = None
 
         tts_name = "Edge TTS" if self.use_edge_tts else "pyttsx3"
         stt_name = "Whisper" if self.use_whisper else "Google STT"
@@ -314,8 +322,41 @@ class VoiceEngine:
 
     EDGE_FAILURE_LIMIT = 3
 
+    def say(self, text: str) -> None:
+        """Queue text to be spoken (non-blocking). Lines are spoken one at a time, in order."""
+        if not text:
+            return
+        with self.audio_lock:
+            if self._speech_worker is None or not self._speech_worker.is_alive():
+                self._speech_worker = threading.Thread(target=self._speech_loop, daemon=True,
+                                                       name="JARVISSpeech")
+                self._speech_worker.start()
+        self._speech_queue.put(text)
+
+    def _speech_loop(self):
+        while True:
+            text = self._speech_queue.get()
+            if text is None:
+                return
+            try:
+                self.speak_with_fallback(text)
+            except Exception as e:
+                print(f"[VOICE ENGINE] Speech error: {e}")
+
+    def clear_queue(self) -> None:
+        """Drop lines that haven't been spoken yet."""
+        try:
+            while True:
+                self._speech_queue.get_nowait()
+        except queue.Empty:
+            pass
+
     def speak(self, text: str) -> bool:
         """Speak text using the best available TTS. Returns True if Edge TTS was used."""
+        with self.audio_lock:
+            return self._speak_edge(text)
+
+    def _speak_edge(self, text: str) -> bool:
         if self.use_edge_tts:
             self.is_speaking = True
             self.stop_flag = False
@@ -338,7 +379,11 @@ class VoiceEngine:
 
     def speak_with_fallback(self, text: str) -> str:
         """Speak with Edge TTS, falling back to offline pyttsx3. Returns the backend used."""
-        if self.speak(text):
+        with self.audio_lock:
+            return self._speak_with_fallback_locked(text)
+
+    def _speak_with_fallback_locked(self, text: str) -> str:
+        if self._speak_edge(text):
             return "edge"
         try:
             import pyttsx3
@@ -358,7 +403,8 @@ class VoiceEngine:
         return None
 
     def stop(self):
-        """Stop current speech."""
+        """Stop current speech and drop queued lines."""
+        self.clear_queue()
         self.stop_flag = True
         if self.edge_tts:
             self.edge_tts.stop()
