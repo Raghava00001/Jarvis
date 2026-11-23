@@ -433,6 +433,10 @@ TACTICAL REASONING:
             base += "\n- CURRENT MOOD: User is happy. You can allow slightly more energy in responses."
         elif mood == "tired":
             base += "\n- CURRENT MOOD: User is fatigued. Be gentle. Note rest when appropriate."
+        elif mood == "rushed":
+            base += "\n- CURRENT MOOD: User is in a hurry. Answer in one or two sentences; the key fact first."
+        elif mood == "confused":
+            base += "\n- CURRENT MOOD: User is confused. Explain plainly, step by step, without jargon."
         return base
 
 

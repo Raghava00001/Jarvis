@@ -92,6 +92,7 @@ from jarvis.gui.mood_engine import (
     EmotionStateMachine,
     detect_mood_from_text as _detect_mood_from_text,
     adapt_response_to_mood as _adapt_response_to_mood,
+    MoodTracker,
     reduce_sir_usage as _reduce_sir_usage,
     infer_action_from_text as _infer_action_from_text,
 )
@@ -1678,12 +1679,9 @@ class JARVISWebSocketServer:
             self.state_manager.force_state("processing")
             self.state_manager.update_intent(msg_type, 0.0)
             
-            # Detect mood from text
-            mood = _detect_mood_from_text(text, emotion_enabled=self.emotion_enabled,
-                                          emotion_detector=self.emotion_detector)
-            if mood != 'neutral':
-                self.current_emotion = mood
-                self.state_manager.update_mood(mood, 0.7)
+            # Mood: from the user's words (face too, if a face model is
+            # installed); it lasts a few minutes and the AI is told about it
+            mood = self._update_mood(text)
             
             # NOTE: Removed intermediate state(listening) broadcast
             # The result message at the end already contains state
@@ -1940,6 +1938,43 @@ class JARVISWebSocketServer:
         elif msg_type == 'get_features':
             await self._send_to(websocket, json.dumps(self.get_feature_status()))
     
+    # ── Mood (emotion-aware replies) ─────────────────────────────────────
+    def _update_mood(self, text: str) -> str:
+        """Track the user's mood and hand it to the AI's personality prompt.
+
+        The mood used to be detected but never reached the AI (nothing set
+        perception.current_mood, which the knowledge layer reads), so replies
+        never adapted. The Emotion switch off means no mood at all.
+        """
+        tracker = getattr(self, '_mood_tracker', None)
+        if tracker is None:
+            tracker = self._mood_tracker = MoodTracker()
+        if getattr(self, 'emotion_enabled', True):
+            detected = _detect_mood_from_text(text, emotion_enabled=True,
+                                              emotion_detector=self.emotion_detector)
+            mood = tracker.observe(detected)
+        else:
+            mood = tracker.observe('neutral', now=float('inf'))
+        previous = getattr(self, 'current_emotion', None) or 'neutral'
+        self.current_emotion = mood
+        if mood != previous:
+            print(f"[MOOD] {previous} -> {mood}")
+            sm = getattr(self, 'state_manager', None)
+            if sm is not None:
+                sm.update_mood(mood, 0.7)
+        targets = [getattr(self, 'hud_perception', None)]
+        try:
+            from jarvis.core.services import peek
+            from jarvis.core.knowledge import KnowledgeLayer
+            kl = peek(KnowledgeLayer)
+            targets.append(getattr(kl, 'perception', None) if kl else None)
+        except Exception:
+            pass
+        for p in targets:
+            if p is not None:
+                p.current_mood = None if mood == 'neutral' else mood
+        return mood
+
     # ── WhatsApp drafts (sent only after the user confirms) ──────────────
     def _whatsapp_with_draft(self):
         """The WhatsApp handler if it has an unsent draft waiting, else None."""

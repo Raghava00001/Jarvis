@@ -9,7 +9,7 @@ All functions are pure (no WebSocket state dependency).
 
 import re
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -148,215 +148,152 @@ class EmotionStateMachine:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MOOD DETECTION — keyword + face + emotion detector fusion
+# MOOD DETECTION — from what the user says (and their face, if a face model is
+# installed and the emotion switch is on)
+#
+# The old detector matched words as substrings and ran on every message, so
+# "know" or "now" meant rushed, "why", "again" and "class" ("ass") meant angry,
+# and "what" meant confused. A "rushed" mood then cut the answer to its first
+# sentence: "tell me the latest news" ("late") or "do you know..." got a
+# one-sentence reply. The mood also never reached the AI, so replies never
+# adapted. Now: whole-word phrases only, moods last a few minutes, the AI is
+# told the mood, and answers are never cut.
 # ═══════════════════════════════════════════════════════════════════════════════
+
+_I = r"(?:i'?m|i am|im|i feel|i'?m feeling|feeling)"
+_INTENS = r"(?:\s+(?:so|really|very|a bit|kind of|kinda|pretty|super|too))*"
+
+MOOD_PATTERNS = {
+    'angry': re.compile(
+        r"\b(?:annoying|annoyed|frustrat\w*|irritat\w*|damn(?:it)?|ugh+|stupid|ridiculous|wtf|"
+        r"what the (?:hell|heck|fuck)|f+u+c+k\w*|shit\w*|bullshit|crap|pissed(?: off)?|useless|"
+        r"dumb|idiot\w*|i hate (?:this|it|you)|(?:still|again) not working|not working again|"
+        r"(?:still|keeps?) (?:broken|crashing|failing)|for god'?s sake|are you (?:kidding|serious))\b", re.I),
+    'sad': re.compile(
+        rf"\b{_I}{_INTENS}\s+(?:sad|upset|depressed|down|unhappy|miserable|lonely|low|heartbroken)\b|"
+        r"\b(?:bad|terrible|awful|rough) day\b|\bi miss (?:her|him|them|my|you|home)\b|\bi(?:'m| am) crying\b", re.I),
+    'tired': re.compile(
+        rf"\b{_I}{_INTENS}\s+(?:tired|exhausted|sleepy|drained|worn out|burnt out|burned out)\b|"
+        r"\blong day\b|\bneed (?:some )?(?:rest|sleep)\b|\bcan'?t keep my eyes open\b", re.I),
+    'rushed': re.compile(
+        r"\b(?:hurry(?: up)?|asap|urgent(?:ly)?|be quick|quickly|right now|in a (?:hurry|rush)|"
+        r"i(?:'m| am) (?:running )?late|(?:no|don'?t have) time)\b", re.I),
+    'confused': re.compile(
+        r"\b(?:i(?:'m| am) (?:so |really )?(?:confused|lost)|i don'?t (?:understand|get it)|"
+        r"makes no sense|doesn'?t make sense|what do you mean)\b", re.I),
+    'happy': re.compile(
+        r"\b(?:awesome|amazing|fantastic|wonderful|brilliant|yay|woo+hoo+|"
+        rf"{_I}{_INTENS}\s+(?:happy|excited|glad|great)|great job|well done|love it|"
+        r"you'?re (?:the best|awesome|amazing)|thank you so much|i got the job|i passed)\b", re.I),
+}
+# On a tie, the mood that most needs care wins
+MOOD_PRIORITY = ('angry', 'sad', 'tired', 'rushed', 'confused', 'happy')
+# How long a mood lasts after the last sign of it (seconds)
+MOOD_HOLD_S = {'sad': 900, 'tired': 900, 'angry': 240, 'rushed': 240, 'confused': 180, 'happy': 240}
+
+
+def text_mood(text: str) -> str:
+    """The mood the words show, or 'neutral'. Whole phrases, not substrings."""
+    t = (text or "").lower().replace("’", "'")
+    best, best_n = 'neutral', 0
+    for mood in MOOD_PRIORITY:
+        n = len(MOOD_PATTERNS[mood].findall(t))
+        if n > best_n:
+            best, best_n = mood, n
+    return best
+
+
+def _face_model_available(emotion_detector) -> bool:
+    fa = getattr(emotion_detector, 'face_analyzer', None)
+    return bool(fa and (getattr(fa, 'deepface_available', False) or getattr(fa, 'fer_available', False)))
+
+
+def _face_mood(emotion_detector) -> str:
+    """Mood from the face, only if a face model is installed (no camera otherwise)."""
+    if not _face_model_available(emotion_detector):
+        return 'neutral'
+    try:
+        from jarvis.core.shared_camera import get_shared_camera
+        cam = get_shared_camera()
+        cam.register("emotion")
+        frame = cam.get_frame()
+        if frame is None:
+            return 'neutral'
+        state = emotion_detector.face_analyzer.analyze(frame)
+        mood = getattr(state, 'value', None) or 'neutral'
+        return mood if mood in MOOD_HOLD_S else 'neutral'
+    except Exception as e:
+        print(f"[MoodEngine] Face mood error: {e}")
+        return 'neutral'
+
 
 def detect_mood_from_text(text: str, emotion_enabled: bool = False,
                           emotion_detector=None) -> str:
-    """Detect user's mood from voice text + camera face analysis (combined).
-    
-    Args:
-        text: User input text
-        emotion_enabled: Whether face-based emotion detection is active
-        emotion_detector: Emotion detector instance (optional)
-    
-    Returns:
-        Mood string: 'neutral', 'angry', 'rushed', 'tired', 'happy', 'sad', 'confused'
+    """'neutral', 'angry', 'rushed', 'tired', 'happy', 'sad' or 'confused'.
+
+    Words win; the face is only consulted when the words show nothing, the
+    emotion switch is on and a face model (DeepFace/FER) is installed.
     """
-    text_lower = text.lower()
-    
-    # ═══════════════════════════════════════════════════════════════
-    # VOICE-BASED MOOD DETECTION (Keywords)
-    # ═══════════════════════════════════════════════════════════════
-    
-    # Frustration/Anger keywords
-    frustration_words = [
-        'again', 'why', 'annoying', 'frustrated', 'irritating', 'damn', 
-        'ugh', 'stupid', 'hate', 'ridiculous', 'seriously', "can't believe",
-        'what the', 'wtf', 'come on', 'not working', 'broken', 'failed',
-        'fuck', 'shit', 'dumb', 'idiot', 'crap', 'bullshit', 'pissed',
-        'sucks', 'terrible', 'horrible', 'useless', 'trash', 'worst',
-        'stfu', 'tf', 'dumb fuck', 'crashing out', 'ass'
-    ]
-    
-    # Rushed/Hurry keywords — m-04: removed 'now' (too common, triggers false positives)
-    rushed_words = [
-        'hurry', 'quick', 'fast', 'asap', 'urgent', 'immediately',
-        'right now', 'quickly', 'rush', "don't have time", 'late'
-    ]
-    
-    # Tired keywords
-    tired_words = [
-        'tired', 'exhausted', 'sleepy', 'worn out', 'drained', 'need rest',
-        'so tired', 'long day', 'yawn'
-    ]
-    
-    # Happy/Excited keywords
-    happy_words = [
-        'great', 'awesome', 'amazing', 'love', 'fantastic', 'wonderful',
-        'excellent', 'perfect', 'happy', 'excited', 'yes', 'nice', 'cool'
-    ]
-    
-    # Sad keywords
-    sad_words = [
-        'sad', 'upset', 'depressed', 'down', 'unhappy', 'miserable',
-        'crying', 'hurt', 'lonely', 'miss'
-    ]
-    
-    # Confused keywords — ONLY genuine confusion, not normal questions
-    confused_words = [
-        'confused', "don't understand", "don't get it", 'makes no sense',
-        'unclear', "i'm lost", 'what do you mean', 'huh',
-    ]
-    
-    # Count voice keyword matches
-    voice_scores = {
-        'angry': sum(1 for w in frustration_words if w in text_lower),
-        'rushed': sum(1 for w in rushed_words if w in text_lower),
-        'tired': sum(1 for w in tired_words if w in text_lower),
-        'happy': sum(1 for w in happy_words if w in text_lower),
-        'sad': sum(1 for w in sad_words if w in text_lower),
-        'confused': sum(1 for w in confused_words if w in text_lower)
-    }
-    
-    # ═══════════════════════════════════════════════════════════════
-    # FACE-BASED MOOD DETECTION (Camera)
-    # ═══════════════════════════════════════════════════════════════
-    
-    face_emotion = None
-    camera_frame = None
-    
-    # Capture camera frame for face emotion (if emotion_enabled)
-    if emotion_enabled and emotion_detector:
-        try:
-            try:
-                from jarvis.core.shared_camera import get_shared_camera
-            except ImportError:
-                from jarvis.core.shared_camera import get_shared_camera
-            
-            shared_cam = get_shared_camera()
-            shared_cam.register("emotion")  # Register if not already
-            camera_frame = shared_cam.get_frame()
-            if camera_frame is not None:
-                print("[MoodEngine] Camera frame from shared camera for mood detection")
-        except Exception as e:
-            print(f"[MoodEngine] Camera capture error: {e}")
-    
-    # Use combined emotion detector (voice + face)
-    if emotion_detector:
-        try:
-            result = emotion_detector.detect(text=text, camera_frame=camera_frame)
-            if result:
-                detected = result.emotion.value
-                confidence = result.confidence
-                
-                # Log detection sources
-                sources = []
-                if result.voice_emotion and result.voice_emotion.value != 'neutral':
-                    sources.append(f"voice:{result.voice_emotion.value}")
-                if result.face_emotion and result.face_emotion.value != 'neutral':
-                    sources.append(f"face:{result.face_emotion.value}")
-                
-                if sources:
-                    print(f"[MoodEngine] Mood detected: {detected} (confidence: {confidence:.0%}) from {', '.join(sources)}")
-                
-                if detected != 'neutral':
-                    # Face emotion has 60% weight, voice 40%
-                    return detected
-        except Exception as e:
-            print(f"[MoodEngine] Emotion detection error: {e}")
-    
-    # ═══════════════════════════════════════════════════════════════
-    # FALLBACK: Use keyword scores only
-    # ═══════════════════════════════════════════════════════════════
-    
-    max_score = max(voice_scores.values())
-    if max_score > 0:
-        for mood, score in voice_scores.items():
-            if score == max_score:
-                return mood
-    
-    return 'neutral'
+    mood = text_mood(text)
+    if mood == 'neutral' and emotion_enabled and emotion_detector is not None:
+        mood = _face_mood(emotion_detector)
+    return mood
+
+
+class MoodTracker:
+    """The user's current mood: set by a clear sign, fades back to neutral.
+
+    One "ugh" shouldn't make JARVIS terse for the rest of the day, and one
+    neutral command right after "I'm exhausted" shouldn't forget it either.
+    """
+
+    def __init__(self):
+        self.mood = 'neutral'
+        self.since = 0.0
+
+    def observe(self, detected: str, now: float = None) -> str:
+        now = time.time() if now is None else now
+        if detected and detected != 'neutral':
+            self.mood, self.since = detected, now
+        elif self.mood != 'neutral' and now - self.since > MOOD_HOLD_S.get(self.mood, 180):
+            self.mood = 'neutral'
+        return self.mood
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# RESPONSE ADAPTATION — tone/rate adjustments based on detected mood
+# RESPONSE ADAPTATION — the AI is told the mood (personality prompt); here only
+# the voice changes. Text is never cut or padded.
 # ═══════════════════════════════════════════════════════════════════════════════
+
+MOOD_SPEECH = {
+    'angry': (185, 0.85),     # calm, efficient
+    'rushed': (200, 0.9),     # brisk
+    'tired': (160, 0.75),     # soft
+    'sad': (160, 0.75),       # gentle
+    'happy': (180, 0.95),
+    'confused': (165, 0.9),   # clear
+}
+
+
+def _apply_speech_style(target, mood: str):
+    if target is None or not hasattr(target, 'speech_rate'):
+        return
+    if not hasattr(target, '_base_speech'):
+        target._base_speech = (target.speech_rate, getattr(target, 'speech_volume', 0.9))
+    rate, volume = MOOD_SPEECH.get(mood, target._base_speech)
+    target.speech_rate, target.speech_volume = rate, volume
+
 
 def adapt_response_to_mood(response: str, mood: str, title: str = "sir",
                            perception=None, hud_perception=None,
                            jarvis=None) -> str:
-    """Adapt response tone based on user's detected mood.
-    
-    IMPORTANT: No scripted prefixes/suffixes. The LLM personality prompt
-    handles tone naturally. We only adjust speech rate and volume here.
-    
-    Args:
-        response: The response text to adapt
-        mood: Detected mood string
-        title: User title ('sir', 'mam', etc.)
-        perception: Perception layer instance (optional, for speech params)
-        hud_perception: HUD perception instance (optional, for speech params)
-        jarvis: JARVISUltimate instance (optional, for speech params)
+    """Set the voice for the user's mood; the response text is returned unchanged.
+
+    The old version cut "rushed" answers to their first sentence and never
+    restored the voice after a mood passed.
     """
-    if mood == 'neutral':
-        return response
-    
-    # Only speech style parameters — NO text prefixes/suffixes
-    # Those sounded scripted and annoying ("I'm here for you", "Does that help?")
-    mood_speech_styles = {
-        'angry': {
-            'speech_rate': 190,    # Direct, no BS
-            'speech_volume': 0.85,
-        },
-        'rushed': {
-            'speech_rate': 210,    # Fast
-            'speech_volume': 0.9,
-        },
-        'tired': {
-            'speech_rate': 155,    # Soothing
-            'speech_volume': 0.7,
-        },
-        'sad': {
-            'speech_rate': 155,    # Gentle
-            'speech_volume': 0.75,
-        },
-        'happy': {
-            'speech_rate': 185,    # Energetic
-            'speech_volume': 0.95,
-        },
-        'confused': {
-            'speech_rate': 160,    # Clear
-            'speech_volume': 0.9,
-        }
-    }
-    
-    style = mood_speech_styles.get(mood, {})
-    
-    # Apply TTS style changes based on emotion
-    speech_rate = style.get('speech_rate', 175)
-    speech_volume = style.get('speech_volume', 0.9)
-    
-    # Update perception layer speech parameters
-    if perception and hasattr(perception, 'speech_rate'):
-        perception.speech_rate = speech_rate
-        perception.speech_volume = speech_volume
-    if hud_perception and hasattr(hud_perception, 'speech_rate'):
-        hud_perception.speech_rate = speech_rate
-        hud_perception.speech_volume = speech_volume
-    if jarvis and hasattr(jarvis, 'perception'):
-        jarvis.perception.speech_rate = speech_rate
-        jarvis.perception.speech_volume = speech_volume
-    
-    # For rushed users, shorten the response
-    if mood == 'rushed':
-        # Take only first sentence or first 50 chars
-        if '.' in response[:80]:
-            response = response.split('.')[0] + '.'
-        elif len(response) > 60:
-            response = response[:60].rsplit(' ', 1)[0] + '...'
-    
-    # NO prefix/suffix injection — return response as-is
+    for target in (perception, hud_perception, getattr(jarvis, 'perception', None)):
+        _apply_speech_style(target, mood)
     return response
 
 
