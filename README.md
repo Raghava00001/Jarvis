@@ -163,6 +163,22 @@ Every fix has a regression test in `tests/test_security_regressions.py`.
 
 ---
 
+## What's new in v2.9: gestures, WhatsApp drafts, mood, and fixes from real use
+
+| Area | Before | After |
+|---|---|---|
+| Hand gestures | Never ran (the server imported a class that doesn't exist) | Palm stops speech, thumbs up/down answers a question, peace sign wakes JARVIS, swipes and fist control YouTube, music, browser tabs, PDFs and slides. Off until you say "enable gestures"; the camera is only on while they are |
+| WhatsApp | Pressed Enter on the first search result: could message the wrong person | Types a draft you can see; sends only when you say "send". A thumbs-up never sends |
+| Mood | Detected, then ignored | Replies adapt their tone to how you seem to feel |
+| Your data | Alarms, tasks and habits were tracked in git and changed with every use | Ignored by git; never in commits or releases |
+| Code | `process_command` was 475 lines; bare `except:` blocks hid errors | Split into named steps; no bare `except:` |
+| Volume / brightness by voice (v2.9.1) | "Brightness decreased" while nothing changed, in a second voice | One `SystemControl.adjust()`: changes the level, reads it back, reports the truth |
+| Follow-ups (v2.9.1) | Muted after "Hey Jarvis"; the 20 s window ran out while a long answer was still playing | A conversation stays open until 5 minutes of silence; "go to sleep" ends it |
+| Speech (v2.9.1) | Sentences cut off; English transcribed and answered in Telugu | Waits for 900 ms of silence; replies in English unless you clearly speak another language |
+| Stories by voice (v2.9.1) | Written, never told ("Sweet dreams, sir") | Narrated in full, about the topic you asked for |
+
+---
+
 ## What's new in v2.8: one voice, a stable connection, better understanding
 
 | Problem | Before | After |
@@ -278,7 +294,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-**429 tests pass:**
+**593 tests pass:**
 - smoke tests: boot, Gemini Live dedup and echo gate, BrainAdapter, persona switching
 - NLP and router unit tests
 - 67 security and regression tests
@@ -289,6 +305,7 @@ python -m pytest tests/ -q
 - architecture invariants: one instance per subsystem, no module loaded twice, no shadowing imports, no undefined names, entry points start
 - routing corpus: real commands through the real pipeline, side effects stubbed
 - v2.8: one voice per reply, WebSocket backpressure and task cleanup, whole-word understanding, topic news, screen vision, tabs, timers, stories; every `self.method()` call must exist
+- v2.9: gesture recogniser and server wiring, WhatsApp drafts, mood, the real Gemini Live voice-tool code with only the speaker, screen and keyboard faked
 
 CI runs the same suite on `windows-latest`.
 
