@@ -163,6 +163,26 @@ Every fix has a regression test in `tests/test_security_regressions.py`.
 
 ---
 
+## What's new in v2.8: one voice, a stable connection, better understanding
+
+| Problem | Before | After |
+|---|---|---|
+| JARVIS spoke twice | The server's voice and the browser's voice both spoke each reply; a handler that only spoke made the AI answer again | Each command is a turn: what handlers say becomes the reply, spoken once (server voice; the browser only as a fallback; Gemini in live mode) |
+| WebSocket overload | Every dropped connection left a stats/weather/news task running forever; network calls ran on the event loop | Tasks are cancelled however a connection ends; blocking work runs in worker threads; all sends go through per-client queues |
+| "stop" during a slow answer | Queued behind the command | Answered at once; also silences a line still being synthesised and interrupts Gemini Live |
+| Gemini Live dropped its connection | Went silent for good | Reconnects |
+| Alarms and reminders in live mode | Silently dropped | Announced by whichever output owns the audio |
+| "explain the history of Rome", "they said", "sometimes" | Substring matching: a story, a greeting, the time | Whole-word matching; precise rules beat the ML guess |
+| "news about diabetes" | General headlines | Spoken briefing: dated background figures, this month's headlines with sources |
+| "what is this?", "read the screen" | The AI didn't know what "this" was; OCR needed Tesseract | A screenshot goes to Gemini vision |
+| "switch to the next tab" | Tried to open an app called "the next tab"; keys went to the HUD | Tab commands, with focus handed back to your app first |
+| Stories | Cut at 400 characters, topic ignored, four copies of the code | Full length, about what you asked, one implementation |
+| Timers | Never set (`set_timer` didn't exist), yet "Timer set" | Real timers; alarms report failures |
+| "switch to <app>" | The spoken name was pasted into PowerShell (injection) | Win32 calls through AppSwitcher |
+| Rejected Groq/OpenRouter keys | Retried on every question (slow answers) | Skipped after the first 401 |
+
+---
+
 ## What's new in v2.7: no more made-up answers
 
 | Command | Before | After |
@@ -258,7 +278,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-**328 tests pass:**
+**429 tests pass:**
 - smoke tests: boot, Gemini Live dedup and echo gate, BrainAdapter, persona switching
 - NLP and router unit tests
 - 67 security and regression tests
@@ -268,6 +288,7 @@ python -m pytest tests/ -q
 - 4 fast-boot tests (no heavy ML imported at startup)
 - architecture invariants: one instance per subsystem, no module loaded twice, no shadowing imports, no undefined names, entry points start
 - routing corpus: real commands through the real pipeline, side effects stubbed
+- v2.8: one voice per reply, WebSocket backpressure and task cleanup, whole-word understanding, topic news, screen vision, tabs, timers, stories; every `self.method()` call must exist
 
 CI runs the same suite on `windows-latest`.
 
