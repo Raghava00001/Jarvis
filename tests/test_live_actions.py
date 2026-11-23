@@ -227,3 +227,40 @@ def test_live_session_waits_for_the_end_of_your_sentence():
     # The Gemini API rejects a transcription language: the session wouldn't start
     assert not cfg.input_audio_transcription.language_codes
     assert "Reply in English by default" in eng._get_system_prompt()
+
+
+def test_conversation_keeps_going_without_saying_jarvis_each_time():
+    """Found in use: 'Yes sir', 'Hello', 'continue the story' were heard,
+    answered by Gemini, and the answers muted after 20-30 s."""
+    import jarvis.core.gemini_live_engine as g
+    assert g.AWAKE_WINDOW_S >= 180
+    eng = _wake_engine()
+    assert eng.note_user_speech("Hey Jarvis") is True
+    now = time.time()
+    eng._speaking_until = now + 5                         # JARVIS answers
+    assert eng.is_awake(now + 5 + 120)                    # two minutes later: still listening
+    assert eng.note_user_speech("hello") is True
+
+
+def test_good_night_is_answered_then_jarvis_sleeps():
+    eng = _wake_engine()
+    eng.note_user_speech("Jarvis what's the time")
+    assert eng.note_user_speech("ok good night") is True  # the goodbye gets a reply
+    assert eng._sleep_after_reply
+    eng.sleep()                                           # after that reply
+    eng._speaking_until = time.time() + 3                 # goodbye still playing
+    assert not eng.is_awake(time.time() + 10)
+    assert eng.note_user_speech("hello") is False         # needs the wake word again
+    assert eng.note_user_speech("Jarvis, are you there") is True
+
+
+def test_story_is_handed_to_gemini_to_narrate():
+    """Gemini got the bare story and replied 'Sweet dreams, sir' without telling it."""
+    from jarvis.core import intent_handlers
+    eng = _engine(_server())
+    fake = MagicMock(return_value=SimpleNamespace(response="Once upon a time, a kid could fly."))
+    with patch.dict(intent_handlers.HANDLER_MAP, {"story": fake}):
+        out = _call(eng, "tell_story", {"genre": "fantasy", "topic": "a kid with super powers"})
+    assert out.startswith("Narrate this story to the user now")
+    assert out.endswith("Once upon a time, a kid could fly.")
+    assert fake.call_args.kwargs["cmd"] == "tell me a fantasy story about a kid with super powers"
