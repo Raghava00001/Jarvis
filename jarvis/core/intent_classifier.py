@@ -11,6 +11,92 @@ try:
 except ImportError:
     from jarvis.core.intent_router import Intent
 import re
+from functools import lru_cache
+
+
+# ═══════════════════════════════════════════════════════════════
+# WHOLE-WORD MATCHING
+# The classifier used plain substring checks ('story' in cmd), so "explain
+# the history of Rome" became a children's story, "they said" a greeting
+# ('hey'), "sometimes" the time, "update" the date, and "context " a WhatsApp
+# message ('text '). has() matches whole words/phrases, allowing a plural
+# ("reminders", "thanks", "headlines").
+# ═══════════════════════════════════════════════════════════════
+
+@lru_cache(maxsize=None)
+def _phrase_re(phrase: str):
+    return re.compile(r"(?<![a-z0-9])" + re.escape(phrase.strip()) + r"(?:s|es)?(?![a-z0-9])")
+
+
+def has(cmd: str, *phrases: str) -> bool:
+    """True if any phrase occurs in cmd as whole words (plural allowed)."""
+    return any(_phrase_re(p).search(cmd) for p in phrases if p.strip())
+
+
+_DURATION_RE = re.compile(r"(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b")
+_UNIT_NAMES = {"sec": "seconds", "min": "minutes", "hou": "hours", "hr": "hours"}
+
+
+def parse_duration(text: str):
+    """'set a timer for 90 seconds' -> (90, 'seconds'); None if no duration."""
+    m = _DURATION_RE.search((text or "").lower())
+    if not m:
+        return None
+    unit = next(v for k, v in _UNIT_NAMES.items() if m.group(2).startswith(k))
+    return int(m.group(1)), unit
+
+
+# "the latest on diabetes", "news about the election", "what's happening with nvidia"
+_TOPIC_NEWS_RE = re.compile(
+    r"^(?:"
+    # "(tell me) (the) latest news about X", "any updates on X"
+    r"(?:(?:can you\s+)?(?:please\s+)?(?:tell me|give me|show me|get me|find|search for|search)\s+)?"
+    r"(?:any\s+)?(?:the\s+)?(?:latest\s+|recent\s+|current\s+)?"
+    r"(?:news|headlines|updates?|developments)\s+(?:about|on|regarding|related to|for|around)\s+(?P<a>.+?)"
+    # "search news (about) X"
+    r"|(?:search|find)\s+(?:the\s+)?news\s+(?:about\s+|on\s+|for\s+)?(?P<b>.+?)"
+    # "what's the latest on X", "what is happening with X"
+    r"|what(?:'s|s| is)?\s+(?:the\s+)?(?:latest|new|happening)\s+(?:on|with|in|about)\s+(?P<c>.+?)"
+    r")\s*(?:today|now|please|right now)?[?.!]*$"
+)
+
+
+_GREETING_RE = re.compile(
+    r"^(?:(?:hello|hi|hey|hiya|yo|greetings|good\s+(?:morning|afternoon|evening|day))[\s,!.]*)+"
+    r"(?:(?:there|jarvis|friday|buddy|mate|sir|again)[\s,!.]*)*$")
+
+_MSG_SPLIT_RE = re.compile(
+    r"^(?P<contact>.+?)\s+(?:saying|that says|and say|and tell (?:him|her|them)|telling (?:him|her|them)|"
+    r"with (?:the )?message|message|that)\s+(?P<message>.+)$")
+
+
+def parse_message_command(cmd: str):
+    """'send whatsapp message to mom saying hi' -> ('mom', 'hi').
+
+    The old pattern returned the contact 'message to mom'.
+    Returns (contact or None, message or None).
+    """
+    c = (cmd or "").lower().strip()
+    c = re.sub(r"^(?:please\s+)?(?:open\s+whatsapp\s+and\s+)?", "", c)
+    c = re.sub(r"^(?:send\s+)?(?:an?\s+)?(?:whatsapp|text|message|msg)(?:\s+(?:message|msg|text))?\s*", "", c)
+    c = re.sub(r"^(?:on\s+whatsapp\s+)?to\s+", "", c)
+    m = _MSG_SPLIT_RE.match(c)
+    contact, message = (m.group("contact"), m.group("message")) if m else (c, None)
+    if contact and ":" in contact and not message:
+        contact, message = (p.strip() for p in contact.split(":", 1))
+    contact = re.sub(r"\s+(?:on|via|over)\s+whatsapp$", "", (contact or "").strip()).strip()
+    contact = re.sub(r"^(?:to|my)\s+", "", contact).strip()
+    return (contact or None), (message.strip() if message else None)
+
+
+def news_topic(cmd: str):
+    """The topic of a topical news request, or None ("news about diabetes" -> "diabetes")."""
+    m = _TOPIC_NEWS_RE.match(cmd.strip())
+    if not m:
+        return None
+    topic = next(g for g in m.groups() if g)
+    topic = re.sub(r"^(?:the|a|an)\s+", "", topic.strip())
+    return topic or None
 
 
 @dataclass
@@ -139,6 +225,13 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     cmd = command.lower().strip()
     entities = {}
 
+    # Questions about the screen: "what is this?", "explain this error",
+    # "what's on my screen?", "translate this". Answered by looking at a
+    # screenshot (they used to reach the AI with no idea what "this" was).
+    from jarvis.core.screen_vision import is_screen_question
+    if is_screen_question(cmd):
+        return 'screen_question', {}
+
     # ── Commands that had no rule and fell through to the AI chat (v2.7) ──
     # Translation: answered by the conversation/LLM handler. "translate hello
     # to spanish" used to be treated as a greeting because of "hello".
@@ -187,6 +280,18 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         if keyword in cmd:
             return intent, entities
     
+    # Browser tabs, before "close X" / "switch to X" / "go to X", which sent
+    # "switch to the next tab" to the app opener (app "the next tab") and
+    # "close this tab" to close_app (process "this tab").
+    from jarvis.core.screen_control import is_tab_command
+    if is_tab_command(cmd):
+        return 'screen_control', {'raw_text': command}
+
+    # Timers: "set a timer for 10 minutes" (had no keyword rule at all)
+    if has(cmd, 'timer') and not has(cmd, 'cancel', 'stop', 'delete', 'remove', 'how long', 'left'):
+        d = parse_duration(cmd)
+        return 'set_timer', ({'duration': d[0], 'unit': d[1]} if d else {})
+
     # Handle "close X" pattern explicitly
     if cmd.startswith("close ") or cmd == "close":
         app_name = cmd.replace("close ", "").strip() if cmd.startswith("close ") else None
@@ -195,58 +300,60 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     # ═══════════════════════════════════════════════════════════
     # VOICE SWITCHING (highest priority)
     # ═══════════════════════════════════════════════════════════
-    if 'switch to friday' in cmd or 'activate friday' in cmd:
+    if has(cmd, 'switch to friday') or has(cmd, 'activate friday'):
         return 'switch_to_friday', {}
-    if 'switch to jarvis' in cmd or 'activate jarvis' in cmd:
+    if has(cmd, 'switch to jarvis') or has(cmd, 'activate jarvis'):
         return 'switch_to_jarvis', {}
 
     
     # ═══════════════════════════════════════════════════════════
     # GREETINGS & SOCIAL
     # ═══════════════════════════════════════════════════════════
-    if any(word in cmd for word in ['hello', 'hi jarvis', 'hi friday', 'hey', 'good morning', 'good afternoon', 'good evening']):
+    # Only when the whole command is a greeting. "text priya saying hello" and
+    # "hello jarvis, what's the weather" contain one but aren't greetings.
+    if _GREETING_RE.match(cmd):
         return 'greeting', {}
     
-    if any(word in cmd for word in ['bye', 'goodbye', 'see you', 'goodnight']):
+    if has(cmd, *['bye', 'goodbye', 'see you', 'goodnight']):
         return 'farewell', {}
     
-    if 'thank' in cmd:
+    if has(cmd, 'thank'):
         return 'thanks', {}
     
-    if 'how are you' in cmd:
+    if has(cmd, 'how are you'):
         return 'how_are_you', {}
     
     # ═══════════════════════════════════════════════════════════
     # IDENTITY
     # ═══════════════════════════════════════════════════════════
-    if 'who are you' in cmd or 'your name' in cmd:
+    if has(cmd, 'who are you') or has(cmd, 'your name'):
         return 'identity', {}
     
-    if any(phrase in cmd for phrase in ['who made you', 'who created you', 'your creator', 'who built you']):
+    if has(cmd, *['who made you', 'who created you', 'your creator', 'who built you']):
         return 'creator', {}
     
     # ═══════════════════════════════════════════════════════════
     # TIME & DATE
     # ═══════════════════════════════════════════════════════════
-    if 'time' in cmd and 'timer' not in cmd:
+    if has(cmd, 'time') and not has(cmd, 'timer'):
         return 'time', {}
     
-    if 'date' in cmd or ('what' in cmd and 'day' in cmd):
+    if has(cmd, 'date') or (has(cmd, 'what') and has(cmd, 'day')):
         return 'date', {}
     
     # ═══════════════════════════════════════════════════════════
     # SYSTEM & STATUS
     # ═══════════════════════════════════════════════════════════
-    if 'system status' in cmd or 'system report' in cmd:
+    if has(cmd, 'system status') or has(cmd, 'system report'):
         return 'system_status', {}
     
-    if cmd == 'help' or 'what can you do' in cmd or 'capabilities' in cmd:
+    if cmd == 'help' or has(cmd, 'what can you do') or has(cmd, 'capabilities'):
         return 'help', {}
     
     # ═══════════════════════════════════════════════════════════
     # WEATHER
     # ═══════════════════════════════════════════════════════════
-    if 'weather' in cmd:
+    if has(cmd, 'weather'):
         # Try to extract city
         city_patterns = [
             r"weather (?:like )?(?:in|for|at) ([a-z][a-z .'-]*?)(?:\s+(?:today|now|tomorrow|right now|please))?[?.!]*$",
@@ -264,14 +371,13 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     # ═══════════════════════════════════════════════════════════
     # NEWS (Enhanced with Hacker News)
     # ═══════════════════════════════════════════════════════════
-    # Search news by keyword
-    if 'search news' in cmd or 'news about' in cmd or 'news on' in cmd:
-        keyword = re.sub(r'(search news|news about|news on|for|about)\s*', '', cmd).strip()
-        if keyword:
-            entities['keyword'] = keyword
-            return 'search_news', entities
-    
-    if 'news' in cmd or 'headline' in cmd or 'hacker news' in cmd:
+    # News about a topic: "news about diabetes", "what's the latest on nvidia".
+    # (The old keyword strip also deleted every "for"/"about" inside the topic.)
+    topic = news_topic(cmd)
+    if topic:
+        return 'search_news', {'keyword': topic}
+
+    if has(cmd, 'news') or has(cmd, 'headline') or has(cmd, 'hacker news'):
         # Detect category
         categories = {
             'economics': 'economics',
@@ -290,11 +396,12 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
             'hacker': 'hacker',
             'hackernews': 'hackernews',
             'startups': 'startups',
-            'ask': 'ask',
-            'show': 'show'
+            # "show me the headlines" used to pick Hacker News "Show HN"
+            'ask hn': 'ask',
+            'show hn': 'show',
         }
         for keyword, category in categories.items():
-            if keyword in cmd:
+            if has(cmd, keyword):
                 entities['category'] = category
                 break
         return 'news', entities
@@ -302,54 +409,54 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     # ═══════════════════════════════════════════════════════════
     # ENTERTAINMENT
     # ═══════════════════════════════════════════════════════════
-    if 'joke' in cmd:
+    if has(cmd, 'joke'):
         return 'joke', {}
     
     # IMPORTANT: Check 'chat history' BEFORE 'story' to avoid 'history' matching 'story'
-    if 'chat history' in cmd or 'conversation history' in cmd or 'show history' in cmd:
+    if has(cmd, 'chat history') or has(cmd, 'conversation history') or has(cmd, 'show history'):
         return 'chat_history', {}
     
-    if 'story' in cmd:
+    if has(cmd, 'story'):
         # Extract genre
-        if 'horror' in cmd or 'scary' in cmd:
+        if has(cmd, 'horror') or has(cmd, 'scary'):
             entities['genre'] = 'horror'
-        elif 'funny' in cmd or 'comedy' in cmd:
+        elif has(cmd, 'funny') or has(cmd, 'comedy'):
             entities['genre'] = 'comedy'
-        elif 'romance' in cmd:
+        elif has(cmd, 'romance'):
             entities['genre'] = 'romance'
-        elif 'bedtime' in cmd:
+        elif has(cmd, 'bedtime'):
             entities['genre'] = 'bedtime'
         return 'story', entities
     
-    if 'poem' in cmd or 'recite' in cmd:
+    if has(cmd, 'poem') or has(cmd, 'recite'):
         return 'poem', {}
     
-    if 'riddle' in cmd:
+    if has(cmd, 'riddle'):
         return 'riddle', {}
     
     # ═══════════════════════════════════════════════════════════
     # SCREENSHOTS & OCR
     # ═══════════════════════════════════════════════════════════
-    if 'screenshot' in cmd or 'screen shot' in cmd or 'capture screen' in cmd:
+    if has(cmd, 'screenshot') or has(cmd, 'screen shot') or has(cmd, 'capture screen'):
         return 'screenshot', {}
     
-    if any(phrase in cmd for phrase in ['read screen', 'read text', 'extract text', 'ocr',
+    if has(cmd, *['read screen', 'read text', 'extract text', 'ocr',
                                          'what is on my screen', 'what\'s on my screen',
                                          'read my screen', 'screen text']):
         return 'ocr', {}
     
-    if 'read clipboard' in cmd:
+    if has(cmd, 'read clipboard'):
         return 'read_clipboard', {}
     
     # ═══════════════════════════════════════════════════════════
     # DICTIONARY
     # ═══════════════════════════════════════════════════════════
-    if 'define ' in cmd or 'meaning of ' in cmd or 'definition of ' in cmd:
+    if has(cmd, 'define ') or has(cmd, 'meaning of ') or has(cmd, 'definition of '):
         word = cmd.replace('define ', '').replace('meaning of ', '').replace('definition of ', '').strip()
         entities['word'] = word
         return 'dictionary', entities
     
-    if 'synonym' in cmd:
+    if has(cmd, 'synonym'):
         word = cmd.replace('synonym for ', '').replace('synonym of ', '').replace('synonyms of ', '').replace('synonym', '').strip()
         entities['word'] = word
         return 'synonym', entities
@@ -357,30 +464,30 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     # ═══════════════════════════════════════════════════════════
     # FACE & GESTURE
     # ═══════════════════════════════════════════════════════════
-    if any(phrase in cmd for phrase in ['register my face', 'register face', 'register owner']):
+    if has(cmd, *['register my face', 'register face', 'register owner']):
         return 'register_face', {}
     
-    if any(phrase in cmd for phrase in ['verify me', 'authenticate', 'who am i']):
+    if has(cmd, *['verify me', 'authenticate', 'who am i']):
         return 'verify_face', {}
     
-    if any(phrase in cmd for phrase in ['enable gesture', 'start gesture', 'gesture on']):
+    if has(cmd, *['enable gesture', 'start gesture', 'gesture on']):
         return 'enable_gesture', {}
     
-    if any(phrase in cmd for phrase in ['disable gesture', 'stop gesture', 'gesture off']):
+    if has(cmd, *['disable gesture', 'stop gesture', 'gesture off']):
         return 'disable_gesture', {}
     
     # ═══════════════════════════════════════════════════════════
     # NOTES & ALARMS
     # ═══════════════════════════════════════════════════════════
-    if any(phrase in cmd for phrase in ['create note', 'new note', 'add note']):
+    if has(cmd, *['create note', 'new note', 'add note']):
         content = cmd.replace('create note', '').replace('new note', '').replace('add note', '').strip()
         entities['content'] = content
         return 'create_note', entities
     
-    if any(phrase in cmd for phrase in ['list notes', 'show notes', 'my notes']):
+    if has(cmd, *['list notes', 'show notes', 'my notes']):
         return 'list_notes', {}
     
-    if any(phrase in cmd for phrase in ['set alarm', 'alarm for', 'alarm in', 'set an alarm', 'wake me']):
+    if has(cmd, *['set alarm', 'alarm for', 'alarm in', 'set an alarm', 'wake me']):
         # Check for relative time first: "5 min from now", "in 10 minutes"
         relative_match = re.search(r'(\d+)\s*(min|minute|minutes|hour|hours|hr|hrs)', cmd)
         if relative_match:
@@ -396,16 +503,16 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
             entities['period'] = time_match.group(3)
         return 'set_alarm', entities
     
-    if any(phrase in cmd for phrase in ['list alarm', 'show alarm', 'my alarm']):
+    if has(cmd, *['list alarm', 'show alarm', 'my alarm']):
         return 'list_alarms', {}
     
     # ═══════════════════════════════════════════════════════════
     # REMINDERS
     # ═══════════════════════════════════════════════════════════
-    if any(phrase in cmd for phrase in ['remind me', 'reminder', 'set reminder']):
+    if has(cmd, *['remind me', 'reminder', 'set reminder']):
         # Pass the full command, ReminderManager will parse the time + message
         entities['raw_command'] = command
-        if any(phrase in cmd for phrase in ['list reminder', 'show reminder', 'my reminder']):
+        if has(cmd, *['list reminder', 'show reminder', 'my reminder']):
             return 'list_reminders', {}
         return 'set_reminder', entities
     
@@ -413,12 +520,12 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     # ═══════════════════════════════════════════════════════════
     # VOLUME & BRIGHTNESS
     # ═══════════════════════════════════════════════════════════
-    if 'volume' in cmd:
-        if 'up' in cmd or 'increase' in cmd:
+    if has(cmd, 'volume'):
+        if has(cmd, 'up') or has(cmd, 'increase'):
             entities['action'] = 'up'
-        elif 'down' in cmd or 'decrease' in cmd:
+        elif has(cmd, 'down') or has(cmd, 'decrease'):
             entities['action'] = 'down'
-        elif 'mute' in cmd:
+        elif has(cmd, 'mute'):
             entities['action'] = 'mute'
         else:
             match = re.search(r'(\d+)\s*%?', cmd)
@@ -428,13 +535,13 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         return 'volume', entities
     
     # Standalone "mute" without "volume" keyword
-    if cmd in ('mute', 'unmute') or 'mute the' in cmd or 'mute audio' in cmd or 'mute sound' in cmd:
+    if cmd in ('mute', 'unmute') or has(cmd, 'mute the') or has(cmd, 'mute audio') or has(cmd, 'mute sound'):
         return 'volume', {'action': 'mute'}
     
-    if 'brightness' in cmd:
-        if 'up' in cmd or 'increase' in cmd:
+    if has(cmd, 'brightness'):
+        if has(cmd, 'up') or has(cmd, 'increase'):
             entities['action'] = 'up'
-        elif 'down' in cmd or 'decrease' in cmd:
+        elif has(cmd, 'down') or has(cmd, 'decrease'):
             entities['action'] = 'down'
         else:
             match = re.search(r'(\d+)\s*%?', cmd)
@@ -455,7 +562,10 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         'switch window', 'alt tab', 'close window', 'close tab',
         'new tab', 'new window', 'create tab', 'create new tab',
     ]
-    if any(trigger in cmd for trigger in screen_control_triggers):
+    # Only as an instruction ("copy that", "please scroll down"), never as a
+    # word inside a question: "how do I copy a file in linux" pressed Ctrl+C.
+    lead = re.sub(r"^(?:(?:please|can you|could you|now|jarvis|hey jarvis|ok)\s*,?\s+)+", "", cmd)
+    if any(lead == t.strip() or lead.startswith(t.strip() + " ") for t in screen_control_triggers):
         entities['raw_text'] = command  # Pass original for parsing
         return 'screen_control', entities
     
@@ -464,24 +574,12 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     # ═══════════════════════════════════════════════════════════
     # "open whatsapp and text hena saying hi"
     # "send whatsapp to john message what's up"
-    if 'whatsapp' in cmd or 'whatsapp to' in cmd or 'send message' in cmd or 'text ' in cmd:
-        
-        # Clean up common prefixes that confuse the regex
-        clean_cmd = re.sub(r'^(?:open\s+whatsapp\s+and\s+)?(text|send message to|whatsapp)\s+', r'\1 ', cmd, flags=re.I)
-        
-        # Try to extract contact and message
-        # Patterns like: "whatsapp [contact] (saying|message|that) [message]"
-        # Or: "text [contact] (saying|message) [message]"
-        match = re.search(r'(?:whatsapp|send message to|text)\s+([a-zA-Z0-9\s]+?)(?:\s+(?:saying|message|that)\s+)(.+)', clean_cmd, re.I)
-        if match:
-            entities['contact'] = match.group(1).strip()
-            entities['message'] = match.group(2).strip()
-        else:
-            # Maybe just contact?
-            match2 = re.search(r'(?:whatsapp|send message to|text)\s+([a-zA-Z0-9\s]+)', clean_cmd, re.I)
-            if match2:
-                entities['contact'] = match2.group(1).strip()
-                
+    if (has(cmd, 'whatsapp') or re.match(r"^(?:please\s+)?(?:send\s+(?:a\s+)?(?:message|msg|text)|message|text|msg)\s", cmd)):
+        contact, message = parse_message_command(cmd)
+        if contact:
+            entities['contact'] = contact
+        if message:
+            entities['message'] = message
         return 'send_message', entities
 
     # ═══════════════════════════════════════════════════════════
@@ -513,26 +611,26 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     # MUSIC CONTROL - Direct responses
     # ═══════════════════════════════════════════════════════════
     # Pause/Stop
-    if any(phrase in cmd for phrase in ['pause music', 'pause', 'stop music', 'stop playing']):
+    if has(cmd, *['pause music', 'pause', 'stop music', 'stop playing']):
         return 'pause_music', {}
     
     # Next track
-    if any(phrase in cmd for phrase in ['next song', 'next track', 'skip song', 'skip track', 'skip']):
+    if has(cmd, *['next song', 'next track', 'skip song', 'skip track', 'skip']):
         return 'next_track', {}
     
     # Previous track
-    if any(phrase in cmd for phrase in ['previous song', 'previous track', 'go back', 'last song']):
+    if has(cmd, *['previous song', 'previous track', 'go back', 'last song']):
         return 'previous_track', {}
     
     # Play (must be after pause/next/prev checks)
-    if any(phrase in cmd for phrase in ['play music', 'play songs', 'play some music', 'spotify']):
+    if has(cmd, *['play music', 'play songs', 'play some music', 'spotify']):
         return 'play_music', {}
     
     # Play specific song — but NOT if YouTube is the target
     if cmd.startswith('play '):
         song = cmd.replace('play ', '').strip()
         # "play X in youtube" / "play X on youtube" → YouTube search, NOT Spotify
-        if any(yt in cmd for yt in ['in youtube', 'on youtube', 'youtube', 'in yt', 'on yt']):
+        if has(cmd, *['in youtube', 'on youtube', 'youtube', 'in yt', 'on yt']):
             query = re.sub(r'\s*(in|on)\s*(youtube|yt)\s*$', '', song, flags=re.I).strip()
             entities['query'] = query
             return 'youtube_search', entities
@@ -544,7 +642,7 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     # AI SEARCH (Perplexica/Scira-inspired)
     # ═══════════════════════════════════════════════════════════
     # Deep research mode
-    if any(phrase in cmd for phrase in ['research ', 'deep search', 'investigate']):
+    if has(cmd, *['research ', 'deep search', 'investigate']):
         query = cmd.replace('research ', '').replace('deep search', '').replace('investigate', '').strip()
         entities['query'] = query
         entities['mode'] = 'quality'
@@ -552,7 +650,7 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     
     # Recall facts from memory — MUST be before 'remember' block
     # so "do you remember my X" goes to recall, not remember
-    if any(phrase in cmd for phrase in ['recall ', 'what did i tell you about', 'do you remember',
+    if has(cmd, *['recall ', 'what did i tell you about', 'do you remember',
                                          "what's my ", "whats my ", "what is my ", "do you know my"]):
         query = cmd
         for strip in ['recall ', 'what did i tell you about', 'do you remember',
@@ -561,21 +659,21 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         entities['query'] = query.strip()
         return 'recall', entities
     
-    if any(phrase in cmd for phrase in ['remember that', 'remember this', 'save this',
+    if has(cmd, *['remember that', 'remember this', 'save this',
                                          'remember my', 'remember i', 'remember the']):
         fact = re.sub(r'(remember that|remember this|save this|remember my|remember i|remember the|remember)\s*', '', cmd).strip()
         entities['fact'] = fact
         return 'remember', entities
     
     # Reddit search
-    if 'reddit' in cmd and 'search' in cmd:
+    if has(cmd, 'reddit') and has(cmd, 'search'):
         query = cmd.replace('reddit', '').replace('search', '').strip()
         entities['query'] = query
         entities['source'] = 'reddit'
         return 'ai_search', entities
     
     # Regular search (enhanced)
-    if 'search' in cmd or 'google' in cmd:
+    if has(cmd, 'search') or has(cmd, 'google'):
         query = cmd.replace('search for', '').replace('search', '').replace('google', '').strip()
         entities['query'] = query
         return 'search', entities
@@ -583,48 +681,48 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     # ═══════════════════════════════════════════════════════════
     # EMOTION DETECTION
     # ═══════════════════════════════════════════════════════════
-    if 'enable emotion' in cmd or 'mood detection' in cmd:
+    if has(cmd, 'enable emotion') or has(cmd, 'mood detection'):
         return 'enable_emotion', {}
     
-    if 'disable emotion' in cmd:
+    if has(cmd, 'disable emotion'):
         return 'disable_emotion', {}
     
     # ═══════════════════════════════════════════════════════════
     # FEATURES STATUS
     # ═══════════════════════════════════════════════════════════
-    if 'features' in cmd or ('status' in cmd and 'system' not in cmd):
+    if has(cmd, 'features') or (has(cmd, 'status') and not has(cmd, 'system')):
         return 'features', {}
     
     # ═══════════════════════════════════════════════════════════
     # GESTURE & FACE HELP (so JARVIS tells user how to use these)
     # ═══════════════════════════════════════════════════════════
-    if any(phrase in cmd for phrase in ['hand gesture', 'use gestures', 'gesture control', 'can i use gesture']):
+    if has(cmd, *['hand gesture', 'use gestures', 'gesture control', 'can i use gesture']):
         return 'gesture_help', {}
     
-    if any(phrase in cmd for phrase in ['recognize my face', 'face recognition', 'who am i', 'identify me']):
+    if has(cmd, *['recognize my face', 'face recognition', 'who am i', 'identify me']):
         return 'face_recognition', {}
     
-    if any(phrase in cmd for phrase in ['improve you', 'where should i improve', 'what needs improvement', 'improve jarvis']):
+    if has(cmd, *['improve you', 'where should i improve', 'what needs improvement', 'improve jarvis']):
         return 'improvement_suggestions', {}
     
     # ═══════════════════════════════════════════════════════════
     # P2-02: HABIT TRACKING
     # ═══════════════════════════════════════════════════════════
-    if any(phrase in cmd for phrase in ['my habits', 'list habits', 'show habits', 'track habit',
+    if has(cmd, *['my habits', 'list habits', 'show habits', 'track habit',
                                          'add habit', 'create habit', 'habit check', 'habit status']):
         return 'habit', {}
     
     # ═══════════════════════════════════════════════════════════
     # P2-02: EMAIL
     # ═══════════════════════════════════════════════════════════
-    if any(phrase in cmd for phrase in ['send email', 'check email', 'read email', 'compose email',
+    if has(cmd, *['send email', 'check email', 'read email', 'compose email',
                                          'write email', 'inbox', 'new email']):
         return 'email', {}
     
     # ═══════════════════════════════════════════════════════════
     # P2-02: CALENDAR
     # ═══════════════════════════════════════════════════════════
-    if any(phrase in cmd for phrase in ['calendar', 'events today', 'my schedule', 'today\'s schedule',
+    if has(cmd, *['calendar', 'events today', 'my schedule', 'today\'s schedule',
                                          'upcoming events', 'what\'s on my calendar']):
         return 'calendar', {}
     
