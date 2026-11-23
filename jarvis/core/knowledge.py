@@ -1,6 +1,6 @@
 """
 Knowledge Layer - Question Answering using AI APIs
-PRIMARY: Groq (free, fast) - uses Llama 3.3 70B
+PRIMARY: Groq (free, fast) - see GROQ_MODELS
 BACKUP: OpenRouter (multi-model)
 NO Google/Gemini dependency
 
@@ -15,7 +15,9 @@ from typing import Optional
 
 def clean_for_speech(text: str) -> str:
     """Strip markdown the voice would read out ("asterisk asterisk", "hash")."""
-    text = re.sub(r"```.*?```", "", text or "", flags=re.S)
+    # Newer models use narrow/no-break spaces ("Leonardo da Vinci")
+    text = re.sub(r"[   ]", " ", text or "")
+    text = re.sub(r"```.*?```", "", text, flags=re.S)
     text = re.sub(r"^\s{0,3}#{1,6}\s*", "", text, flags=re.M)        # headings
     text = re.sub(r"^\s*[-*•]\s+", "", text, flags=re.M)             # bullets
     text = re.sub(r"(\*\*|__|\*|`)", "", text)                       # bold/italic/code
@@ -37,9 +39,29 @@ def trim_spoken(text: str, limit: int = 600) -> str:
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Models
-GROQ_MODEL = "llama-3.3-70b-versatile"  # Free, fast, powerful
-OPENROUTER_MODEL = "meta-llama/llama-3.1-8b-instruct:free"  # Free fallback
+# Models, tried in order. Providers retire models without warning: Groq dropped
+# llama-3.3-70b-versatile and OpenRouter's free Llama 3.1 went paid, so every
+# request failed with 404 and answers fell back to Gemini (or nothing). A model
+# that 404s is skipped for the rest of the session and the next one is used;
+# a rate-limited one (429) is skipped for this request. Pin a model with
+# JARVIS_GROQ_MODEL / JARVIS_OPENROUTER_MODEL in .env.
+GROQ_MODELS = [m for m in dict.fromkeys([
+    os.getenv("JARVIS_GROQ_MODEL", ""),
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b",
+    "openai/gpt-oss-20b",
+]) if m]
+OPENROUTER_MODELS = [m for m in dict.fromkeys([
+    os.getenv("JARVIS_OPENROUTER_MODEL", ""),
+    "nvidia/nemotron-3.5-lightning:free",
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+]) if m]
+GROQ_MODEL = GROQ_MODELS[0]              # kept for older imports
+OPENROUTER_MODEL = OPENROUTER_MODELS[0]
+
+# Model ids that returned "not found" this session (shared by all instances)
+_retired_models = set()
 
 
 class KnowledgeLayer:
@@ -68,14 +90,14 @@ class KnowledgeLayer:
         if self.groq_key:
             self.enabled = True
             self.api_type = "groq"
-            print("[KNOWLEDGE] Layer Ready (Groq - Llama 3.3 70B)")
+            print(f"[KNOWLEDGE] Layer Ready (Groq - {GROQ_MODELS[0]})")
         else:
             # Try OpenRouter as backup
             self.openrouter_key = os.getenv("OPENROUTER_API_KEY")
             if self.openrouter_key:
                 self.enabled = True
                 self.api_type = "openrouter"
-                print("[KNOWLEDGE] Layer Ready (OpenRouter - Llama 3.1)")
+                print(f"[KNOWLEDGE] Layer Ready (OpenRouter - {OPENROUTER_MODELS[0]})")
             elif self.gemini_key:
                 self.enabled = True
                 self.api_type = "gemini"
@@ -94,86 +116,63 @@ class KnowledgeLayer:
             return self.perception.current_mood
         return None
     
-    def _call_groq(self, messages: list, max_tokens: int = 300) -> Optional[str]:
-        """Call Groq API with rate limit handling"""
-        import time as _time
-        
-        # Rate limit cooldown — don't hammer API if recently rate-limited
-        if hasattr(self, '_groq_cooldown_until') and _time.time() < self._groq_cooldown_until:
-            wait = self._groq_cooldown_until - _time.time()
-            if wait > 0:
-                _time.sleep(min(wait, 3))
-        
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                headers = {
-                    "Authorization": f"Bearer {self.groq_key}",
-                    "Content-Type": "application/json"
-                }
-                data = {
-                    "model": GROQ_MODEL,
-                    "messages": messages,
-                    "max_tokens": max_tokens,
-                    "temperature": 0.7
-                }
-                response = requests.post(GROQ_API_URL, headers=headers, json=data, timeout=15)
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    return result["choices"][0]["message"]["content"]
-                elif response.status_code in (401, 403):
-                    self._disable_provider("groq", response.status_code)
-                    return None
-                elif response.status_code == 429:
-                    # Rate limited — backoff and retry
-                    backoff = (attempt + 1) * 0.5  # 0.5s, 1s, 1.5s
-                    print(f"[KNOWLEDGE] Groq rate limited, retrying in {backoff}s (attempt {attempt+1}/{max_retries})")
-                    self._groq_cooldown_until = _time.time() + backoff
-                    _time.sleep(backoff)
-                    continue
-                else:
-                    print(f"[KNOWLEDGE] Groq error: {response.status_code}")
-                    return None
-            except requests.exceptions.Timeout:
-                print(f"[KNOWLEDGE] Groq timeout (attempt {attempt+1}/{max_retries})")
+    def _call_chat(self, provider: str, messages: list, max_tokens: int = 300) -> Optional[str]:
+        """One chat completion from Groq or OpenRouter, walking its model list.
+
+        404 / model_not_found: the model is retired, skip it from now on.
+        429, 5xx, timeout, empty reply: try the next model for this request.
+        401/403: the key is rejected, stop using this provider (_disable_provider).
+        """
+        if provider == "groq":
+            url, key, models, timeout = GROQ_API_URL, self.groq_key, GROQ_MODELS, 15
+            headers = {}
+        else:
+            url, key, models, timeout = OPENROUTER_API_URL, self.openrouter_key, OPENROUTER_MODELS, 30
+            headers = {"HTTP-Referer": "https://jarvis-assistant.local", "X-Title": "JARVIS AI Assistant"}
+        if not key:
+            return None
+        headers.update({"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+
+        for model in models:
+            if model in _retired_models:
                 continue
-            except Exception as e:
-                print(f"[KNOWLEDGE] Groq exception: {e}")
+            data = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7}
+            if model.startswith("openai/gpt-oss"):
+                # Reasoning model: thinking tokens count against max_tokens, and
+                # high effort can use them all and return no answer
+                data["reasoning_effort"] = "low"
+            try:
+                response = requests.post(url, headers=headers, json=data, timeout=timeout)
+            except requests.exceptions.RequestException as e:
+                print(f"[KNOWLEDGE] {provider} {model}: {type(e).__name__}, trying the next model")
+                continue
+            status = response.status_code
+            if status == 200:
+                try:
+                    content = response.json()["choices"][0]["message"].get("content")
+                except (ValueError, KeyError, IndexError, TypeError):
+                    content = None
+                if content and content.strip():
+                    return content
+                print(f"[KNOWLEDGE] {provider} {model}: empty reply, trying the next model")
+                continue
+            if status in (401, 403):
+                self._disable_provider(provider, status)
                 return None
-        
-        print("[KNOWLEDGE] Groq failed after retries")
+            body = response.text[:300].lower()
+            if status == 404 or "model_not_found" in body or "does not exist" in body:
+                _retired_models.add(model)
+                print(f"[KNOWLEDGE] {provider} model {model} is no longer available; skipping it this session")
+                continue
+            print(f"[KNOWLEDGE] {provider} {model}: HTTP {status}, trying the next model")
         return None
-    
+
+    def _call_groq(self, messages: list, max_tokens: int = 300) -> Optional[str]:
+        return self._call_chat("groq", messages, max_tokens)
+
     def _call_openrouter(self, messages: list, max_tokens: int = 300) -> Optional[str]:
-        """Call OpenRouter API"""
-        try:
-            headers = {
-                "Authorization": f"Bearer {self.openrouter_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://jarvis-assistant.local",
-                "X-Title": "JARVIS AI Assistant"
-            }
-            data = {
-                "model": OPENROUTER_MODEL,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": 0.7
-            }
-            response = requests.post(OPENROUTER_API_URL, headers=headers, json=data, timeout=30)
-            
-            if response.status_code == 200:
-                result = response.json()
-                return result["choices"][0]["message"]["content"]
-            if response.status_code in (401, 403):
-                self._disable_provider("openrouter", response.status_code)
-                return None
-            print(f"[KNOWLEDGE] OpenRouter error: {response.status_code}")
-            return None
-        except Exception as e:
-            print(f"[KNOWLEDGE] OpenRouter exception: {e}")
-            return None
-    
+        return self._call_chat("openrouter", messages, max_tokens)
+
     def _disable_provider(self, name: str, status: int) -> None:
         """A rejected key (401/403) won't start working mid-session: stop asking.
 

@@ -26,6 +26,6 @@ class Config:
     def validate():
         """Validate required configuration"""
         # Groq is our primary AI, so just silently continue
-        # The knowledge layer shows "Groq - Llama 3.3 70B" when working
+        # The knowledge layer shows the Groq model in use when working
         return True
 

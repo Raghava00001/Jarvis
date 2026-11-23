@@ -529,7 +529,7 @@ class JARVISWebSocketServer:
         self.smart_notes = None
         self.alarm_system = None
         self.system_control = None
-        self._knowledge = None  # For Groq Llama 3.3 AI
+        self._knowledge = None  # Groq / OpenRouter / Gemini answers
         self.reminder_manager = None  # For reminders
         self.screen_control = None  # Screen mouse/keyboard control
         self._pdf_handler = None  # PDF reader/extraction
