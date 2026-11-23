@@ -1,4 +1,5 @@
 from jarvis.core.services import shared
+from jarvis.core.errors import recovered
 import json
 import re
 import os
@@ -136,8 +137,8 @@ class FallbackProcessor:
             if genre == 'horror' and self.server.entertainment and hasattr(self.server.entertainment, 'sound_library'):
                 try:
                     self.server.entertainment.sound_library.play('suspense')
-                except Exception:
-                    pass
+                except Exception as _err:
+                    recovered("Fallback", _err)
             
             # One story implementation (intent_handlers.handle_story: topic,
             # genre, full length). This used to be a separate copy that cut
@@ -656,8 +657,8 @@ class FallbackProcessor:
                             if all_synonyms:
                                 synonym_list = ", ".join(all_synonyms[:5])
                                 return f"Synonyms for {word}: {synonym_list}"
-                except Exception:
-                    pass
+                except Exception as _err:
+                    recovered("Fallback", _err)
                 return f"No synonyms found for '{word}', {title}."
             return f"Dictionary not available, {title}."
         

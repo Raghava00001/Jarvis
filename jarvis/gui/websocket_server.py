@@ -39,6 +39,7 @@ if _project_root not in sys.path:
 # as core.X and jarvis.core.X (see jarvis/__init__.py).
 
 from jarvis.core.services import shared  # after the path setup above
+from jarvis.core.errors import recovered
 import queue
 import base64
 from dataclasses import dataclass
@@ -1103,13 +1104,13 @@ class JARVISWebSocketServer:
             try:
                 self.news_handler = shared(NewsHandler, lambda: NewsHandler(self.hud_perception))
             except Exception as e:
-                pass
+                recovered("WebSocket", e)
         
         if not getattr(self, 'weather_handler', None) and WEATHER_AVAILABLE:
             try:
                 self.weather_handler = shared(WeatherHandler, lambda: WeatherHandler(self.hud_perception))
             except Exception as e:
-                pass
+                recovered("WebSocket", e)
         
         # Setup lazy property backings to None
         self._emotion_detector = None
@@ -1586,8 +1587,8 @@ class JARVISWebSocketServer:
             if getattr(self, 'live_engine', None) and self.live_engine._running:
                 try:
                     self._push_live_text("Hey JARVIS, I need you.")
-                except Exception:
-                    pass
+                except Exception as _err:
+                    recovered("WebSocket", _err)
             else:
                 self.hud_perception.speak("Yes sir, I'm here.")
     
@@ -1700,8 +1701,8 @@ class JARVISWebSocketServer:
                             jlog.info(f'Routed to Gemini Live: "{text[:60]}"')
                         else:
                             print(f"[WebSocket] Routed text to Gemini Live: {text[:60]}")
-                    except Exception:
-                        pass
+                    except Exception as _err:
+                        recovered("WebSocket", _err)
                     return
             if not text:
                 return
@@ -1883,8 +1884,8 @@ class JARVISWebSocketServer:
             if self.proactive_assistant:
                 try:
                     self.proactive_assistant.record_action(action, {'command': text})
-                except Exception:
-                    pass
+                except Exception as _err:
+                    recovered("WebSocket", _err)
             
             # Return to idle after speaking
             words = len(response.split()) if response else 1
@@ -2453,8 +2454,8 @@ class JARVISWebSocketServer:
                     success = self.jarvis.app_finder.open_app(app_lower)
                     if success:
                         return f"Opening {app_name}, {title}."
-                except Exception:
-                    pass
+                except Exception as _err:
+                    recovered("WebSocket", _err)
             
             # Try os.startfile as last resort
             try:
@@ -2468,8 +2469,8 @@ class JARVISWebSocketServer:
                     success = finder.open_app(app_lower)
                     if success:
                         return f"Opening {app_name}, {title}."
-                except Exception:
-                    pass
+                except Exception as _err:
+                    recovered("WebSocket", _err)
             
             return f"Couldn't find {app_name}, {title}. Try the exact name."
         
@@ -3154,8 +3155,8 @@ class JARVISWebSocketServer:
             # Fallback: direct send if queue not set up (shouldn't happen)
             try:
                 await websocket.send(msg_str)
-            except Exception:
-                pass
+            except Exception as _err:
+                recovered("WebSocket", _err)
             return
         try:
             q.put_nowait(msg_str)

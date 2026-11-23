@@ -4,6 +4,7 @@ Dedicated handlers for each command type - extracted from _fallback_process
 """
 
 from jarvis.core.services import shared
+from jarvis.core.errors import recovered
 from datetime import datetime
 from typing import Any, Dict
 import random
@@ -594,8 +595,8 @@ def handle_play_music(cmd: str, entities: Dict, context: Any) -> HandlerResult:
                 import pyautogui
                 time.sleep(0.5)
                 pyautogui.press('space')  # Toggle play in Spotify
-            except Exception:
-                pass
+            except Exception as _err:
+                recovered("Handlers", _err)
             return HandlerResult(success=True, response="Playing music")
     except Exception:
         return HandlerResult(success=False, response="Can't open Spotify")
@@ -787,8 +788,8 @@ def handle_joke(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             joke = random.choice(entertainment.jokes) if entertainment.jokes else None
             if joke:
                 return HandlerResult(success=True, response=f"{joke}, {title}.")
-        except Exception:
-            pass
+        except Exception as _err:
+            recovered("Handlers", _err)
     
     # Fallback jokes
     jokes = [
@@ -1041,8 +1042,8 @@ def handle_conversation(cmd: str, entities: Dict, context: Any) -> HandlerResult
             _err = ['trouble connecting', 'knowledge base', 'currently offline', 'Set GROQ_API_KEY']
             if response and len(response) > 5 and not any(ep in response for ep in _err):
                 return HandlerResult(success=True, response=response)
-        except Exception:
-            pass
+        except Exception as _err:
+            recovered("Handlers", _err)
     
     # Return None so it falls through to Gemini API in websocket_server
     return None
@@ -1068,8 +1069,8 @@ def handle_dictionary(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             response = knowledge.answer_question(f"Define the word: {word}")
             if response:
                 return HandlerResult(success=True, response=response)
-        except Exception:
-            pass
+        except Exception as _err:
+            recovered("Handlers", _err)
     
     # Fallback: online dictionary API
     try:
@@ -1080,8 +1081,8 @@ def handle_dictionary(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         if data and isinstance(data, list):
             meaning = data[0]['meanings'][0]['definitions'][0]['definition']
             return HandlerResult(success=True, response=f"{word}: {meaning}")
-    except Exception:
-        pass
+    except Exception as _err:
+        recovered("Handlers", _err)
     
     return HandlerResult(success=False, response=f"Couldn't find definition for '{word}', {title}.")
 
