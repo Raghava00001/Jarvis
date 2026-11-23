@@ -666,7 +666,10 @@ class JARVISWebSocketServer:
         
         # CLEAN ARCHITECTURE: Centralized state manager (replaces manual deduplication)
         self.state_manager = StateManager()
-        
+        # The HUD's gesture switch shows the state manager's flag, which was
+        # hard-coded on: the HUD said gestures were on while the camera was off
+        self.state_manager.gesture_enabled = self.gesture_enabled
+
         # Thread pool for async-safe heavy execution
         self.executor = ThreadPoolExecutor(max_workers=4)
         
@@ -1018,6 +1021,13 @@ class JARVISWebSocketServer:
 
     def set_gesture_enabled(self, enabled: bool, title: str = 'sir') -> str:
         """Turn gestures on/off (HUD button, voice, typed). Remembered for next time."""
+        reply = self._set_gesture_enabled(enabled, title)
+        sm = getattr(self, 'state_manager', None)
+        if sm is not None:
+            sm.gesture_enabled = self.gesture_enabled   # what the HUD shows
+        return reply
+
+    def _set_gesture_enabled(self, enabled: bool, title: str) -> str:
         if enabled and not self.gesture_controller:
             self.gesture_enabled = False
             return f"Gesture control isn't available, {title}: MediaPipe could not be loaded."
@@ -2742,56 +2752,11 @@ class JARVISWebSocketServer:
             # These bypass the router to guarantee actual hardware control
             # ══════════════════════════════════════════════════════════════
             
-            # --- VOLUME ---
-            if intent_name == 'volume' and self.system_control:
-                action = entities.get('action', '')
-                level = entities.get('level')
-                if action == 'set' and level is not None:
-                    if jlog: jlog.route('SystemControl', 'set_volume')
-                    result = self.system_control.set_volume(level)
-                    return result if isinstance(result, str) else f"Volume set to {level}%, {title}."
-                elif action == 'up':
-                    result = self.system_control.volume_up()
-                    return result if isinstance(result, str) else f"Volume increased, {title}."
-                elif action == 'down':
-                    result = self.system_control.volume_down()
-                    return result if isinstance(result, str) else f"Volume decreased, {title}."
-                elif action == 'mute':
-                    result = self.system_control.mute_volume()
-                    return result if isinstance(result, str) else f"Volume muted, {title}."
-                else:
-                    # No specific action, try to extract number from command
-                    match = re.search(r'(\d+)\s*%?', command)
-                    if match:
-                        level = int(match.group(1))
-                        result = self.system_control.set_volume(min(100, max(0, level)))
-                        return result if isinstance(result, str) else f"Volume set to {level}%, {title}."
-                    result = self.system_control.volume_up()
-                    return result if isinstance(result, str) else f"Volume increased, {title}."
-            
-            # --- BRIGHTNESS ---
-            if intent_name == 'brightness' and self.system_control:
-                action = entities.get('action', '')
-                level = entities.get('level')
-                if action == 'set' and level is not None:
-                    if jlog: jlog.route('SystemControl', 'set_brightness')
-                    result = self.system_control.set_brightness(level)
-                    return result if isinstance(result, str) else f"Brightness set to {level}%, {title}."
-                elif action == 'up':
-                    result = self.system_control.brightness_up()
-                    return result if isinstance(result, str) else f"Brightness increased, {title}."
-                elif action == 'down':
-                    result = self.system_control.brightness_down()
-                    return result if isinstance(result, str) else f"Brightness decreased, {title}."
-                else:
-                    match = re.search(r'(\d+)\s*%?', command)
-                    if match:
-                        level = int(match.group(1))
-                        result = self.system_control.set_brightness(min(100, max(0, level)))
-                        return result if isinstance(result, str) else f"Brightness set to {level}%, {title}."
-                    result = self.system_control.brightness_up()
-                    return result if isinstance(result, str) else f"Brightness increased, {title}."
-            
+            # --- VOLUME / BRIGHTNESS: the reply is what really happened ---
+            if intent_name in ('volume', 'brightness') and self.system_control:
+                text = f"{entities.get('action') or ''} {command}"
+                return self.system_control.adjust(intent_name, text, entities.get('level'))
+
             # --- ALARM ---
             if intent_name == 'set_alarm' and self.alarm_system:
                 from datetime import timedelta

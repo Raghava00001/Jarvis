@@ -338,33 +338,22 @@ class IntentRouter:
         now = datetime.now()
         return f"Today is {now.strftime('%A, %B %d, %Y')}"
         
+    # Volume/brightness: SystemControl.adjust returns what really happened
     def _handle_volume(self, entities: Dict, up: bool) -> str:
-        amount = entities.get("amount", 10)
         if "system" in self.handlers:
-            if up:
-                self.handlers["system"].volume_up(amount)
-                return f"Volume increased"
-            else:
-                self.handlers["system"].volume_down(amount)
-                return f"Volume decreased"
+            return self.handlers["system"].adjust("volume", "up" if up else "down")
         return "System control not available"
-        
+
     def _handle_mute(self) -> str:
         if "system" in self.handlers:
-            self.handlers["system"].mute_volume()
-            return "Muted"
+            return self.handlers["system"].adjust("volume", "mute")
         return "System control not available"
-        
+
     def _handle_brightness(self, entities: Dict, up: bool) -> str:
         if "system" in self.handlers:
-            if up:
-                self.handlers["system"].brightness_up()
-                return "Brightness increased"
-            else:
-                self.handlers["system"].brightness_down()
-                return "Brightness decreased"
+            return self.handlers["system"].adjust("brightness", "up" if up else "down")
         return "System control not available"
-        
+
     def _handle_calendar(self) -> str:
         if "calendar" in self.handlers:
             self.handlers["calendar"].get_today_events()

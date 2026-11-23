@@ -330,6 +330,12 @@ class JARVISUltimate:
         
         return self._process_single_command(command)
     
+    def _say_result(self, result):
+        """Speak what a system action really did (SystemControl no longer speaks)."""
+        if isinstance(result, str) and result:
+            self.perception.speak(result)
+        return bool(result)
+
     def _process_single_command(self, command: str) -> bool:
         """Process a single command through all layers"""
         if not command:
@@ -633,32 +639,32 @@ class JARVISUltimate:
 
         # ========== VOLUME CONTROL ==========
         elif intent == "volume_up" or ("volume" in command_lower and "up" in command_lower):
-            success = self.system_control.volume_up()
+            success = self._say_result(self.system_control.volume_up())
 
         elif intent == "volume_down" or ("volume" in command_lower and "down" in command_lower):
-            success = self.system_control.volume_down()
+            success = self._say_result(self.system_control.volume_down())
 
         elif intent == "set_volume" or ("volume" in command_lower and entities.get("numbers")):
             numbers = entities.get("numbers", [])
             if numbers:
-                success = self.system_control.set_volume(numbers[0])
+                success = self._say_result(self.system_control.set_volume(numbers[0]))
             else:
                 self.perception.speak("What volume level, sir?")
 
         elif intent == "mute" or "mute" in command_lower:
-            success = self.system_control.mute_volume()
+            success = self._say_result(self.system_control.mute_volume())
 
         # ========== BRIGHTNESS CONTROL ==========
         elif intent == "brightness_up" or ("brightness" in command_lower and ("up" in command_lower or "increase" in command_lower)):
-            success = self.system_control.brightness_up()
+            success = self._say_result(self.system_control.brightness_up())
 
         elif intent == "brightness_down" or ("brightness" in command_lower and ("down" in command_lower or "decrease" in command_lower)):
-            success = self.system_control.brightness_down()
+            success = self._say_result(self.system_control.brightness_down())
 
         elif intent == "set_brightness" or ("brightness" in command_lower and entities.get("numbers")):
             numbers = entities.get("numbers", [])
             if numbers:
-                success = self.system_control.set_brightness(numbers[0])
+                success = self._say_result(self.system_control.set_brightness(numbers[0]))
 
         # ========== BLUETOOTH ==========
         elif intent == "bluetooth_on" or ("bluetooth" in command_lower and "on" in command_lower):

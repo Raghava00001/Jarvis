@@ -212,21 +212,12 @@ class FallbackProcessor:
             except Exception:
                 return f"Couldn't open Spotify. Make sure it's installed{maybe_title(title)}."
         
-        # Volume - actually control hardware
-        if 'volume' in cmd:
-            if 'up' in cmd or 'increase' in cmd:
-                if self.server.system_control:
-                    self.server.system_control.volume_up()
-                return f"Volume increased{maybe_title(title)}."
-            elif 'down' in cmd or 'decrease' in cmd:
-                if self.server.system_control:
-                    self.server.system_control.volume_down()
-                return f"Volume decreased{maybe_title(title)}."
-            elif 'mute' in cmd:
-                if self.server.system_control:
-                    self.server.system_control.mute_volume()
-                return f"Audio muted{maybe_title(title)}."
-        
+        # Volume - actually control hardware (the reply is what really happened)
+        if 'volume' in cmd and self.server.system_control:
+            from jarvis.core.system_control import parse_level_request
+            if parse_level_request(cmd) is not None:
+                return self.server.system_control.adjust('volume', cmd)
+
         # SCREEN CONTROL - click, scroll, type, move mouse
         if self.server.screen_control:
             # Click commands
@@ -767,45 +758,13 @@ class FallbackProcessor:
                 return alarms if alarms else f"No alarms set, {title}."
             return f"Alarm system not available, {title}."
         
-        # VOLUME CONTROL (with system control)
-        if 'volume' in cmd:
-            if self.server.system_control:
-                if 'up' in cmd or 'increase' in cmd:
-                    self.server.system_control.volume_up()
-                    return f"Volume increased, {title}."
-                elif 'down' in cmd or 'decrease' in cmd:
-                    self.server.system_control.volume_down()
-                    return f"Volume decreased, {title}."
-                elif 'mute' in cmd:
-                    self.server.system_control.mute_volume()
-                    return f"Audio muted, {title}."
-                
-                # Check for specific percentage
-                match = re.search(r'(\d+)\s*%?', cmd)
-                if match:
-                    level = int(match.group(1))
-                    self.server.system_control.set_volume(level)
-                    return f"Volume set to {level}%, {title}."
-            return f"Adjusting volume, {title}."
-        
-        # BRIGHTNESS CONTROL
-        if 'brightness' in cmd:
-            if self.server.system_control:
-                if 'up' in cmd or 'increase' in cmd:
-                    self.server.system_control.brightness_up()
-                    return f"Brightness increased, {title}."
-                elif 'down' in cmd or 'decrease' in cmd:
-                    self.server.system_control.brightness_down()
-                    return f"Brightness decreased, {title}."
-                
-                # Check for specific percentage
-                match = re.search(r'(\d+)\s*%?', cmd)
-                if match:
-                    level = int(match.group(1))
-                    self.server.system_control.set_brightness(level)
-                    return f"Brightness set to {level}%, {title}."
-            return f"Adjusting brightness, {title}."
-        
+        # VOLUME / BRIGHTNESS (the reply is what really happened)
+        for kind in ('volume', 'brightness'):
+            if kind in cmd:
+                if self.server.system_control:
+                    return self.server.system_control.adjust(kind, cmd)
+                return f"I can't control the {kind} on this computer, {title}."
+
         # WEB SEARCH
         if 'search' in cmd or 'google' in cmd:
             query = cmd.replace('search for', '').replace('search', '').replace('google', '').strip()

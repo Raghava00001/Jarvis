@@ -388,56 +388,38 @@ def handle_open_app(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         return HandlerResult(success=False, response=f"Couldn't open {app}.")
 
 
-def handle_volume(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle volume control"""
+def _adjust_level(kind: str, cmd: str, entities: Dict, context: Any) -> HandlerResult:
+    """Volume/brightness: change it, and report what really happened.
+
+    This used to answer "Adjusting brightness" without changing anything when
+    the caller gave no action (Gemini's voice tools never did), so JARVIS
+    said "Brightness decreased" while nothing changed.
+    """
     title = context.get('title', 'sir') if context else 'sir'
     system_control = context.get('system_control') if context else None
-    action = entities.get('action', '')
-    level = entities.get('level')
-    
-    if system_control:
+    if system_control is None:
         try:
-            if action == 'up':
-                system_control.volume_up()
-                return HandlerResult(success=True, response=f"Volume increased, {title}.")
-            elif action == 'down':
-                system_control.volume_down()
-                return HandlerResult(success=True, response=f"Volume decreased, {title}.")
-            elif action == 'mute':
-                system_control.mute_volume()
-                return HandlerResult(success=True, response=f"Audio muted, {title}.")
-            elif action == 'set' and level is not None:
-                system_control.set_volume(level)
-                return HandlerResult(success=True, response=f"Volume set to {level}%, {title}.")
+            from jarvis.core.system_control import SystemControl
+            system_control = shared(SystemControl, lambda: SystemControl(context.get('perception') if context else None))
         except Exception as e:
-            print(f"[HANDLERS] Volume error: {e}")
-    
-    # Fallback response
-    return HandlerResult(success=True, response=f"Adjusting volume, {title}.")
+            print(f"[HANDLERS] System control unavailable: {e}")
+            return HandlerResult(success=False, response=f"I can't control the {kind} on this computer, {title}.")
+    text = f"{entities.get('action') or ''} {cmd or ''}"
+    try:
+        reply = system_control.adjust(kind, text, entities.get('level'))
+    except Exception as e:
+        print(f"[HANDLERS] {kind} error: {e}")
+        return HandlerResult(success=False, response=f"I couldn't change the {kind}, {title}.")
+    ok = not reply.startswith(("I couldn't", "I can't", "I tried", "Should I"))
+    return HandlerResult(success=ok, response=reply)
+
+
+def handle_volume(cmd: str, entities: Dict, context: Any) -> HandlerResult:
+    return _adjust_level('volume', cmd, entities, context)
 
 
 def handle_brightness(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle brightness control"""
-    title = context.get('title', 'sir') if context else 'sir'
-    system_control = context.get('system_control') if context else None
-    action = entities.get('action', '')
-    level = entities.get('level')
-    
-    if system_control:
-        try:
-            if action == 'up':
-                system_control.brightness_up()
-                return HandlerResult(success=True, response=f"Brightness increased, {title}.")
-            elif action == 'down':
-                system_control.brightness_down()
-                return HandlerResult(success=True, response=f"Brightness decreased, {title}.")
-            elif action == 'set' and level is not None:
-                system_control.set_brightness(level)
-                return HandlerResult(success=True, response=f"Brightness set to {level}%, {title}.")
-        except Exception as e:
-            print(f"[HANDLERS] Brightness error: {e}")
-    
-    return HandlerResult(success=True, response=f"Adjusting brightness, {title}.")
+    return _adjust_level('brightness', cmd, entities, context)
 
 
 # ═══════════════════════════════════════════════════════════════

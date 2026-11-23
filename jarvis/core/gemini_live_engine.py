@@ -43,7 +43,18 @@ WAKE_WORD_RE = re.compile(
     r"|జార్విస్|जार्विस|ஜார்விஸ்|ಜಾರ್ವಿಸ್|ఫ్రైడే|फ्राइडे",
     re.IGNORECASE,
 )
-AWAKE_WINDOW_S = float(os.getenv("JARVIS_AWAKE_WINDOW", "20"))
+# Conversation mode: once addressed, JARVIS keeps listening until 5 minutes
+# pass with nobody speaking (counted from the last thing either of you said).
+# With 20-30 s it went deaf mid-conversation: "Yes sir", "Hello" and "continue
+# the story" were heard, answered by Gemini, and the answers muted.
+# "go to sleep" / "stop listening" ends it at once.
+AWAKE_WINDOW_S = float(os.getenv("JARVIS_AWAKE_WINDOW", "300"))
+SLEEP_RE = re.compile(
+    r"\b(?:go (?:to )?sleep|stop listening|that'?s all(?: for now)?|"
+    r"(?:bye|goodbye|good night)(?:,? jarvis)?)\b", re.IGNORECASE)
+# Silence that ends your turn. Gemini's default cut people off mid-sentence
+# ("I can..." -> "...continue, sir?")
+END_OF_TURN_SILENCE_MS = int(os.getenv("JARVIS_END_SILENCE_MS", "900"))
 NOT_ADDRESSED_RESULT = (
     "Not executed: the user did not address JARVIS by name, so this was most "
     "likely background speech. Do not act on it and stay silent."
@@ -233,9 +244,11 @@ TOOL_DECLARATIONS = [
                 "action": {
                     "type": "STRING",
                     "description": (
-                        "Action to perform: 'minimize', 'maximize', 'scroll_up', 'scroll_down', "
-                        "'press_enter', 'press_escape', 'press_space', 'alt_tab', 'ctrl_w', "
-                        "'ctrl_c', 'ctrl_v', 'ctrl_z', 'ctrl_a', 'ctrl_s', 'click', 'fullscreen'"
+                        "Action to perform: 'next_tab', 'previous_tab', 'close_tab', 'new_tab', "
+                        "'reopen_tab', 'refresh', 'go_back', 'go_forward', 'minimize', 'maximize', "
+                        "'scroll_up', 'scroll_down', 'press_enter', 'press_escape', 'press_space', "
+                        "'alt_tab', 'ctrl_w', 'ctrl_c', 'ctrl_v', 'ctrl_z', 'ctrl_a', 'ctrl_s', 'click', "
+                        "'fullscreen', or a short phrase like 'switch to tab 3' or 'zoom in'"
                     )
                 }
             },
@@ -434,6 +447,22 @@ TOOL_DECLARATIONS = [
             "required": ["to", "subject", "body"]
         }
     },
+    # ── Hand gestures on/off ──
+    # Without this tool, "enable gestures" said aloud was only answered by
+    # Gemini ("Gestures enabled") and nothing switched on.
+    {
+        "name": "gesture_control",
+        "description": (
+            "Turns hand-gesture control on or off (it uses the camera). Use when the user says "
+            "'enable/turn on/start gestures' or 'disable/turn off/stop gestures'. Always call this "
+            "tool; never just say gestures are on or off."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {"enabled": {"type": "BOOLEAN", "description": "true = on, false = off"}},
+            "required": ["enabled"]
+        }
+    },
     # ── Mute / Unmute JARVIS ──
     {
         "name": "mute_jarvis",
@@ -489,13 +518,16 @@ TOOL_DECLARATIONS = [
     {
         "name": "tell_story",
         "description": (
-            "Tells a creative story. Use when user asks for a story. "
-            "Can specify genre: horror, comedy, romance, bedtime, sci-fi."
+            "Writes a story for you to narrate. Use when the user asks for a story or to continue one. "
+            "The result is the story text: READ IT ALOUD IN FULL, word for word."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "genre": {"type": "STRING", "description": "Story genre (horror, comedy, romance, bedtime, sci-fi)"}
+                "genre": {"type": "STRING", "description": "Story genre (horror, comedy, romance, bedtime, sci-fi, fantasy)"},
+                "topic": {"type": "STRING", "description": "What the story is about, in the user's words "
+                                                          "(e.g. 'a kid with super powers'). For 'continue the "
+                                                          "story', describe what happened so far."}
             }
         }
     },
@@ -550,11 +582,24 @@ class GeminiLiveEngine:
         """True when JARVIS may respond: gate off, or inside the awake window."""
         if not self._wake_gate:
             return True
-        return (now if now is not None else _time.time()) < self._awake_until
+        now = now if now is not None else _time.time()
+        # Awake while JARVIS is speaking and for the window after it stops
+        speaking_until = getattr(self, '_speaking_until', 0.0) or 0.0
+        if speaking_until <= getattr(self, '_slept_at', 0.0):
+            speaking_until = 0.0   # told to sleep after that speech
+        return now < max(self._awake_until, speaking_until + AWAKE_WINDOW_S if speaking_until else 0.0)
+
+    def sleep(self) -> None:
+        """End the conversation: only the wake word gets a reply again."""
+        self._awake_until = 0.0
+        self._slept_at = float("inf")   # speech before the next wake word doesn't keep it awake
+        self._sleep_after_reply = False
+        print("[WAKE] Asleep (told to sleep)", flush=True)
 
     def wake(self, reason: str = "") -> None:
         """Open (or extend) the awake window."""
         was_awake = self.is_awake()
+        self._slept_at = 0.0
         self._awake_until = _time.time() + AWAKE_WINDOW_S
         if not was_awake:
             print(f"[WAKE] Awake ({reason}) for {AWAKE_WINDOW_S:.0f}s", flush=True)
@@ -589,6 +634,9 @@ class GeminiLiveEngine:
 
     def note_user_speech(self, text: str) -> bool:
         """Handle transcribed speech. Returns True if it was addressed to JARVIS."""
+        if self.is_awake() and SLEEP_RE.search(text or ""):
+            self._sleep_after_reply = True   # say goodbye first, then sleep
+            return True
         if WAKE_WORD_RE.search(text or ""):
             self.wake("wake word")
             return True
@@ -796,7 +844,10 @@ class GeminiLiveEngine:
             "- The user speaks: English, Telugu, Hindi, French, and Japanese.\n"
             "- The user does NOT speak Tamil. If you detect something that seems like Tamil, "
             "it is most likely Telugu. Treat it as Telugu.\n"
-            "- Always respond in the same language the user speaks in.\n"
+            "- The user mostly speaks ENGLISH with an Indian accent. Reply in English by default.\n"
+            "- Reply in Telugu, Hindi, French or Japanese ONLY when the user clearly speaks a whole "
+            "sentence in it, or asks you to. A transcript in Telugu script of what sounds like English "
+            "words is a mis-transcription: reply in English.\n"
             "- Default to English when uncertain.\n"
             "- When the user says 'stop', 'pause', or 'ruko' while a video is playing, "
             "use screen_action with action='pause' to press Space.\n"
@@ -819,7 +870,15 @@ class GeminiLiveEngine:
         return types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             output_audio_transcription={},
+            # (A transcription language can't be set: the Gemini API rejects
+            # language_codes. English-by-default is in the system prompt.)
             input_audio_transcription=types.AudioTranscriptionConfig(),
+            realtime_input_config=types.RealtimeInputConfig(
+                automatic_activity_detection=types.AutomaticActivityDetection(
+                    end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_LOW,
+                    silence_duration_ms=END_OF_TURN_SILENCE_MS,
+                )
+            ),
             system_instruction=self._get_system_prompt(),
             tools=[{"function_declarations": TOOL_DECLARATIONS}],
             speech_config=types.SpeechConfig(
@@ -1111,11 +1170,38 @@ class GeminiLiveEngine:
                     "pause_video": ("space",),
                     "stop_video": ("space",),
                     "resume": ("space",),
+                    "next_tab": ("ctrl", "tab"),
+                    "previous_tab": ("ctrl", "shift", "tab"),
+                    "prev_tab": ("ctrl", "shift", "tab"),
+                    "close_tab": ("ctrl", "w"),
+                    "new_tab": ("ctrl", "t"),
+                    "reopen_tab": ("ctrl", "shift", "t"),
+                    "refresh": ("f5",),
+                    "go_back": ("alt", "left"),
+                    "go_forward": ("alt", "right"),
                     "scroll_up": None,
                     "scroll_down": None,
                     "click": None,
                 }
-                if action in ACTION_MAP:
+                # Keys go to the focused window. If that's the JARVIS HUD (it
+                # usually is right after you talk to it), "next tab" switched
+                # the HUD's own tab or did nothing: hand focus back first.
+                from jarvis.core.screen_control import focus_away_from_jarvis, ScreenControlHandler
+                from jarvis.core.services import shared
+                focus_away_from_jarvis()
+                if action not in ACTION_MAP and not any(w in action for w in ('pause', 'stop', 'play', 'resume')):
+                    # Anything else ("switch to tab 3", "zoom in", ...): the
+                    # screen-control handler typed commands use
+                    try:
+                        handled = shared(ScreenControlHandler).handle(action.replace('_', ' '))
+                    except Exception as e:
+                        handled = None
+                        print(f"[LIVE] screen_action fallback failed: {e}")
+                    if handled and not str(handled).lower().startswith(("unknown", "i don't", "sorry")):
+                        action, result = None, str(handled)
+                if action is None:
+                    pass
+                elif action in ACTION_MAP:
                     keys = ACTION_MAP[action]
                     if keys:
                         if len(keys) == 1:
@@ -1306,6 +1392,16 @@ class GeminiLiveEngine:
                 else:
                     result = "Email service not configured."
 
+            # ── Hand gestures on/off ──
+            elif name == "gesture_control":
+                setter = getattr(self.server, 'set_gesture_enabled', None) if self.server else None
+                if setter is None:
+                    result = "Gesture control isn't available."
+                else:
+                    on = args.get("enabled")
+                    on = on if isinstance(on, bool) else str(on).strip().lower() in ("true", "on", "1", "yes")
+                    result = setter(on, 'sir')
+
             # ── Mute / Unmute JARVIS (C-02) ──
             elif name == "mute_jarvis":
                 self._muted = True
@@ -1353,11 +1449,17 @@ class GeminiLiveEngine:
             elif name == "tell_story":
                 handler = HANDLER_MAP.get("story")
                 if handler:
-                    genre = args.get("genre", "")
+                    genre = (args.get("genre") or "").strip()
+                    topic = (args.get("topic") or "").strip()
                     entities = {"genre": genre} if genre else {}
-                    res = handler(cmd=f"tell me a {genre} story" if genre else "tell me a story",
-                                  entities=entities, context=context)
-                    result = res.response if res else "Story handler not available."
+                    cmd = f"tell me a {genre + ' ' if genre else ''}story" + (f" about {topic}" if topic else "")
+                    res = handler(cmd=cmd, entities=entities, context=context)
+                    story = res.response if res else ""
+                    # Gemini used to get the bare story back and just say "Sweet
+                    # dreams, sir": the story was written but never told
+                    result = ("Narrate this story to the user now, aloud, in full and word for word. "
+                              "Don't summarise it or comment first.\n\n" + story) if story else \
+                             "The story couldn't be written. Tell the user a short story yourself."
                 else:
                     result = "Story handler not found."
 
@@ -1535,6 +1637,8 @@ class GeminiLiveEngine:
                                         safe = " ".join(out_buf).encode('ascii', errors='replace').decode()
                                         print(f"[WAKE] Muted reply: {safe[:80]}", flush=True)
                                         out_buf = []
+                                    elif out_buf and getattr(self, '_sleep_after_reply', False):
+                                        self.sleep()        # "good night" answered: now sleep
                                     elif out_buf and self.is_awake():
                                         self.wake("reply")  # allow a follow-up after JARVIS answers
                                     if out_buf:
