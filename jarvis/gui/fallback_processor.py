@@ -139,48 +139,13 @@ class FallbackProcessor:
                 except:
                     pass
             
-            if self.server.knowledge and hasattr(self.server.knowledge, 'answer_question'):
-                try:
-                    prompts = {
-                        'horror': """Tell a short, genuinely creepy horror story (3-4 paragraphs).
-                            Build suspense slowly, use vivid atmospheric descriptions.
-                            Include a twist ending. Make it unsettling but not too graphic.
-                            Just tell the story, no intro.""",
-                        'comedy': """Tell a short funny story (2-3 paragraphs).
-                            Include humor, witty dialogue, and a hilarious punchline.
-                            Make it genuinely laugh-out-loud funny.
-                            Just tell the story, no intro.""",
-                        'romance': """Tell a short, heartwarming romance story (2-3 paragraphs).
-                            Make it sweet and touching with vivid emotions.
-                            Just tell the story, no intro.""",
-                        'mystery': """Tell a short mystery story (3-4 paragraphs).
-                            Include clues, suspense, and a satisfying reveal.
-                            Just tell the story, no intro.""",
-                        'sci-fi': """Tell a short science fiction story (2-3 paragraphs).
-                            Include futuristic elements, interesting technology.
-                            Just tell the story, no intro.""",
-                        'bedtime': """Tell a short, gentle bedtime story (2 paragraphs).
-                            Make it calming and peaceful with a happy ending.
-                            Just tell the story, no intro.""",
-                        'adventure': """Tell a short adventure story (2-3 paragraphs).
-                            Include action, excitement, and a triumphant ending.
-                            Just tell the story, no intro."""
-                    }
-                    prompt = prompts.get(genre, prompts['adventure'])
-                    story = self.server.knowledge.answer_question(prompt)
-                    if story and len(story) > 50:
-                        return story
-                except Exception as e:
-                    print(f"[WebSocket] Story generation error: {e}")
-            
-            # Fallback stories by genre
-            fallback_stories = {
-                'horror': "The old house stood silent in the moonlight. Sarah pushed open the door, her flashlight cutting through the darkness. 'Hello?' she called. No answer. But as she turned to leave, she felt cold breath on her neck. And in the mirror across the room, she saw that nothing was standing behind her...",
-                'comedy': "Dave tried to impress his date by ordering in French at the Italian restaurant. The waiter, being a good sport, brought him exactly what he ordered: a taxi, three umbrellas, and his mother's phone number. His date still talks about it. They've been married 20 years.",
-                'romance': "They met at the coffee shop every morning for a year, never speaking, just exchanging smiles. One day, she found a note on her usual table: 'I've memorized your coffee order. Can I finally learn your name?' She looked up. He was already smiling.",
-                'adventure': "The map led to a cave no explorer had entered in centuries. Inside, golden artifacts gleamed in the torchlight. The adventure had only just begun..."
-            }
-            return fallback_stories.get(genre, fallback_stories['adventure'])
+            # One story implementation (intent_handlers.handle_story: topic,
+            # genre, full length). This used to be a separate copy that cut
+            # stories at 400 characters and ignored the topic.
+            from jarvis.core.intent_handlers import handle_story
+            result = await self.server._run_blocking(
+                handle_story, command, {}, {'title': title, 'knowledge': self.server.knowledge})
+            return result.response
         
         # Jokes - use Gemini AI for unique jokes
         if 'joke' in cmd:
@@ -475,47 +440,10 @@ class FallbackProcessor:
                     webbrowser.open(f'https://www.google.com/search?q={encoded_query}')
                     return f"Searching for '{query}', {title}."
                     
-        # APP SWITCHING — switch to, switch with, go to, alt-tab
-        switch_prefixes = ('switch to ', 'switch with ', 'switch tab to ', 'go to ', 'switch tab ')
-        if any(cmd.startswith(p) for p in switch_prefixes):
-            target = cmd
-            for p in switch_prefixes:
-                target = target.replace(p, '', 1)
-            target = target.strip()
-            # Skip assistant personality switches (handled elsewhere)
-            if target in ('friday', 'jarvis'):
-                pass
-            else:
-                try:
-                    # Try to find the window by title and activate it
-                    result = subprocess.run(
-                        ['powershell', '-command',
-                         f'(Get-Process | Where-Object {{$_.MainWindowTitle -match "{target}"}} | Select-Object -First 1).MainWindowTitle'],
-                        capture_output=True, text=True, timeout=3
-                    )
-                    window_title = result.stdout.strip()
-                    if window_title:
-                        # Use PowerShell to bring window to front
-                        subprocess.run(
-                            ['powershell', '-command', f'''
-                            $window = Get-Process | Where-Object {{$_.MainWindowTitle -match "{target}"}} | Select-Object -First 1
-                            if ($window) {{
-                                $hwnd = $window.MainWindowHandle
-                                Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Win32 {{ [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); }}'
-                                [Win32]::ShowWindow($hwnd, 9)
-                                [Win32]::SetForegroundWindow($hwnd)
-                            }}
-                            '''],
-                            capture_output=True, timeout=3
-                        )
-                        self.server.state_manager.active_app = target.lower()
-                        self.server.state_manager._active_app_time = time.time()
-                        return f"Switching to {target}, {title}."
-                    else:
-                        return f"I can't find {target} running. Would you like me to open it?"
-                except Exception as e:
-                    print(f"[WebSocket] App switch error: {e}")
-                    return f"Couldn't switch to {target}, {title}."
+        # APP SWITCHING — one implementation, in the server (Win32, no shell)
+        switched = self.server.switch_to_app_command(cmd, title)
+        if switched is not None:
+            return switched
         
         if cmd in ('go back', 'alt tab', 'switch window', 'next window', 'previous window'):
             try:

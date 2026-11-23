@@ -60,6 +60,26 @@ except ImportError:
 from jarvis.gui.hud_types import Action, command_turn, turn_text
 import contextvars
 import functools
+
+# Keyword-classifier intents that come from exact patterns with their own
+# entities. When one fires, it is more specific than the ML brain's guess.
+PRECISE_RULE_INTENTS = {
+    'search_news',      # "news about X", "the latest on X" (topic)
+    'screen_question',  # "what is this", "explain this error"
+    'set_timer',        # "set a timer for 10 minutes"
+    'take_note', 'list_notes', 'read_clipboard', 'ocr',
+}
+
+
+def _is_precise_rule(kw_intent, command: str) -> bool:
+    if kw_intent in PRECISE_RULE_INTENTS:
+        return True
+    # Tab commands only: other screen_control words ("copy", "type") also
+    # appear in ordinary questions ("how do I copy a file in linux").
+    if kw_intent == 'screen_control':
+        from jarvis.core.screen_control import is_tab_command
+        return is_tab_command(command)
+    return False
 from jarvis.gui.fallback_processor import FallbackProcessor
 
 
@@ -1966,6 +1986,35 @@ class JARVISWebSocketServer:
             reply = await self.process_command(command, websocket)
         return reply or " ".join(said)
 
+    SWITCH_PREFIXES = ('switch to ', 'switch with ', 'switch tab to ', 'go to ', 'switch tab ')
+
+    def switch_to_app_command(self, cmd: str, title: str = 'sir'):
+        """Handle 'switch to <app>' / 'go to <app>'. Returns the reply, or None
+        if cmd isn't an app switch (e.g. "switch to the next tab", "switch to
+        friday"). Uses AppSwitcher (Win32): the old code pasted the spoken name
+        into a PowerShell script, a shell-injection risk."""
+        from jarvis.core.screen_control import is_tab_command
+        prefix = next((p for p in self.SWITCH_PREFIXES if cmd.startswith(p)), None)
+        if prefix is None or cmd.split()[-1] in ('friday', 'jarvis') or is_tab_command(cmd):
+            return None
+        target = re.sub(r"^(?:the|my)\s+", "", cmd[len(prefix):].strip())
+        if not target:
+            return None
+        try:
+            from jarvis.core.app_switcher import AppSwitcher
+            switcher = shared(AppSwitcher, lambda: AppSwitcher(self.hud_perception))
+            if switcher.find_window(target) is None:
+                return f"I can't find {target} running. Say 'open {target}' to start it."
+            with command_turn():  # its own spoken line is replaced by ours
+                switched = switcher.switch_to(target)
+            if switched:
+                self.state_manager.active_app = target.lower()
+                self.state_manager._active_app_time = time.time()
+                return f"Switched to {target}{maybe_title(title)}."
+        except Exception as e:
+            print(f"[WebSocket] App switch error: {e}")
+        return f"Couldn't switch to {target}, {title}."
+
     def _is_jarvis_talking(self) -> bool:
         """True while any voice output is playing: the server's voice engine,
         the perception layer, or Gemini Live."""
@@ -2160,19 +2209,15 @@ class JARVISWebSocketServer:
         # These explicit keyword matches run BEFORE the intent router
         # ══════════════════════════════════════════════════════════════════
         
-        # Bedtime story — classifier thinks this is 'get_time' because 'time' is in 'bedtime'
-        if any(w in cmd for w in ['bedtime story', 'bed time story', 'tell me a story', 
-                                   'tell a story', 'once upon', 'tell me a tale']):
-            # Route to AI knowledge layer for story generation
-            if self.jarvis and hasattr(self.jarvis, 'knowledge') and self.jarvis.knowledge:
-                story = self.jarvis.knowledge.answer_question(cmd)
-                if story:
-                    return story
-            if self.knowledge:
-                story = self.knowledge.answer_question(cmd)
-                if story:
-                    return story
-            return f"Once upon a time, in a kingdom far, far away... I'd tell you more, but my storytelling module needs a moment{maybe_title(title)}."
+        # Stories: the ML classifier reads "bedtime story" as get_time. Use the
+        # one story handler (topic, genre, full length); this used to have its
+        # own copy that sent stories through the 400-character quick-answer path.
+        if any(w in cmd for w in ['bedtime story', 'bed time story', 'tell me a story',
+                                   'tell a story', 'once upon', 'tell me a tale']) and ROUTER_AVAILABLE:
+            result = await self._run_blocking(HANDLER_MAP['story'], command, {},
+                                              {'title': title, 'knowledge': self.knowledge})
+            if result and result.response:
+                return result.response
         
         # Chat History — classifier thinks this is 'story'
         if ('chat history' in cmd or 'show history' in cmd or 'conversation history' in cmd) and self.chat_history:
@@ -2203,41 +2248,13 @@ class JARVISWebSocketServer:
             except Exception as e:
                 return f"Couldn't switch windows, {title}."
         
-        # App focus — 'switch to [app]' / 'switch with [app]' / 'switch tab to [app]' / 'go to [app]'
-        switch_prefixes = ('switch to ', 'switch with ', 'switch tab to ', 'go to ', 'switch tab ')
-        if any(cmd.startswith(p) for p in switch_prefixes) and cmd.split()[-1] not in ('friday', 'jarvis'):
-            target = cmd
-            for p in switch_prefixes:
-                target = target.replace(p, '', 1)
-            target = target.strip()
-            try:
-                import pyautogui
-                result = subprocess.run(
-                    ['powershell', '-command',
-                     f'(Get-Process | Where-Object {{$_.MainWindowTitle -match "{target}"}} | Select-Object -First 1).MainWindowTitle'],
-                    capture_output=True, text=True, timeout=3
-                )
-                window_title = result.stdout.strip()
-                if window_title:
-                    subprocess.run(
-                        ['powershell', '-command', f'''
-                        $window = Get-Process | Where-Object {{$_.MainWindowTitle -match "{target}"}} | Select-Object -First 1
-                        if ($window) {{
-                            $hwnd = $window.MainWindowHandle
-                            Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Win32 {{ [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); }}'
-                            [Win32]::ShowWindow($hwnd, 9)
-                            [Win32]::SetForegroundWindow($hwnd)
-                        }}
-                        '''],
-                        capture_output=True, timeout=3
-                    )
-                    self.state_manager.active_app = target.lower()
-                    self.state_manager._active_app_time = time.time()
-                    return f"Switching to {target}, {title}."
-                else:
-                    return f"I can't find {target} running. Would you like me to open it?"
-            except Exception as e:
-                return f"Couldn't switch to {target}, {title}."
+        # App focus — 'switch to [app]' / 'go to [app]'. Tab commands ("switch
+        # to the next tab") are screen control and go to the router.
+        # (This used to paste the spoken name into a PowerShell script: a
+        # shell-injection risk, and slow. AppSwitcher uses Win32 calls.)
+        switched = self.switch_to_app_command(cmd, title)
+        if switched is not None:
+            return switched
         
         # ══════════════════════════════════════════════════════════════════
         # REMINDERS — Route directly, don't let it fall to face-auth gate
@@ -2564,13 +2581,25 @@ class JARVISWebSocketServer:
                 # Names the router serves itself, outside HANDLER_MAP
                 router_native = {'list_alarms', 'read_clipboard', 'next', 'previous', 'scroll'}
                 kw_intent, kw_entities = classify_intent(command) if ROUTER_AVAILABLE else (None, {})
-                if ROUTER_AVAILABLE and intent_name not in HANDLER_MAP and intent_name not in router_native:
+                if kw_intent != intent_name and _is_precise_rule(kw_intent, command):
+                    # A precise keyword rule fired (an exact pattern with its own
+                    # entities): it beats the ML guess. The brain called "news
+                    # about diabetes" plain 'news' and the topic was lost; it
+                    # sent "what is this" to web search.
+                    intent_name, entities = kw_intent, kw_entities
+                elif ROUTER_AVAILABLE and intent_name not in HANDLER_MAP and intent_name not in router_native:
                     if kw_intent in HANDLER_MAP:
                         intent_name, entities = kw_intent, kw_entities
                 elif kw_intent == intent_name and kw_entities:
                     # Both layers agree: fill entities the ML extractor missed
-                    # (e.g. the city in "weather in london") from the rule-based ones
-                    entities = {**kw_entities, **entities}
+                    # (e.g. the city in "weather in london") from the rule-based ones.
+                    # For messages the rule parse wins: it reads contact and text
+                    # straight from the sentence (the ML extractor returned the
+                    # contact "message to mom").
+                    if intent_name in ('send_message',):
+                        entities = {**entities, **kw_entities}
+                    else:
+                        entities = {**kw_entities, **entities}
                 if jlog: jlog.intent(f"BRAIN:{intent_name}", entities=entities)
                 else: print(f"[WebSocket] BRAIN Intent: {intent_name}, Entities: {entities}, Conf: {brain_result.confidence:.2f}")
 
