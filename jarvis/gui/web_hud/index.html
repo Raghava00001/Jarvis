@@ -1936,9 +1936,17 @@
                 // ━━━ SENSOR UPDATES (gesture/face/emotion) ━━━
                 case 'gesture_action':
                     console.log('[SENSOR] Gesture:', data.gesture, '->', data.action);
-                    if (data.action === 'stop_speaking') {
-                        addChatMessage('system', '🤚 Speech stopped (palm gesture)');
-                        if (window.speechSynthesis) window.speechSynthesis.cancel();
+                    if (data.action === 'stop_speaking' && window.speechSynthesis) {
+                        window.speechSynthesis.cancel();
+                    }
+                    if (data.label) {
+                        addChatMessage('system', `${data.emoji || '🖐'} ${data.label}`);
+                    }
+                    {
+                        const g = document.getElementById('hubGestureLast');
+                        const a = document.getElementById('hubGestureApp');
+                        if (g) { g.textContent = `${data.emoji || ''} ${String(data.gesture || '').replace('_', ' ').toUpperCase()}`; g.className = 'hub-value warn'; }
+                        if (a && data.app) { a.textContent = String(data.app).toUpperCase(); a.className = 'hub-value'; }
                     }
                     break;
 
@@ -2632,7 +2640,15 @@
             }
         }
 
-        function toggleGesture() { toggleCamera('gesture'); }
+        function toggleGesture() {
+            // The hub shows gesture state in #hubGestureStatus. toggleCamera()
+            // looked for a #gestureStatus that doesn't exist, so the button
+            // always sent "enable" and could never turn gestures off.
+            const el = document.getElementById('hubGestureStatus');
+            const isActive = el && el.textContent === 'ACTIVE';
+            sendCommand(isActive ? 'disable gestures' : 'enable gestures');
+            if (el) el.textContent = isActive ? 'STOPPING...' : 'STARTING...';
+        }
         function toggleFace() { toggleCamera('face'); }
         function toggleMood() { toggleCamera('emotion'); }
 

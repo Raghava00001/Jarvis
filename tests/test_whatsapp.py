@@ -258,3 +258,24 @@ def test_live_engine_second_identical_call_sends():
     src = (ROOT / "jarvis/core/gemini_live_engine.py").read_text(encoding="utf-8")
     assert "_wa.confirm_send()" in src
     assert "Not sent yet. Ask the user to confirm" in src
+
+
+def test_thumbs_up_sends_a_draft_and_thumbs_down_cancels(server, keys):
+    """The gesture says 'yes'/'cancel', which reaches the draft through process_command."""
+    sent = []
+    server._gesture_feedback = MagicMock()
+    server._pending_clarify = None
+    server._gesture_command = lambda text: sent.append(text) or _Done()
+    server._run_on_loop = lambda coro: coro.close()
+    server._on_gesture("thumbs_up")
+    assert sent == []                                     # nothing pending: ignored
+    server.whatsapp_handler.send_message("Mom", "hi")
+    server._on_gesture("thumbs_up")
+    assert sent == ["yes"]
+    reply = asyncio.run(server.process_command("yes", None))
+    assert reply.startswith("Sent to Mom")
+
+
+class _Done:
+    def close(self):
+        pass
