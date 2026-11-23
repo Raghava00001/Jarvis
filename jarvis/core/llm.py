@@ -9,7 +9,7 @@ Google), and can be pinned with the JARVIS_GEMINI_TEXT_MODEL environment variabl
 
 import os
 import threading
-from typing import Optional
+from typing import List, Optional
 
 GEMINI_TEXT_MODEL = os.getenv("JARVIS_GEMINI_TEXT_MODEL", "gemini-flash-latest")
 
@@ -45,16 +45,21 @@ _RETRYABLE = ("503", "UNAVAILABLE", "504", "DEADLINE_EXCEEDED", "429", "RESOURCE
               "404", "NOT_FOUND", "timed out", "Timeout", "ReadTimeout")
 
 
-def ask_gemini(user_text: str, system: str = JARVIS_STYLE, api_key: Optional[str] = None) -> Optional[str]:
-    """Ask the text model, falling back through FALLBACK_MODELS when one is
-    unavailable. Returns the reply, or None if every model failed (logged)."""
+def ask_gemini(user_text: str, system: str = JARVIS_STYLE, api_key: Optional[str] = None,
+               images: Optional[List[bytes]] = None) -> Optional[str]:
+    """Ask the model, falling back through FALLBACK_MODELS when one is
+    unavailable. images: PNG bytes (e.g. a screenshot) to ask about.
+    Returns the reply, or None if every model failed (logged)."""
     client = gemini_client(api_key)
     if client is None:
         return None
+    contents = f"{system}\n\nUser says: {user_text}"
+    if images:
+        from google.genai import types
+        contents = [contents] + [types.Part.from_bytes(data=png, mime_type="image/png") for png in images]
     for model in FALLBACK_MODELS:
         try:
-            resp = client.models.generate_content(model=model,
-                                                  contents=f"{system}\n\nUser says: {user_text}")
+            resp = client.models.generate_content(model=model, contents=contents)
             text = getattr(resp, "text", None)
             if text:
                 return text.strip()

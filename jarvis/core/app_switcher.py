@@ -220,8 +220,13 @@ class AppSwitcher:
             # Restore if minimized
             if win32gui.IsIconic(hwnd):
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-            
-            # Bring to foreground
+
+            # Bring to foreground. Windows refuses this from a background
+            # process unless a key event just happened; a synthetic Alt press
+            # lifts that lock (switching used to fail at random).
+            import ctypes
+            ctypes.windll.user32.keybd_event(0x12, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(0x12, 0, 0x2, 0)
             win32gui.SetForegroundWindow(hwnd)
             
             self._update_active_window()
