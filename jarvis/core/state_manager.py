@@ -307,7 +307,7 @@ class StateManager:
         for observer in list(self._observers):
             try:
                 observer(event, self.state)
-            except:
+            except Exception:
                 pass
                 
     # Vision state updates (called by background worker only)

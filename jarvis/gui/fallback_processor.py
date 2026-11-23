@@ -136,7 +136,7 @@ class FallbackProcessor:
             if genre == 'horror' and self.server.entertainment and hasattr(self.server.entertainment, 'sound_library'):
                 try:
                     self.server.entertainment.sound_library.play('suspense')
-                except:
+                except Exception:
                     pass
             
             # One story implementation (intent_handlers.handle_story: topic,
@@ -208,7 +208,7 @@ class FallbackProcessor:
             try:
                 os.startfile('spotify:')
                 return f"Opening Spotify for you{maybe_title(title)}."
-            except:
+            except Exception:
                 return f"Couldn't open Spotify. Make sure it's installed{maybe_title(title)}."
         
         # Volume - actually control hardware
@@ -656,7 +656,7 @@ class FallbackProcessor:
                             if all_synonyms:
                                 synonym_list = ", ".join(all_synonyms[:5])
                                 return f"Synonyms for {word}: {synonym_list}"
-                except:
+                except Exception:
                     pass
                 return f"No synonyms found for '{word}', {title}."
             return f"Dictionary not available, {title}."

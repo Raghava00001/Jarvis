@@ -30,7 +30,7 @@ class LearningLayer:
             try:
                 with open(self.learning_file, 'r') as f:
                     self.data = json.load(f)
-            except:
+            except Exception:
                 self.data = {
                     "command_history": [],
                     "preferences": {},

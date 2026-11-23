@@ -267,7 +267,7 @@ class JARVISUltimate:
                 try:
                     self.habit_tracker.check_reminders()
                     time.sleep(60)  # Check every minute
-                except:
+                except Exception:
                     pass
 
         habit_thread = threading.Thread(target=habit_checker, daemon=True)
@@ -360,7 +360,7 @@ class JARVISUltimate:
             if hasattr(self.perception, 'engine') and self.perception.engine:
                 try:
                     self.perception.engine.stop()
-                except:
+                except Exception:
                     pass
             self.perception.speak("Okay, stopping.")
             return True
@@ -511,7 +511,7 @@ class JARVISUltimate:
                 try:
                     self.app_switcher.close_app(app_name)
                     return True
-                except:
+                except Exception:
                     pass
 
         # Classify intent
@@ -977,7 +977,7 @@ class JARVISUltimate:
                     proactive_msg = self.proactive.check_proactive_suggestions()
                     if proactive_msg:
                         self.perception.speak(proactive_msg)
-                except:
+                except Exception:
                     pass
                 
                 # Check for wellness reminders
@@ -985,13 +985,13 @@ class JARVISUltimate:
                     wellness_msg = self.wellness.check_wellness()
                     if wellness_msg:
                         self.perception.speak(wellness_msg)
-                except:
+                except Exception:
                     pass
                 
                 # Check for reminders in background
                 try:
                     self.task_manager.check_reminders()
-                except:
+                except Exception:
                     pass
                 
                 # Listen for command

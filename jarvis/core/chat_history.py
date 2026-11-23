@@ -156,7 +156,7 @@ class ChatHistory:
                 cursor.execute('SELECT MAX(turn_id) FROM messages')
                 result = cursor.fetchone()
             self.current_turn = (result[0] or 0)
-        except:
+        except Exception:
             self.current_turn = 0
             
     def _estimate_tokens(self, text: str) -> int:
@@ -277,7 +277,7 @@ class ChatHistory:
                     
                     rows = cursor.fetchall()
                 return [ChatMessage(*row) for row in rows]
-            except:
+            except Exception:
                 return []
                 
     def get_by_date(self, date_str: str) -> List[ChatMessage]:

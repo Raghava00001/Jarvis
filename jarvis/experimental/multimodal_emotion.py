@@ -174,7 +174,7 @@ class TextEmotionDetector:
             try:
                 # Lazy load - will load on first use
                 self._model_name = "bhadresh-savani/distilbert-base-uncased-emotion"
-            except:
+            except Exception:
                 self.available = False
                 
     def _ensure_model(self):
@@ -187,7 +187,7 @@ class TextEmotionDetector:
                     top_k=None
                 )
                 print("[EMOTION] Text emotion model loaded")
-            except:
+            except Exception:
                 self.available = False
                 
     def detect(self, text: str) -> Optional[EmotionSignal]:

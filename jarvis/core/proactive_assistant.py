@@ -53,7 +53,7 @@ class PatternLearner:
                     self.time_patterns = defaultdict(list, {int(k): v for k, v in data.get("time", {}).items()})
                     self.sequence_patterns = defaultdict(list, data.get("sequence", {}))
                     self.app_patterns = defaultdict(list, data.get("app", {}))
-        except:
+        except Exception:
             pass
             
     def _save(self):
@@ -66,7 +66,7 @@ class PatternLearner:
             }
             with open(self.data_path, 'w') as f:
                 json.dump(data, f, indent=2)
-        except:
+        except Exception:
             pass
             
     def record_action(self, action: str, entities: Dict = None):
@@ -313,7 +313,7 @@ class ProactiveAssistant:
                     self._mark_suggested("frustration_help")
                     return f"Is there something I can help simplify, {title}?"
                     
-        except:
+        except Exception:
             pass
             
         return None
@@ -444,7 +444,7 @@ class ProactiveAssistant:
                     if sleep_h < 5:
                         self._mark_suggested("tactical_insight")
                         return f"Noted. I'll keep the morning briefing short given the limited sleep window."
-                except:
+                except Exception:
                     pass
         
         return None

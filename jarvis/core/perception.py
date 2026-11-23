@@ -48,7 +48,7 @@ class PerceptionLayer:
         if self._state_manager is None and STATE_MANAGER_AVAILABLE:
             try:
                 self._state_manager = get_state_manager()
-            except:
+            except Exception:
                 pass
 
         # ━━━ Voice Engine (Edge TTS - natural voices) ━━━

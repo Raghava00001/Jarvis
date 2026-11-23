@@ -64,14 +64,14 @@ class EmailHandler:
         if token_path.exists():
             try:
                 creds = Credentials.from_authorized_user_file(str(token_path), self.SCOPES)
-            except:
+            except Exception:
                 pass
         
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 try:
                     creds.refresh(Request())
-                except:
+                except Exception:
                     creds = None
             
             if not creds:

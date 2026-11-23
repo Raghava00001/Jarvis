@@ -225,7 +225,7 @@ class IntentRouter:
         if callable(self.speak):
             try:
                 self.speak(text)
-            except:
+            except Exception:
                 print(f"[JARVIS] {text}")
         else:
             print(f"[JARVIS] {text}")

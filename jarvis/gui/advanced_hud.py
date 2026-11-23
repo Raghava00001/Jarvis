@@ -644,7 +644,7 @@ class HUD:
         if self._state_manager is None and STATE_MANAGER_AVAILABLE:
             try:
                 self._state_manager = get_state_manager()
-            except:
+            except Exception:
                 pass
         
         info = pygame.display.Info()
@@ -724,7 +724,7 @@ class HUD:
             bat = psutil.sensors_battery()
             if bat:
                 self.sys["bat"] = bat.percent
-        except:
+        except Exception:
             pass
     
     def _parallax(self, screen):

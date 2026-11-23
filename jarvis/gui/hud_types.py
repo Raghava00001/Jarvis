@@ -190,6 +190,6 @@ class HUDPerception:
         while not self.speech_queue.empty():
             try:
                 messages.append(self.speech_queue.get_nowait())
-            except:
+            except Exception:
                 break
         return messages

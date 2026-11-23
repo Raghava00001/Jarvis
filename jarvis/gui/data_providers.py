@@ -34,7 +34,7 @@ def get_system_stats() -> Dict[str, Any]:
             if bat:
                 battery = bat.percent
                 charging = bat.power_plugged
-        except:
+        except Exception:
             pass
         
         return {

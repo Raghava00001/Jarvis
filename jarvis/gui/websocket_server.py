@@ -187,26 +187,37 @@ except ImportError as e:
     print(f"[WebSocket] JARVISUltimate not available: {e}")
     JARVIS_AVAILABLE = False
 
+# Optional features: an import that fails switches the feature off. That used
+# to happen silently: gestures stayed off for months because of one bad name
+# in an import. Every failure is now printed and kept in MISSING_IMPORTS.
+MISSING_IMPORTS = []
+
+
+def _optional_missing(err):
+    MISSING_IMPORTS.append(str(err))
+    print(f"[WebSocket] Optional feature unavailable: {err}")
+
+
 # Import individual components as fallbacks
 try:
     from jarvis.core.perception import PerceptionLayer
     PERCEPTION_AVAILABLE = True
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.gesture_controller import GestureController  # (also asked for a non-existent GestureType, so this always failed)
     GESTURE_AVAILABLE = True
     print("[WebSocket] Gesture controller available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.face_recognition_auth import FaceRecognition, UserType
     FACE_AVAILABLE = True
     print("[WebSocket] Face recognition available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     # EmotionState comes from mood_engine (imported above); importing the
@@ -214,20 +225,20 @@ try:
     from jarvis.core.emotion_detector import EmotionDetector
     EMOTION_AVAILABLE = True
     print("[WebSocket] Emotion detector available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.news_handler import NewsHandler
     NEWS_AVAILABLE = True
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.weather_handler import WeatherHandler
     WEATHER_AVAILABLE = True
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.system_status import SystemStatus
@@ -240,50 +251,50 @@ try:
     from jarvis.core.screenshot_handler import ScreenshotHandler
     SCREENSHOT_AVAILABLE = True
     print("[WebSocket] Screenshot handler available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.ocr_handler import OCRHandler
     OCR_AVAILABLE = True
     print("[WebSocket] OCR handler available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.dictionary_handler import DictionaryHandler
     DICTIONARY_AVAILABLE = True
     print("[WebSocket] Dictionary handler available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.email_handler import EmailHandler
     EMAIL_AVAILABLE = True
     print("[WebSocket] Email handler available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.entertainment import JARVISEntertainment
     ENTERTAINMENT_AVAILABLE = True
     print("[WebSocket] Entertainment module available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.smart_notes import SmartNotes
     NOTES_AVAILABLE = True
     print("[WebSocket] Smart notes available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.alarm_system import AlarmSystem
     ALARM_AVAILABLE = True
     print("[WebSocket] Alarm system available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Reminder Manager
 REMINDER_AVAILABLE = False
@@ -291,15 +302,15 @@ try:
     from jarvis.core.reminder_manager import ReminderManager
     REMINDER_AVAILABLE = True
     print("[WebSocket] Reminder manager available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.system_control import SystemControl
     SYSTEM_CONTROL_AVAILABLE = True
     print("[WebSocket] System control available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Knowledge layer for Gemini AI
 KNOWLEDGE_AVAILABLE = False
@@ -307,8 +318,8 @@ try:
     from jarvis.core.knowledge import KnowledgeLayer
     KNOWLEDGE_AVAILABLE = True
     print("[WebSocket] Knowledge layer (Gemini AI) available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # IntentRouter and handlers for clean command routing
 ROUTER_AVAILABLE = False
@@ -326,16 +337,16 @@ try:
     from jarvis.core.context_memory import ContextMemory, WorkingMemory
     CONTEXT_MEMORY_AVAILABLE = True
     print("[WebSocket] ContextMemory available - enhanced conversations")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Screen Control for mouse/keyboard automation
 try:
     from jarvis.core.screen_control import ScreenControlHandler
     SCREEN_CONTROL_AVAILABLE = True
     print("[WebSocket] Screen control available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Gemini Live Engine (Mark-XXX Parity)
 GEMINI_LIVE_AVAILABLE = False
@@ -354,8 +365,8 @@ try:
     from jarvis.core.pdf_handler import PDFHandler
     PDF_AVAILABLE = True
     print("[WebSocket] PDF handler available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Brain Adapter — advanced ML pipeline (intent_model, entity_extractor, decision_engine, etc.)
 BRAIN_AVAILABLE = False
@@ -372,8 +383,8 @@ try:
     from jarvis.core.whatsapp_handler import WhatsAppHandler
     WHATSAPP_AVAILABLE = True
     print("[WebSocket] WhatsApp handler available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Calendar Integration
 CALENDAR_AVAILABLE = False
@@ -381,17 +392,10 @@ try:
     from jarvis.core.calendar_integration import CalendarIntegration
     CALENDAR_AVAILABLE = True
     print("[WebSocket] Calendar integration available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Sound Effects for stories/notifications
-SOUND_EFFECTS_AVAILABLE = False
-try:
-    from jarvis.core.sound_effects import SoundEffects
-    SOUND_EFFECTS_AVAILABLE = True
-    print("[WebSocket] Sound effects available")
-except ImportError:
-    pass
 
 # Proactive Assistant
 PROACTIVE_AVAILABLE = False
@@ -399,8 +403,8 @@ try:
     from jarvis.core.proactive_assistant import ProactiveAssistant
     PROACTIVE_AVAILABLE = True
     print("[WebSocket] Proactive assistant available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Email Handler (Gmail): same import as EMAIL_AVAILABLE above
 EMAIL_HANDLER_AVAILABLE = EMAIL_AVAILABLE
@@ -411,8 +415,8 @@ try:
     from jarvis.core.youtube_downloader import YouTubeDownloader
     YOUTUBE_AVAILABLE = True
     print("[WebSocket] YouTube downloader available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Hotkey System
 HOTKEY_AVAILABLE = False
@@ -420,8 +424,8 @@ try:
     from jarvis.core.hotkey_system import HotkeySystem
     HOTKEY_AVAILABLE = True
     print("[WebSocket] Hotkey system available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Chat History (SQLite FTS5)
 CHAT_HISTORY_AVAILABLE = False
@@ -429,8 +433,8 @@ try:
     from jarvis.core.chat_history import ChatHistory
     CHAT_HISTORY_AVAILABLE = True
     print("[WebSocket] Chat history available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Habit Tracker
 HABIT_TRACKER_AVAILABLE = False
@@ -438,8 +442,8 @@ try:
     from jarvis.core.habit_tracker import HabitTracker
     HABIT_TRACKER_AVAILABLE = True
     print("[WebSocket] Habit tracker available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Task Manager
 TASK_MANAGER_AVAILABLE = False
@@ -447,8 +451,8 @@ try:
     from jarvis.core.task_manager import TaskManager
     TASK_MANAGER_AVAILABLE = True
     print("[WebSocket] Task manager available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Wellness Monitor
 WELLNESS_AVAILABLE = False
@@ -456,8 +460,8 @@ try:
     from jarvis.core.wellness_monitor import WellnessMonitor
     WELLNESS_AVAILABLE = True
     print("[WebSocket] Wellness monitor available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Clipboard Intelligence
 CLIPBOARD_AVAILABLE = False
@@ -465,8 +469,8 @@ try:
     from jarvis.core.clipboard_intelligence import ClipboardIntelligence
     CLIPBOARD_AVAILABLE = True
     print("[WebSocket] Clipboard Intelligence available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 
 
@@ -552,7 +556,6 @@ class JARVISWebSocketServer:
         # NEW: Additional feature handlers
         self.whatsapp_handler = None  # WhatsApp messaging
         self.calendar = None  # Google Calendar
-        self.sound_effects = None  # Sound effects for stories/notifications
         self.proactive_assistant = None  # Proactive suggestions
         self.email_handler_obj = None  # Email/Gmail handler
         self._youtube_downloader = None  # YouTube download
@@ -833,7 +836,7 @@ class JARVISWebSocketServer:
                                     self._handle_voice_input(text),
                                     self._voice_loop
                                 )
-                    except:
+                    except Exception:
                         pass # Silently drop everything else in quiet mode
                     
                     time.sleep(0.5)
@@ -1133,19 +1136,19 @@ class JARVISWebSocketServer:
                     self.hud_perception,
                     jarvis_callback=self._on_hotkey_action
                 ))
-            except: pass
+            except Exception: pass
         
         # Reminders & Tasks 
         if REMINDER_AVAILABLE:
             try:
                 self.reminder_manager = shared(ReminderManager, lambda: ReminderManager(self.hud_perception))
                 self.reminder_manager.start()
-            except: pass
+            except Exception: pass
         
         if TASK_MANAGER_AVAILABLE:
             try:
                 self.task_manager_obj = shared(TaskManager, lambda: TaskManager(self.hud_perception))
-            except: pass
+            except Exception: pass
         
         # System control (needed for voice commands)
         if SYSTEM_CONTROL_AVAILABLE:
@@ -1261,7 +1264,6 @@ class JARVISWebSocketServer:
                 (SCREEN_CONTROL_AVAILABLE, 'screen_control', lambda: shared(ScreenControlHandler), "Screen Control"),
                 (WHATSAPP_AVAILABLE, 'whatsapp_handler', lambda: shared(WhatsAppHandler, lambda: WhatsAppHandler(self.hud_perception)), "WhatsApp"),
                 (CALENDAR_AVAILABLE, 'calendar', lambda: shared(CalendarIntegration, lambda: CalendarIntegration(self.hud_perception)), "Calendar"),
-                (SOUND_EFFECTS_AVAILABLE, 'sound_effects', lambda: shared(SoundEffects), "Sound Effects"),
                 (PROACTIVE_AVAILABLE, 'proactive_assistant', lambda: shared(ProactiveAssistant, lambda: ProactiveAssistant(self.hud_perception)), "Proactive"),
                 (EMAIL_HANDLER_AVAILABLE, 'email_handler_obj', lambda: shared(EmailHandler, lambda: EmailHandler(self.hud_perception, getattr(self, '_knowledge', None))), "Email"),
                 (YOUTUBE_AVAILABLE, '_youtube_downloader', lambda: shared(YouTubeDownloader, lambda: YouTubeDownloader(self.hud_perception)), "YouTube"),

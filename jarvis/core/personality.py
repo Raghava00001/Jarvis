@@ -257,7 +257,7 @@ class JARVISPersonalityCore:
                         sleep_hours = (24 - current_hour) + alarm_hour
                     if sleep_hours < 5 and current_hour >= 22:
                         return self.TACTICAL_WARNINGS["sleep_deficit"].format(hours=sleep_hours)
-                except:
+                except Exception:
                     pass
                     
         # ── Work-hour entertainment ──
@@ -292,7 +292,7 @@ class JARVISPersonalityCore:
                     if self.challenge_cooldown <= 0:
                         self.challenge_cooldown = 8
                         return self.TACTICAL_WARNINGS["fatigue_detected"]
-            except:
+            except Exception:
                 pass
         
         return None

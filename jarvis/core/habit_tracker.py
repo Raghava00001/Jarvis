@@ -34,7 +34,7 @@ class HabitTracker:
             try:
                 with open(self.habits_file, 'r') as f:
                     self.habits = json.load(f)
-            except:
+            except Exception:
                 self.habits = []
         else:
             self.habits = []

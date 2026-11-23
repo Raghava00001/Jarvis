@@ -594,10 +594,10 @@ def handle_play_music(cmd: str, entities: Dict, context: Any) -> HandlerResult:
                 import pyautogui
                 time.sleep(0.5)
                 pyautogui.press('space')  # Toggle play in Spotify
-            except:
+            except Exception:
                 pass
             return HandlerResult(success=True, response="Playing music")
-    except:
+    except Exception:
         return HandlerResult(success=False, response="Can't open Spotify")
 
 
@@ -607,7 +607,7 @@ def handle_pause_music(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         import pyautogui
         pyautogui.press('space')  # Toggle play/pause
         return HandlerResult(success=True, response="Paused")
-    except:
+    except Exception:
         return HandlerResult(success=True, response="Paused")
 
 
@@ -617,7 +617,7 @@ def handle_next_track(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         import pyautogui
         pyautogui.hotkey('ctrl', 'right')
         return HandlerResult(success=True, response="Next track")
-    except:
+    except Exception:
         return HandlerResult(success=True, response="Done")
 
 
@@ -627,7 +627,7 @@ def handle_previous_track(cmd: str, entities: Dict, context: Any) -> HandlerResu
         import pyautogui
         pyautogui.hotkey('ctrl', 'left')
         return HandlerResult(success=True, response="Previous track")
-    except:
+    except Exception:
         return HandlerResult(success=True, response="Done")
 
 
@@ -787,7 +787,7 @@ def handle_joke(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             joke = random.choice(entertainment.jokes) if entertainment.jokes else None
             if joke:
                 return HandlerResult(success=True, response=f"{joke}, {title}.")
-        except:
+        except Exception:
             pass
     
     # Fallback jokes
@@ -1041,7 +1041,7 @@ def handle_conversation(cmd: str, entities: Dict, context: Any) -> HandlerResult
             _err = ['trouble connecting', 'knowledge base', 'currently offline', 'Set GROQ_API_KEY']
             if response and len(response) > 5 and not any(ep in response for ep in _err):
                 return HandlerResult(success=True, response=response)
-        except:
+        except Exception:
             pass
     
     # Return None so it falls through to Gemini API in websocket_server
@@ -1068,7 +1068,7 @@ def handle_dictionary(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             response = knowledge.answer_question(f"Define the word: {word}")
             if response:
                 return HandlerResult(success=True, response=response)
-        except:
+        except Exception:
             pass
     
     # Fallback: online dictionary API
@@ -1080,7 +1080,7 @@ def handle_dictionary(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         if data and isinstance(data, list):
             meaning = data[0]['meanings'][0]['definitions'][0]['definition']
             return HandlerResult(success=True, response=f"{word}: {meaning}")
-    except:
+    except Exception:
         pass
     
     return HandlerResult(success=False, response=f"Couldn't find definition for '{word}', {title}.")

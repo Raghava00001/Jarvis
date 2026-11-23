@@ -1313,7 +1313,7 @@ class GeminiLiveEngine:
                 if self.audio_in_queue:
                     while not self.audio_in_queue.empty():
                         try: self.audio_in_queue.get_nowait()
-                        except: break
+                        except Exception: break
                 result = "Muted. I'll stay silent until you need me."
                 print("[LIVE] JARVIS muted by user request")
 
@@ -1427,7 +1427,7 @@ class GeminiLiveEngine:
                     try:
                         self.out_queue.get_nowait()
                         self.out_queue.put_nowait({"data": data, "mime_type": "audio/pcm"})
-                    except:
+                    except Exception:
                         pass
         except Exception as e:
             if self._running:
@@ -1462,7 +1462,7 @@ class GeminiLiveEngine:
                             while not self.audio_in_queue.empty():
                                 try:
                                     self.audio_in_queue.get_nowait()
-                                except:
+                                except Exception:
                                     break
                         
                             # also skip further processing of this response
@@ -1500,7 +1500,7 @@ class GeminiLiveEngine:
                                             self._current_turn_id += 1
                                             while not self.audio_in_queue.empty():
                                                 try: self.audio_in_queue.get_nowait()
-                                                except: break
+                                                except Exception: break
                                         in_buf.append(txt)
                                         self._raw_in += sc.input_transcription.text
                                         # Wake-word gate on the raw joined fragments
@@ -1692,11 +1692,11 @@ class GeminiLiveEngine:
         if self.audio_in_queue:
             while not self.audio_in_queue.empty():
                 try: self.audio_in_queue.get_nowait()
-                except: break
+                except Exception: break
         if self.out_queue:
             while not self.out_queue.empty():
                 try: self.out_queue.get_nowait()
-                except: break
+                except Exception: break
 
         print("[LIVE] Connecting to Gemini Live API...")
         client = genai.Client(api_key=self.api_key)

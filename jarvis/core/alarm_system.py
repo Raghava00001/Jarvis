@@ -105,7 +105,7 @@ class CrossPlatformAudio:
         # Try paplay (PulseAudio) first
         try:
             os.system('paplay /usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga &')
-        except:
+        except Exception:
             # Fallback to speaker-test
             os.system(f'speaker-test -t sine -f 880 -l 1 &')
             
