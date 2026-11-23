@@ -95,3 +95,68 @@ def test_router_runs_off_the_event_loop():
     # _run_blocking: a worker thread, with the command's context (turn) copied in
     body = src.split("async def _run_blocking", 1)[1].split("\n    async def ", 1)[0]
     assert "run_in_executor(None, ctx.run, call)" in body
+
+
+# ---- Groq / OpenRouter model lists (v2.9) ------------------------------------
+# Groq retired llama-3.3-70b-versatile and OpenRouter's free Llama went paid:
+# with one hard-coded model each, every request failed with 404.
+
+def _resp(status, content=None, text=""):
+    r = MagicMock()
+    r.status_code = status
+    r.text = text
+    r.json.return_value = {"choices": [{"message": {"content": content}}]}
+    return r
+
+
+def _layer():
+    from jarvis.core.knowledge import KnowledgeLayer
+    kl = object.__new__(KnowledgeLayer)
+    kl.groq_key, kl.openrouter_key, kl.gemini_key = "k", "k", None
+    return kl
+
+
+def test_retired_model_is_skipped_for_the_session():
+    from jarvis.core import knowledge as K
+    kl = _layer()
+    models = ["old-model", "new-model"]
+    with patch.object(K, "GROQ_MODELS", models), patch.object(K, "_retired_models", set()) as retired,          patch.object(K.requests, "post", side_effect=[
+             _resp(404, text='{"error":{"code":"model_not_found"}}'), _resp(200, "hello"),
+             _resp(200, "again")]) as post:
+        assert kl._call_groq([{"role": "user", "content": "hi"}]) == "hello"
+        assert retired == {"old-model"}
+        assert kl._call_groq([{"role": "user", "content": "hi"}]) == "again"
+    used = [c.kwargs["json"]["model"] for c in post.call_args_list]
+    assert used == ["old-model", "new-model", "new-model"]   # not retried
+
+
+def test_rate_limit_and_empty_reply_move_to_the_next_model():
+    from jarvis.core import knowledge as K
+    kl = _layer()
+    with patch.object(K, "OPENROUTER_MODELS", ["a", "b", "c"]), patch.object(K, "_retired_models", set()) as retired,          patch.object(K.requests, "post", side_effect=[_resp(429), _resp(200, ""), _resp(200, "ok")]):
+        assert kl._call_openrouter([{"role": "user", "content": "hi"}]) == "ok"
+        assert retired == set()   # busy is not retired
+
+
+def test_rejected_key_disables_provider():
+    from jarvis.core import knowledge as K
+    kl = _layer()
+    with patch.object(K, "GROQ_MODELS", ["a", "b"]), patch.object(K, "_retired_models", set()),          patch.object(K.requests, "post", return_value=_resp(401)) as post:
+        assert kl._call_groq([{"role": "user", "content": "hi"}]) is None
+    assert post.call_count == 1 and kl.groq_key is None
+
+
+def test_model_lists_are_configurable_and_have_no_retired_defaults():
+    import importlib, os
+    from jarvis.core import knowledge as K
+    with patch.dict(os.environ, {"JARVIS_GROQ_MODEL": "my/model"}):
+        importlib.reload(K)
+        assert K.GROQ_MODELS[0] == "my/model"
+    importlib.reload(K)
+    assert "llama-3.3-70b-versatile" not in K.GROQ_MODELS
+    assert "meta-llama/llama-3.1-8b-instruct:free" not in K.OPENROUTER_MODELS
+
+
+def test_spoken_text_has_plain_spaces():
+    from jarvis.core.knowledge import clean_for_speech
+    assert clean_for_speech("Leonardo da Vinci **painted** it") == "Leonardo da Vinci painted it"
