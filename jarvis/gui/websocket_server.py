@@ -1638,6 +1638,7 @@ class JARVISWebSocketServer:
                     or detect_pc_power_action(cmd_check) is not None
                     or (self._get_pending_power_action() is not None
                         and bool(CONFIRM_RE.match(cmd_check) or CANCEL_RE.match(cmd_check)))
+                    or self._answers_whatsapp_draft(cmd_check)
                 )
 
             if _live_active and msg_type in ('text_input', 'command', 'chat') and text.strip() and not is_local_power:
@@ -1939,6 +1940,24 @@ class JARVISWebSocketServer:
         elif msg_type == 'get_features':
             await self._send_to(websocket, json.dumps(self.get_feature_status()))
     
+    # ── WhatsApp drafts (sent only after the user confirms) ──────────────
+    def _whatsapp_with_draft(self):
+        """The WhatsApp handler if it has an unsent draft waiting, else None."""
+        try:
+            from jarvis.core.services import peek
+            from jarvis.core.whatsapp_handler import WhatsAppHandler
+        except Exception:
+            return None
+        wa = getattr(self, 'whatsapp_handler', None) or peek(WhatsAppHandler)
+        return wa if wa is not None and wa.pending_draft() else None
+
+    def _answers_whatsapp_draft(self, cmd: str) -> bool:
+        """'send' / 'cancel' while a draft waits: handled locally, never by the LLM."""
+        if not self._whatsapp_with_draft():
+            return False
+        from jarvis.core.whatsapp_handler import SEND_CONFIRM_RE, DRAFT_CANCEL_RE
+        return bool(SEND_CONFIRM_RE.match(cmd) or DRAFT_CANCEL_RE.match(cmd))
+
     # ── PC power actions (always confirmed) ──────────────────────────────
     def _get_pending_power_action(self):
         pending = getattr(self, '_pending_power_action', None)
@@ -2136,6 +2155,16 @@ class JARVISWebSocketServer:
                 if CANCEL_RE.match(cmd):
                     return f"Okay, never mind{maybe_title(title)}."
             # anything else: treat as a new command
+
+        # ── PENDING WHATSAPP DRAFT: typed in the chat, sent only on "send" ──
+        wa = self._whatsapp_with_draft()
+        if wa:
+            from jarvis.core.whatsapp_handler import SEND_CONFIRM_RE, DRAFT_CANCEL_RE
+            if SEND_CONFIRM_RE.match(cmd):
+                return await self._run_blocking(wa.confirm_send)
+            if DRAFT_CANCEL_RE.match(cmd):
+                return await self._run_blocking(wa.cancel_draft)
+            # anything else: a new command; the draft stays typed, unsent
 
         # ── PENDING PC SHUTDOWN/RESTART: needs an explicit confirmation ──
         pending = self._get_pending_power_action()
