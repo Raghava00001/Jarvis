@@ -56,7 +56,7 @@ class NewsHandler:
             try:
                 with open(self.cache_file, "r") as f:
                     return json.load(f)
-            except:
+            except Exception:
                 return {}
         return {}
 
@@ -235,7 +235,7 @@ class NewsHandler:
             self._save_cache(cache)
             
             return {"items": headlines}
-        except:
+        except Exception:
             return {"items": []}
 
     def _get_hacker_news_data(self, count, hn_type):
@@ -259,7 +259,7 @@ class NewsHandler:
                     headlines.append(self._clean_title(item['title']))
             
             return {"items": headlines}
-        except:
+        except Exception:
             return {"items": []}
 
     def _clean_title(self, title):

@@ -39,6 +39,7 @@ if _project_root not in sys.path:
 # as core.X and jarvis.core.X (see jarvis/__init__.py).
 
 from jarvis.core.services import shared  # after the path setup above
+from jarvis.core.errors import recovered
 import queue
 import base64
 from dataclasses import dataclass
@@ -92,6 +93,7 @@ from jarvis.gui.mood_engine import (
     EmotionStateMachine,
     detect_mood_from_text as _detect_mood_from_text,
     adapt_response_to_mood as _adapt_response_to_mood,
+    MoodTracker,
     reduce_sir_usage as _reduce_sir_usage,
     infer_action_from_text as _infer_action_from_text,
 )
@@ -186,26 +188,37 @@ except ImportError as e:
     print(f"[WebSocket] JARVISUltimate not available: {e}")
     JARVIS_AVAILABLE = False
 
+# Optional features: an import that fails switches the feature off. That used
+# to happen silently: gestures stayed off for months because of one bad name
+# in an import. Every failure is now printed and kept in MISSING_IMPORTS.
+MISSING_IMPORTS = []
+
+
+def _optional_missing(err):
+    MISSING_IMPORTS.append(str(err))
+    print(f"[WebSocket] Optional feature unavailable: {err}")
+
+
 # Import individual components as fallbacks
 try:
     from jarvis.core.perception import PerceptionLayer
     PERCEPTION_AVAILABLE = True
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
-    from jarvis.core.gesture_controller import GestureController, GestureType
+    from jarvis.core.gesture_controller import GestureController  # (also asked for a non-existent GestureType, so this always failed)
     GESTURE_AVAILABLE = True
     print("[WebSocket] Gesture controller available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.face_recognition_auth import FaceRecognition, UserType
     FACE_AVAILABLE = True
     print("[WebSocket] Face recognition available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     # EmotionState comes from mood_engine (imported above); importing the
@@ -213,20 +226,20 @@ try:
     from jarvis.core.emotion_detector import EmotionDetector
     EMOTION_AVAILABLE = True
     print("[WebSocket] Emotion detector available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.news_handler import NewsHandler
     NEWS_AVAILABLE = True
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.weather_handler import WeatherHandler
     WEATHER_AVAILABLE = True
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.system_status import SystemStatus
@@ -239,50 +252,50 @@ try:
     from jarvis.core.screenshot_handler import ScreenshotHandler
     SCREENSHOT_AVAILABLE = True
     print("[WebSocket] Screenshot handler available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.ocr_handler import OCRHandler
     OCR_AVAILABLE = True
     print("[WebSocket] OCR handler available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.dictionary_handler import DictionaryHandler
     DICTIONARY_AVAILABLE = True
     print("[WebSocket] Dictionary handler available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.email_handler import EmailHandler
     EMAIL_AVAILABLE = True
     print("[WebSocket] Email handler available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.entertainment import JARVISEntertainment
     ENTERTAINMENT_AVAILABLE = True
     print("[WebSocket] Entertainment module available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.smart_notes import SmartNotes
     NOTES_AVAILABLE = True
     print("[WebSocket] Smart notes available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.alarm_system import AlarmSystem
     ALARM_AVAILABLE = True
     print("[WebSocket] Alarm system available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Reminder Manager
 REMINDER_AVAILABLE = False
@@ -290,15 +303,15 @@ try:
     from jarvis.core.reminder_manager import ReminderManager
     REMINDER_AVAILABLE = True
     print("[WebSocket] Reminder manager available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 try:
     from jarvis.core.system_control import SystemControl
     SYSTEM_CONTROL_AVAILABLE = True
     print("[WebSocket] System control available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Knowledge layer for Gemini AI
 KNOWLEDGE_AVAILABLE = False
@@ -306,8 +319,8 @@ try:
     from jarvis.core.knowledge import KnowledgeLayer
     KNOWLEDGE_AVAILABLE = True
     print("[WebSocket] Knowledge layer (Gemini AI) available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # IntentRouter and handlers for clean command routing
 ROUTER_AVAILABLE = False
@@ -325,16 +338,16 @@ try:
     from jarvis.core.context_memory import ContextMemory, WorkingMemory
     CONTEXT_MEMORY_AVAILABLE = True
     print("[WebSocket] ContextMemory available - enhanced conversations")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Screen Control for mouse/keyboard automation
 try:
     from jarvis.core.screen_control import ScreenControlHandler
     SCREEN_CONTROL_AVAILABLE = True
     print("[WebSocket] Screen control available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Gemini Live Engine (Mark-XXX Parity)
 GEMINI_LIVE_AVAILABLE = False
@@ -353,8 +366,8 @@ try:
     from jarvis.core.pdf_handler import PDFHandler
     PDF_AVAILABLE = True
     print("[WebSocket] PDF handler available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Brain Adapter — advanced ML pipeline (intent_model, entity_extractor, decision_engine, etc.)
 BRAIN_AVAILABLE = False
@@ -371,8 +384,8 @@ try:
     from jarvis.core.whatsapp_handler import WhatsAppHandler
     WHATSAPP_AVAILABLE = True
     print("[WebSocket] WhatsApp handler available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Calendar Integration
 CALENDAR_AVAILABLE = False
@@ -380,17 +393,10 @@ try:
     from jarvis.core.calendar_integration import CalendarIntegration
     CALENDAR_AVAILABLE = True
     print("[WebSocket] Calendar integration available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Sound Effects for stories/notifications
-SOUND_EFFECTS_AVAILABLE = False
-try:
-    from jarvis.core.sound_effects import SoundEffects
-    SOUND_EFFECTS_AVAILABLE = True
-    print("[WebSocket] Sound effects available")
-except ImportError:
-    pass
 
 # Proactive Assistant
 PROACTIVE_AVAILABLE = False
@@ -398,8 +404,8 @@ try:
     from jarvis.core.proactive_assistant import ProactiveAssistant
     PROACTIVE_AVAILABLE = True
     print("[WebSocket] Proactive assistant available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Email Handler (Gmail): same import as EMAIL_AVAILABLE above
 EMAIL_HANDLER_AVAILABLE = EMAIL_AVAILABLE
@@ -410,8 +416,8 @@ try:
     from jarvis.core.youtube_downloader import YouTubeDownloader
     YOUTUBE_AVAILABLE = True
     print("[WebSocket] YouTube downloader available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Hotkey System
 HOTKEY_AVAILABLE = False
@@ -419,8 +425,8 @@ try:
     from jarvis.core.hotkey_system import HotkeySystem
     HOTKEY_AVAILABLE = True
     print("[WebSocket] Hotkey system available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Chat History (SQLite FTS5)
 CHAT_HISTORY_AVAILABLE = False
@@ -428,8 +434,8 @@ try:
     from jarvis.core.chat_history import ChatHistory
     CHAT_HISTORY_AVAILABLE = True
     print("[WebSocket] Chat history available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Habit Tracker
 HABIT_TRACKER_AVAILABLE = False
@@ -437,8 +443,8 @@ try:
     from jarvis.core.habit_tracker import HabitTracker
     HABIT_TRACKER_AVAILABLE = True
     print("[WebSocket] Habit tracker available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Task Manager
 TASK_MANAGER_AVAILABLE = False
@@ -446,8 +452,8 @@ try:
     from jarvis.core.task_manager import TaskManager
     TASK_MANAGER_AVAILABLE = True
     print("[WebSocket] Task manager available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Wellness Monitor
 WELLNESS_AVAILABLE = False
@@ -455,8 +461,8 @@ try:
     from jarvis.core.wellness_monitor import WellnessMonitor
     WELLNESS_AVAILABLE = True
     print("[WebSocket] Wellness monitor available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 # Clipboard Intelligence
 CLIPBOARD_AVAILABLE = False
@@ -464,13 +470,103 @@ try:
     from jarvis.core.clipboard_intelligence import ClipboardIntelligence
     CLIPBOARD_AVAILABLE = True
     print("[WebSocket] Clipboard Intelligence available")
-except ImportError:
-    pass
+except ImportError as _e:
+    _optional_missing(_e)
 
 
 
 
 from jarvis.gui.hud_types import HUDPerception
+
+
+FEATURE_TOGGLE_RE = re.compile(
+    r"^(?:please\s+)?(?:enable|disable|turn\s+on|turn\s+off|start|stop|switch\s+on|switch\s+off)\s+"
+    r"(?:the\s+)?(?:gestures?|gesture\s+control|face(?:\s+recognition)?|emotion(?:\s+detection)?|mood\s+detection)\b")
+
+
+def _gesture_mp_available() -> bool:
+    """Is MediaPipe installed? (checks the package, doesn't import it)"""
+    try:
+        from jarvis.core.gesture_controller import MP_AVAILABLE
+        return MP_AVAILABLE
+    except Exception:
+        return False
+
+
+# ── process_command vocabulary ──────────────────────────────────────────────
+RESUME_PHRASES = ('back online', 'come back', 'i need you', 'unmute', 'talk to me')
+STORY_PHRASES = ('bedtime story', 'bed time story', 'tell me a story',
+                 'tell a story', 'once upon', 'tell me a tale')
+# Replies that mean the router failed, so the next step should try
+ROUTER_ERROR_PHRASES = ('trouble connecting', 'knowledge base', 'currently offline',
+                        'encountered an issue', 'Set GROQ_API_KEY')
+NEWS_CATEGORIES = ('economics', 'economy', 'business', 'politics', 'technology',
+                   'tech', 'sports', 'entertainment', 'world', 'global')
+
+# "open X": no ML, no API, no lag
+DIRECT_APPS = {
+    'calculator': 'calc', 'calc': 'calc',
+    'notepad': 'notepad', 'paint': 'mspaint',
+    'cmd': 'cmd', 'terminal': 'wt',
+    'powershell': 'powershell',
+    'file explorer': 'explorer', 'explorer': 'explorer',
+    'file manager': 'explorer', 'files': 'explorer',
+    'this pc': 'explorer', 'my computer': 'explorer',
+    'settings': 'ms-settings:', 'task manager': 'taskmgr',
+    'control panel': 'control',
+    'device manager': 'devmgmt.msc',
+    'snipping tool': 'SnippingTool',
+    'wifi': 'ms-settings:network-wifi',
+    'wifi settings': 'ms-settings:network-wifi',
+    'bluetooth': 'ms-settings:bluetooth',
+    'bluetooth settings': 'ms-settings:bluetooth',
+    'display settings': 'ms-settings:display',
+    'sound settings': 'ms-settings:sound',
+    'apps': 'ms-settings:appsfeatures',
+    'installed apps': 'ms-settings:appsfeatures',
+    'photos': 'ms-photos:',
+    'camera': 'microsoft.windows.camera:',
+    'store': 'ms-windows-store:',
+    'microsoft store': 'ms-windows-store:',
+    'chrome': 'chrome', 'firefox': 'firefox',
+    'edge': 'msedge', 'microsoft edge': 'msedge', 'brave': 'brave',
+    'vscode': 'code', 'vs code': 'code',
+    'spotify': 'spotify:', 'discord': 'discord:',
+    'telegram': 'telegram:', 'whatsapp': 'whatsapp:',
+    'whatsapp beta': 'whatsapp:',
+}
+WEB_APPS = {
+    'chatgpt': 'https://chat.openai.com',
+    'perplexity': 'https://perplexity.ai',
+    'youtube': 'https://youtube.com',
+    'gmail': 'https://mail.google.com',
+    'google': 'https://google.com',
+    'claude': 'https://claude.ai',
+    'github': 'https://github.com',
+}
+
+# Features the HUD handles itself (fallback_processor), before the AI
+HUD_COMMANDS = (
+    'screenshot', 'capture screen',
+    'read screen', 'read text', 'extract text', 'ocr',
+    'read clipboard',
+    'define ', 'meaning of ', 'definition of ',
+    'synonym',
+    'register my face', 'register face', 'register owner',
+    'verify me', 'authenticate', 'who am i',
+    'enable gesture', 'start gesture', 'gesture on',
+    'disable gesture', 'stop gesture', 'gesture off',
+    'enable emotion', 'mood detection', 'disable emotion',
+    'tell me a story', 'tell a story',
+    'recite a poem', 'poem',
+    'riddle',
+    'create note', 'new note', 'add note',
+    'list notes', 'show notes', 'my notes',
+    'set alarm',
+    'list alarm', 'show alarm', 'my alarm',
+    'switch to friday', 'activate friday',
+    'switch to jarvis', 'activate jarvis',
+)
 
 
 class JARVISWebSocketServer:
@@ -537,7 +633,6 @@ class JARVISWebSocketServer:
         # NEW: Additional feature handlers
         self.whatsapp_handler = None  # WhatsApp messaging
         self.calendar = None  # Google Calendar
-        self.sound_effects = None  # Sound effects for stories/notifications
         self.proactive_assistant = None  # Proactive suggestions
         self.email_handler_obj = None  # Email/Gmail handler
         self._youtube_downloader = None  # YouTube download
@@ -559,7 +654,10 @@ class JARVISWebSocketServer:
         self.last_gesture = None
         
         # ALL FEATURES AUTO-ENABLED ON STARTUP (fully operational JARVIS)
-        self.gesture_enabled = True   # Auto-enabled: gestures active from boot
+        # Gestures open the camera: on at boot only if the user turned them on
+        # last time (or JARVIS_GESTURES=1). They used to claim "on from boot"
+        # while never actually running.
+        self.gesture_enabled = self._load_gesture_pref()
         self.face_enabled = True      # Always-on: face recognition
         self.emotion_enabled = True   # Always-on: emotion detection
         
@@ -815,7 +913,7 @@ class JARVISWebSocketServer:
                                     self._handle_voice_input(text),
                                     self._voice_loop
                                 )
-                    except:
+                    except Exception:
                         pass # Silently drop everything else in quiet mode
                     
                     time.sleep(0.5)
@@ -895,154 +993,180 @@ class JARVISWebSocketServer:
                 print(f"[WebSocket] Perception error: {e}")
     
     # ═══════════════════════════════════════════════════════════════
-    # GESTURE PROCESSING THREAD
-    # Captures camera → detects gestures → executes actions
+    # GESTURES
+    # Camera -> hand landmarks -> gestures (core/hand_poses.py) -> either a
+    # communication gesture handled here (_on_gesture) or a control action in
+    # the app the user is in (gesture_controller.execute_gesture_action).
+    #
+    # The thread used to start only if a GestureController existed at boot,
+    # which it never did: the import also asked for a non-existent GestureType,
+    # so GESTURE_AVAILABLE was always False and gestures never ran.
     # ═══════════════════════════════════════════════════════════════
-    
+
+    GESTURE_PREFS = Path(__file__).resolve().parent.parent.parent / "jarvis_data" / "feature_prefs.json"
+
+    def _load_gesture_pref(self) -> bool:
+        """Gestures on at boot only if the user turned them on (it opens the camera).
+        JARVIS_GESTURES=1/0 in .env overrides the saved choice."""
+        env = os.getenv("JARVIS_GESTURES")
+        if env in ("0", "1"):
+            return env == "1"
+        try:
+            return bool(json.loads(self.GESTURE_PREFS.read_text(encoding="utf-8")).get("gestures", False))
+        except Exception:
+            return False
+
+    def set_gesture_enabled(self, enabled: bool, title: str = 'sir') -> str:
+        """Turn gestures on/off (HUD button, voice, typed). Remembered for next time."""
+        if enabled and not self.gesture_controller:
+            self.gesture_enabled = False
+            return f"Gesture control isn't available, {title}: MediaPipe could not be loaded."
+        if enabled and not getattr(self.gesture_controller, 'active', False):
+            self.gesture_enabled = False
+            return f"Gesture control couldn't start, {title}: the hand-tracking model didn't load."
+        self.gesture_enabled = bool(enabled)
+        try:
+            prefs = {}
+            if self.GESTURE_PREFS.exists():
+                prefs = json.loads(self.GESTURE_PREFS.read_text(encoding="utf-8"))
+            prefs["gestures"] = self.gesture_enabled
+            self.GESTURE_PREFS.parent.mkdir(parents=True, exist_ok=True)
+            self.GESTURE_PREFS.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
+        except Exception as e:
+            print(f"[GESTURE] Could not save preference: {e}")
+        if self.gesture_enabled:
+            return (f"Gesture control on{maybe_title(title)}. Open palm stops me, thumbs up means yes, "
+                    f"thumbs down means no, a peace sign wakes me, and swipes control your app.")
+        return f"Gesture control off{maybe_title(title)}. Camera released."
+
     def _start_gesture_thread(self):
-        """Start background gesture processing thread"""
-        if not self.gesture_controller:
-            print("[GESTURE] No gesture controller - gesture thread disabled")
+        """Start the gesture thread. It idles (camera closed) while gestures are off."""
+        if not GESTURE_AVAILABLE:
+            print("[GESTURE] MediaPipe not installed - gestures unavailable")
             return
-        
         self._gesture_thread = threading.Thread(
-            target=self._gesture_process_loop,
-            daemon=True,
-            name="JARVISGestureThread"
-        )
+            target=self._gesture_process_loop, daemon=True, name="JARVISGestureThread")
         self._gesture_thread.start()
-        print("[GESTURE] Background gesture processing thread started")
-    
+        print("[GESTURE] Gesture thread started (camera opens only while gestures are on)")
+
     def _gesture_process_loop(self):
-        """Background gesture detection loop.
-        
-        Uses shared camera for frames, detects gestures, executes actions.
-        """
-        try:
-            from jarvis.core.gesture_controller import get_gesture_action, execute_gesture_action
-        except ImportError:
-            from jarvis.core.gesture_controller import get_gesture_action, execute_gesture_action
-        
-        # Use shared camera instead of opening our own
-        try:
-            from jarvis.core.shared_camera import get_shared_camera
-        except ImportError:
-            from jarvis.core.shared_camera import get_shared_camera
-        
-        shared_cam = get_shared_camera()
-        shared_cam.register("gesture")
-        print("[GESTURE] Gesture processing active (shared camera)")
-        
+        from jarvis.core.gesture_controller import (
+            app_context, get_gesture_action, execute_gesture_action, COMMUNICATION_GESTURES)
+        from jarvis.core.shared_camera import get_shared_camera
+        from jarvis.core.screen_control import user_window_title
+
+        cam = get_shared_camera()
+        registered = False
+        last_frame_t = 0.0
         while self.running:
             try:
-                # Only process if gestures are enabled
+                # Camera on only while gestures are on: it used to open at boot
+                # and stay on (camera light lit) even with gestures off.
                 if not self.gesture_enabled:
+                    if registered:
+                        cam.unregister("gesture")
+                        registered = False
+                        if self.gesture_controller:
+                            self.gesture_controller.disable_tracking()
                     time.sleep(0.5)
                     continue
-                
-                # Get frame from shared camera
-                frame = shared_cam.get_frame()
-                if frame is None:
-                    time.sleep(0.1)
+                controller = self.gesture_controller
+                if controller is None or not controller.active:
+                    time.sleep(1.0)
                     continue
-                
-                # Detect gesture
-                gesture, meta = self.gesture_controller.detect(frame)
-                
-                # Skip idle/tracking/disabled states
-                if gesture in ('idle', 'tracking', 'hand_tracking', 'disabled', 'error'):
-                    time.sleep(0.05)  # ~20fps
+                if not registered:
+                    cam.register("gesture")
+                    registered = True
+
+                frame, frame_t = cam.get_frame_stamped()
+                if frame is None or frame_t == last_frame_t:
+                    time.sleep(0.02)
                     continue
-                
-                # ━━━ CONFIDENCE GATE — skip weak detections ━━━
-                confidence = meta.get('confidence', 0.0)
-                if confidence < 0.6:
-                    time.sleep(0.05)
+                last_frame_t = frame_t
+
+                gesture, meta = controller.detect(frame, frame_t)
+                if gesture in ('idle', 'tracking', 'disabled', 'error'):
                     continue
-                
-                # ━━━ PER-GESTURE DEBOUNCE — prevent spam ━━━
-                now = time.time()
-                if not hasattr(self, '_gesture_last_fire'):
-                    self._gesture_last_fire = {}
-                
-                # Cooldowns per gesture type (seconds)
-                GESTURE_COOLDOWNS = {
-                    'pinch': 1.5,       # Click — needs long cooldown 
-                    'open_palm': 2.0,   # Stop speaking — long cooldown
-                    'swipe_left': 0.8,  # Navigation — moderate
-                    'swipe_right': 0.8,
-                    'swipe_up': 0.8,
-                    'swipe_down': 0.8,
-                    'rotate_cw': 1.0,
-                    'rotate_ccw': 1.0,
-                    'thumb_up': 2.0,
-                    'thumb_down': 2.0,
-                    'peace': 2.0,
-                    'fist': 1.5,
-                }
-                cooldown = GESTURE_COOLDOWNS.get(gesture, 1.0)
-                last_fire = self._gesture_last_fire.get(gesture, 0)
-                
-                if now - last_fire < cooldown:
-                    time.sleep(0.05)
-                    continue  # Still in cooldown
-                
-                self._gesture_last_fire[gesture] = now
-                
-                # ━━━ OPEN PALM = STOP SPEAKING (instant) ━━━
-                if gesture == 'open_palm':
-                    # Only when JARVIS is actually talking. This checked
-                    # self.is_speaking, which nothing ever set, so the palm
-                    # gesture never stopped speech.
-                    if self._is_jarvis_talking():
-                        self._stop_speaking()
-                        self.state_manager.force_state("idle")
-                        self._dispatch_from_thread('sensors', {
-                            'type': 'gesture_action',
-                            'gesture': 'open_palm',
-                            'action': 'stop_speaking',
-                            'app': 'default',
-                            'confidence': confidence
-                        })
+
+                if self.state_manager:
+                    self.state_manager.update_gesture(gesture)
+                if gesture in COMMUNICATION_GESTURES:
+                    self._on_gesture(gesture, meta)
                     continue
-                
-                # Map gesture to action based on active app
-                active_app = "default"
-                if self.state_manager and hasattr(self.state_manager, 'active_app') and self.state_manager.active_app:
-                    active_app = self.state_manager.active_app
-                
-                action = get_gesture_action(gesture, active_app)
-                
-                if action:
-                    print(f"[GESTURE] {gesture} -> {action} (app: {active_app}, conf: {confidence:.2f})")
-                    
-                    # Special: stop_speaking is handled by server, not pyautogui
-                    if action == 'stop_speaking':
-                        self._stop_speaking()
-                    else:
-                        execute_gesture_action(action)
-                    
-                    # Send gesture event to connected clients. Through the
-                    # per-client queues: sending straight to the socket from this thread raced each
-                    # client's sender task (concurrent sends on one socket).
-                    self._dispatch_from_thread('sensors', {
-                        'type': 'gesture_action',
-                        'gesture': gesture,
-                        'action': action,
-                        'app': active_app,
-                        'confidence': confidence,
-                    })
-                
-                time.sleep(0.05)  # ~20fps
-                
+
+                window = user_window_title()
+                app = app_context(window)
+                action = get_gesture_action(gesture, app)
+                done = execute_gesture_action(action) if action else False
+                print(f"[GESTURE] {gesture} -> {action or 'nothing'} (app: {app})")
+                self._gesture_feedback(gesture, action if done else None, app)
             except Exception as e:
-                err_str = str(e)
-                if 'camera' not in err_str.lower():
-                    print(f"[GESTURE] Processing error: {e}")
+                print(f"[GESTURE] Processing error: {e}")
                 time.sleep(1)
-        
-        # Cleanup
-        shared_cam.unregister("gesture")
+        if registered:
+            cam.unregister("gesture")
+
+    def _gesture_feedback(self, gesture: str, action, app: str = 'default', note: str = None):
+        """Show a gesture in the HUD (last-gesture panel + a chat line)."""
+        from jarvis.core.gesture_controller import GESTURE_EMOJI, ACTION_LABELS
+        label = note or (ACTION_LABELS.get(action, action) if action else None)
+        self._dispatch_from_thread('sensors', {
+            'type': 'gesture_action',
+            'gesture': gesture,
+            'action': action or '',
+            'app': app,
+            'label': label or '',
+            'emoji': GESTURE_EMOJI.get(gesture, ''),
+        })
+
+    def _on_gesture(self, gesture: str, meta=None):
+        """Communication gestures: JARVIS understands them like words.
+
+        open_palm    stop speaking (only while talking)
+        thumbs_up    "yes" to a pending question
+        thumbs_down  "no" to a pending question
+        peace        wake: listen without the wake word
+        """
+        title = getattr(self.hud_perception, 'user_title', 'sir')
+        if gesture == 'open_palm':
+            if self._is_jarvis_talking():
+                self._stop_speaking()
+                self._gesture_feedback(gesture, 'stop_speaking', note='Stopped speaking')
+            return
+
+        if gesture in ('thumbs_up', 'thumbs_down'):
+            draft = self._whatsapp_with_draft()
+            if gesture == 'thumbs_up' and draft:
+                # A sent message can't be taken back, and a thumbs-up happens by
+                # accident (on calls, in videos). Sending needs a spoken "send".
+                # (Its "yes" would also reach the draft before any other question.)
+                self._gesture_feedback(gesture, None, note="Say 'send' to send the WhatsApp message")
+                return
+            pending = (self._get_pending_power_action() or getattr(self, '_pending_clarify', None)
+                       or draft)   # 👎 clears a typed WhatsApp draft
+            if not pending:
+                self._gesture_feedback(gesture, None, note='Nothing to answer')
+                return
+            reply = 'yes' if gesture == 'thumbs_up' else 'cancel'
+            self._gesture_feedback(gesture, reply, note=f"Answered '{reply}'")
+            self._run_on_loop(self._gesture_command(reply))
+            return
+
+        if gesture == 'peace':
+            le = getattr(self, 'live_engine', None)
+            if le is not None and hasattr(le, 'wake'):
+                le.wake("peace gesture")
+            self.quiet_mode = False
+            if self.perception is not None:
+                self.perception.mic_muted = False
+            self._gesture_feedback(gesture, 'wake', note=f"Listening{maybe_title(title)}")
+
+    async def _gesture_command(self, text: str):
+        """Run a gesture's answer ("yes"/"cancel") through the normal pipeline,
+        replying to the first connected HUD."""
+        for ws in list(self.clients):
+            await self.process_message(ws, {'type': 'command', 'text': text})
+            return
     
     def _init_standalone_modules(self):
         """Initialize modules: CRITICAL ones immediately, DEFERRED ones in background.
@@ -1063,13 +1187,13 @@ class JARVISWebSocketServer:
             try:
                 self.news_handler = shared(NewsHandler, lambda: NewsHandler(self.hud_perception))
             except Exception as e:
-                pass
+                recovered("WebSocket", e)
         
         if not getattr(self, 'weather_handler', None) and WEATHER_AVAILABLE:
             try:
                 self.weather_handler = shared(WeatherHandler, lambda: WeatherHandler(self.hud_perception))
             except Exception as e:
-                pass
+                recovered("WebSocket", e)
         
         # Setup lazy property backings to None
         self._emotion_detector = None
@@ -1096,19 +1220,19 @@ class JARVISWebSocketServer:
                     self.hud_perception,
                     jarvis_callback=self._on_hotkey_action
                 ))
-            except: pass
+            except Exception: pass
         
         # Reminders & Tasks 
         if REMINDER_AVAILABLE:
             try:
                 self.reminder_manager = shared(ReminderManager, lambda: ReminderManager(self.hud_perception))
                 self.reminder_manager.start()
-            except: pass
+            except Exception: pass
         
         if TASK_MANAGER_AVAILABLE:
             try:
                 self.task_manager_obj = shared(TaskManager, lambda: TaskManager(self.hud_perception))
-            except: pass
+            except Exception: pass
         
         # System control (needed for voice commands)
         if SYSTEM_CONTROL_AVAILABLE:
@@ -1212,7 +1336,7 @@ class JARVISWebSocketServer:
             deferred_modules = [
                 (EMOTION_AVAILABLE, '_emotion_detector', lambda: shared(EmotionDetector), "EmotionDetector"),
                 (FACE_AVAILABLE, '_face_recognition', lambda: shared(FaceRecognition, lambda: FaceRecognition(self.hud_perception)), "FaceRecognition"),
-                (GESTURE_AVAILABLE, '_gesture_controller', lambda: shared(GestureController, lambda: GestureController(self.hud_perception)), "GestureController"),
+                (GESTURE_AVAILABLE and self.gesture_enabled, '_gesture_controller', lambda: shared(GestureController, lambda: GestureController(self.hud_perception)), "GestureController"),
                 (CHAT_HISTORY_AVAILABLE, '_chat_history', lambda: shared(ChatHistory, lambda: ChatHistory(self.hud_perception)), "ChatHistory"),
                 (CONTEXT_MEMORY_AVAILABLE, '_context_memory', lambda: shared(ContextMemory), "ContextMemory"),
                 (KNOWLEDGE_AVAILABLE, '_knowledge', lambda: shared(KnowledgeLayer, lambda: KnowledgeLayer(self.hud_perception)), "KnowledgeLayer"),
@@ -1224,7 +1348,6 @@ class JARVISWebSocketServer:
                 (SCREEN_CONTROL_AVAILABLE, 'screen_control', lambda: shared(ScreenControlHandler), "Screen Control"),
                 (WHATSAPP_AVAILABLE, 'whatsapp_handler', lambda: shared(WhatsAppHandler, lambda: WhatsAppHandler(self.hud_perception)), "WhatsApp"),
                 (CALENDAR_AVAILABLE, 'calendar', lambda: shared(CalendarIntegration, lambda: CalendarIntegration(self.hud_perception)), "Calendar"),
-                (SOUND_EFFECTS_AVAILABLE, 'sound_effects', lambda: shared(SoundEffects), "Sound Effects"),
                 (PROACTIVE_AVAILABLE, 'proactive_assistant', lambda: shared(ProactiveAssistant, lambda: ProactiveAssistant(self.hud_perception)), "Proactive"),
                 (EMAIL_HANDLER_AVAILABLE, 'email_handler_obj', lambda: shared(EmailHandler, lambda: EmailHandler(self.hud_perception, getattr(self, '_knowledge', None))), "Email"),
                 (YOUTUBE_AVAILABLE, '_youtube_downloader', lambda: shared(YouTubeDownloader, lambda: YouTubeDownloader(self.hud_perception)), "YouTube"),
@@ -1320,7 +1443,7 @@ class JARVISWebSocketServer:
         return {
             'type': 'feature_status',
             'jarvis_full': self.jarvis is not None,
-            'gesture_available': self.gesture_controller is not None,
+            'gesture_available': GESTURE_AVAILABLE and _gesture_mp_available(),  # never loads MediaPipe
             'gesture_enabled': self.gesture_enabled,
             'face_available': self.face_recognition is not None,
             'face_enabled': self.face_enabled,
@@ -1328,7 +1451,7 @@ class JARVISWebSocketServer:
             'emotion_enabled': self.emotion_enabled,
             'current_user': self.current_user,
             'current_emotion': self.current_emotion,
-            'last_gesture': self.last_gesture,
+            'last_gesture': getattr(sm, 'last_gesture', None) or self.last_gesture,
             'whatsapp_available': self.whatsapp_handler is not None,
             'active_app': getattr(sm, 'active_app', None),
             'current_mood': getattr(sm, 'current_mood', None),
@@ -1547,8 +1670,8 @@ class JARVISWebSocketServer:
             if getattr(self, 'live_engine', None) and self.live_engine._running:
                 try:
                     self._push_live_text("Hey JARVIS, I need you.")
-                except Exception:
-                    pass
+                except Exception as _err:
+                    recovered("WebSocket", _err)
             else:
                 self.hud_perception.speak("Yes sir, I'm here.")
     
@@ -1634,10 +1757,15 @@ class JARVISWebSocketServer:
             if text.strip():
                 cmd_check = normalize_command(text)
                 is_local_power = (
-                    is_jarvis_exit_command(cmd_check)
+                    # Feature switches (gestures, face, emotion) are local
+                    # settings; in live mode the HUD's gesture button was sent
+                    # to Gemini, which can't flip them.
+                    bool(FEATURE_TOGGLE_RE.match(cmd_check))
+                    or is_jarvis_exit_command(cmd_check)
                     or detect_pc_power_action(cmd_check) is not None
                     or (self._get_pending_power_action() is not None
                         and bool(CONFIRM_RE.match(cmd_check) or CANCEL_RE.match(cmd_check)))
+                    or self._answers_whatsapp_draft(cmd_check)
                 )
 
             if _live_active and msg_type in ('text_input', 'command', 'chat') and text.strip() and not is_local_power:
@@ -1656,8 +1784,8 @@ class JARVISWebSocketServer:
                             jlog.info(f'Routed to Gemini Live: "{text[:60]}"')
                         else:
                             print(f"[WebSocket] Routed text to Gemini Live: {text[:60]}")
-                    except Exception:
-                        pass
+                    except Exception as _err:
+                        recovered("WebSocket", _err)
                     return
             if not text:
                 return
@@ -1677,12 +1805,9 @@ class JARVISWebSocketServer:
             self.state_manager.force_state("processing")
             self.state_manager.update_intent(msg_type, 0.0)
             
-            # Detect mood from text
-            mood = _detect_mood_from_text(text, emotion_enabled=self.emotion_enabled,
-                                          emotion_detector=self.emotion_detector)
-            if mood != 'neutral':
-                self.current_emotion = mood
-                self.state_manager.update_mood(mood, 0.7)
+            # Mood: from the user's words (face too, if a face model is
+            # installed); it lasts a few minutes and the AI is told about it
+            mood = self._update_mood(text)
             
             # NOTE: Removed intermediate state(listening) broadcast
             # The result message at the end already contains state
@@ -1842,8 +1967,8 @@ class JARVISWebSocketServer:
             if self.proactive_assistant:
                 try:
                     self.proactive_assistant.record_action(action, {'command': text})
-                except Exception:
-                    pass
+                except Exception as _err:
+                    recovered("WebSocket", _err)
             
             # Return to idle after speaking
             words = len(response.split()) if response else 1
@@ -1920,11 +2045,7 @@ class JARVISWebSocketServer:
             enabled = data.get('enabled', False)
             
             if feature == 'gesture':
-                self.gesture_enabled = enabled
-                if enabled and self.gesture_controller:
-                    self.gesture_controller.enable_tracking()
-                elif self.gesture_controller:
-                    self.gesture_controller.disable_tracking()
+                await self._run_blocking(self.set_gesture_enabled, bool(enabled))
             elif feature == 'face':
                 self.face_enabled = enabled
                 if enabled and self.face_recognition:
@@ -1939,6 +2060,61 @@ class JARVISWebSocketServer:
         elif msg_type == 'get_features':
             await self._send_to(websocket, json.dumps(self.get_feature_status()))
     
+    # ── Mood (emotion-aware replies) ─────────────────────────────────────
+    def _update_mood(self, text: str) -> str:
+        """Track the user's mood and hand it to the AI's personality prompt.
+
+        The mood used to be detected but never reached the AI (nothing set
+        perception.current_mood, which the knowledge layer reads), so replies
+        never adapted. The Emotion switch off means no mood at all.
+        """
+        tracker = getattr(self, '_mood_tracker', None)
+        if tracker is None:
+            tracker = self._mood_tracker = MoodTracker()
+        if getattr(self, 'emotion_enabled', True):
+            detected = _detect_mood_from_text(text, emotion_enabled=True,
+                                              emotion_detector=self.emotion_detector)
+            mood = tracker.observe(detected)
+        else:
+            mood = tracker.observe('neutral', now=float('inf'))
+        previous = getattr(self, 'current_emotion', None) or 'neutral'
+        self.current_emotion = mood
+        if mood != previous:
+            print(f"[MOOD] {previous} -> {mood}")
+            sm = getattr(self, 'state_manager', None)
+            if sm is not None:
+                sm.update_mood(mood, 0.7)
+        targets = [getattr(self, 'hud_perception', None)]
+        try:
+            from jarvis.core.services import peek
+            from jarvis.core.knowledge import KnowledgeLayer
+            kl = peek(KnowledgeLayer)
+            targets.append(getattr(kl, 'perception', None) if kl else None)
+        except Exception:
+            pass
+        for p in targets:
+            if p is not None:
+                p.current_mood = None if mood == 'neutral' else mood
+        return mood
+
+    # ── WhatsApp drafts (sent only after the user confirms) ──────────────
+    def _whatsapp_with_draft(self):
+        """The WhatsApp handler if it has an unsent draft waiting, else None."""
+        try:
+            from jarvis.core.services import peek
+            from jarvis.core.whatsapp_handler import WhatsAppHandler
+        except Exception:
+            return None
+        wa = getattr(self, 'whatsapp_handler', None) or peek(WhatsAppHandler)
+        return wa if wa is not None and wa.pending_draft() else None
+
+    def _answers_whatsapp_draft(self, cmd: str) -> bool:
+        """'send' / 'cancel' while a draft waits: handled locally, never by the LLM."""
+        if not self._whatsapp_with_draft():
+            return False
+        from jarvis.core.whatsapp_handler import SEND_CONFIRM_RE, DRAFT_CANCEL_RE
+        return bool(SEND_CONFIRM_RE.match(cmd) or DRAFT_CANCEL_RE.match(cmd))
+
     # ── PC power actions (always confirmed) ──────────────────────────────
     def _get_pending_power_action(self):
         pending = getattr(self, '_pending_power_action', None)
@@ -2084,48 +2260,55 @@ class JARVISWebSocketServer:
         return _split_compound_command(text)
 
     async def process_command(self, command: str, websocket) -> str:
-        """Process command through HUD handlers or full JARVIS"""
-        cmd = command.lower().strip()
-        name = self.hud_perception.assistant_name
+        """Answer one command. Steps run in order; the first that answers wins.
+
+        1. Voice control, pending questions, PC power and exit (on the loop:
+           they change server state or schedule the exit).
+        2. Local commands (Bluetooth, stories, windows, reminders, apps, habits,
+           tasks, wellness, email, PDF), in a worker thread: several block
+           (PowerShell for up to 10 s, email over the network) and used to
+           freeze every HUD client while they ran.
+        3. The intent router, HUD feature commands, then the AI.
+
+        This was one 475-line function.
+        """
+        cmd = normalize_command(command.lower().strip())
         title = self.hud_perception.user_title
-        
-        # ══════════════════════════════════════════════════════════════════
-        # STRIP WAKE WORD: "jarvis open perplexity" → "open perplexity"
-        # Voice input includes the wake word — strip it before routing
-        # ══════════════════════════════════════════════════════════════════
-        # M-07: Using module-level re import instead of inline
-        cmd = normalize_command(cmd)
         if not cmd:
             hour = datetime.now().hour
-            greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening" if hour < 21 else "Hey there"
+            greeting = ("Good morning" if hour < 12 else "Good afternoon" if hour < 17
+                        else "Good evening" if hour < 21 else "Hey there")
             return f"{greeting}, {title}. How may I help?"
-        
-        # ══════════════════════════════════════════════════════════════════
-        # SPEECH INTERRUPTION: "stop", "shut up", "keep quiet", "silence"
-        # Must be first — user wants to interrupt JARVIS immediately
-        # ══════════════════════════════════════════════════════════════════
+
+        for step in (self._cmd_voice_control, self._cmd_answer_pending, self._cmd_power_and_exit):
+            reply = await step(cmd, title)
+            if reply is not None:
+                return reply
+
+        reply = await self._run_blocking(self._local_command, cmd, command, title)
+        if reply is not None:
+            return reply
+
+        return await self._cmd_route_and_answer(cmd, command, title, websocket)
+
+    # ── step 1: on the event loop ────────────────────────────────────────
+    async def _cmd_voice_control(self, cmd: str, title: str):
+        """"stop"/"shut up" (interrupt, then listen only for the wake word) and "back online"."""
         if is_stop_speaking_command(cmd):
             self._stop_speaking()
-            self.quiet_mode = True  # Pause voice listening until wake word
-            self._silent_response = True  # Don't speak the response
+            self.quiet_mode = True        # pause voice listening until the wake word
+            self._silent_response = True  # don't speak the reply
             print("[VOICE] Quiet mode ON - mic paused until wake word")
             return f"Understood{maybe_title(title)}. Say my name when you need me."
-        
-        # ══════════════════════════════════════════════════════════════════
-        # RESUME FROM QUIET: "back online", "come back", "I need you"
-        # ══════════════════════════════════════════════════════════════════
-        resume_words = ['back online', 'come back', 'i need you', 'unmute', 'talk to me']
-        if any(r in cmd for r in resume_words):
+        if any(r in cmd for r in RESUME_PHRASES):
             self.quiet_mode = False
             print("[VOICE] Quiet mode OFF - JARVIS back online")
             return f"I'm back online{maybe_title(title)}. What do you need?"
-        
-        # ══════════════════════════════════════════════════════════════════
-        # SHUTDOWN: Actually exit the JARVIS process
-        # Uses word boundaries to avoid false matches (e.g. 'perplexity' has 'exit')
-        # ══════════════════════════════════════════════════════════════════
-        # ── PENDING CLARIFICATION ("I'm 60% sure… Should I proceed?") ──
-        clarify = getattr(self, '_pending_clarify', None)
+        return None
+
+    async def _cmd_answer_pending(self, cmd: str, title: str):
+        """Answers to a question JARVIS asked: a clarification, a WhatsApp draft, PC power."""
+        clarify = getattr(self, '_pending_clarify', None)   # "I'm 60% sure... Should I proceed?"
         if clarify:
             self._pending_clarify = None
             original, expires_at = clarify
@@ -2135,403 +2318,294 @@ class JARVISWebSocketServer:
                     return reply or f"I couldn't complete that{maybe_title(title)}."
                 if CANCEL_RE.match(cmd):
                     return f"Okay, never mind{maybe_title(title)}."
-            # anything else: treat as a new command
+            # anything else: a new command
 
-        # ── PENDING PC SHUTDOWN/RESTART: needs an explicit confirmation ──
-        pending = self._get_pending_power_action()
+        wa = self._whatsapp_with_draft()   # typed in the chat, sent only on "send"
+        if wa:
+            from jarvis.core.whatsapp_handler import SEND_CONFIRM_RE, DRAFT_CANCEL_RE
+            if SEND_CONFIRM_RE.match(cmd):
+                return await self._run_blocking(wa.confirm_send)
+            if DRAFT_CANCEL_RE.match(cmd):
+                return await self._run_blocking(wa.cancel_draft)
+            # anything else: a new command; the draft stays typed, unsent
+
+        pending = self._get_pending_power_action()   # PC shutdown/restart needs a "confirm"
         if pending:
+            self._pending_power_action = None
             if CONFIRM_RE.match(cmd):
-                self._pending_power_action = None
                 return self._execute_power_action(pending, title)
             if CANCEL_RE.match(cmd):
-                self._pending_power_action = None
                 return f"Cancelled the {pending}{maybe_title(title)}."
-            # Anything else drops the pending request and is processed normally.
-            self._pending_power_action = None
+            # anything else drops the request and is processed normally
+        return None
 
+    async def _cmd_power_and_exit(self, cmd: str, title: str):
+        """PC shutdown/restart (asks first) and exiting JARVIS (whole-command match only)."""
         power_action = detect_pc_power_action(cmd)
         if power_action:
             return self.request_power_action(power_action, title)
-
-        # Exit JARVIS only when the whole command is an exit command.
         if is_jarvis_exit_command(cmd):
             import signal
-            farewell = f"Shutting down all systems. Until next time{maybe_title(title)}."
-            self._silent_response = True  # Don't speak the farewell
-            # Schedule actual exit after response is sent
-            async def _shutdown():
+            self._silent_response = True  # don't speak the farewell
+
+            async def _shutdown():  # after the reply has been sent
                 await asyncio.sleep(3)
                 self.running = False
                 os.kill(os.getpid(), signal.SIGTERM)
             asyncio.ensure_future(_shutdown())
-            return farewell
-        
-        # ══════════════════════════════════════════════════════════════════
-        # BLUETOOTH TOGGLE: on/off
-        # ══════════════════════════════════════════════════════════════════
-        if 'bluetooth' in cmd and any(w in cmd for w in ['off', 'disable', 'switch off', 'turn off']):
-            try:
-                subprocess.run(['powershell', '-Command',
-                    'Add-Type -AssemblyName System.Runtime.WindowsRuntime; '
-                    '[Windows.Devices.Radios.Radio,Windows.System.Devices,ContentType=WindowsRuntime] | Out-Null; '
-                    '$radios = [Windows.Devices.Radios.Radio]::GetRadiosAsync().AsTask().Result; '
-                    '$bt = $radios | Where-Object { $_.Kind -eq "Bluetooth" }; '
-                    '$bt.SetStateAsync("Off").AsTask().Result'],
-                    capture_output=True, timeout=10)
-                return f"Bluetooth is now off{maybe_title(title)}."
-            except Exception:
-                # Fallback: open bluetooth settings
-                subprocess.Popen(['start', 'ms-settings:bluetooth'], shell=True)
-                return f"Opening Bluetooth settings{maybe_title(title)}. Please toggle it manually."
-        
-        if 'bluetooth' in cmd and any(w in cmd for w in ['on', 'enable', 'switch on', 'turn on']):
-            try:
-                subprocess.run(['powershell', '-Command',
-                    'Add-Type -AssemblyName System.Runtime.WindowsRuntime; '
-                    '[Windows.Devices.Radios.Radio,Windows.System.Devices,ContentType=WindowsRuntime] | Out-Null; '
-                    '$radios = [Windows.Devices.Radios.Radio]::GetRadiosAsync().AsTask().Result; '
-                    '$bt = $radios | Where-Object { $_.Kind -eq "Bluetooth" }; '
-                    '$bt.SetStateAsync("On").AsTask().Result'],
-                    capture_output=True, timeout=10)
-                return f"Bluetooth is now on{maybe_title(title)}."
-            except Exception:
-                subprocess.Popen(['start', 'ms-settings:bluetooth'], shell=True)
-                return f"Opening Bluetooth settings{maybe_title(title)}. Please toggle it manually."
-        
-        # ══════════════════════════════════════════════════════════════════
-        # LAPTOP SHUTDOWN / RESTART
-        # ══════════════════════════════════════════════════════════════════
-        # Handled (with confirmation) near the top of process_command via
-        # detect_pc_power_action() / request_power_action().
+            return f"Shutting down all systems. Until next time{maybe_title(title)}."
+        return None
 
-        # ══════════════════════════════════════════════════════════════════
-        # PRE-ROUTER OVERRIDES: Commands the ML classifier gets wrong
-        # These explicit keyword matches run BEFORE the intent router
-        # ══════════════════════════════════════════════════════════════════
-        
-        # Stories: the ML classifier reads "bedtime story" as get_time. Use the
-        # one story handler (topic, genre, full length); this used to have its
-        # own copy that sent stories through the 400-character quick-answer path.
-        if any(w in cmd for w in ['bedtime story', 'bed time story', 'tell me a story',
-                                   'tell a story', 'once upon', 'tell me a tale']) and ROUTER_AVAILABLE:
-            result = await self._run_blocking(HANDLER_MAP['story'], command, {},
-                                              {'title': title, 'knowledge': self.knowledge})
-            if result and result.response:
-                return result.response
-        
-        # Chat History — classifier thinks this is 'story'
-        if ('chat history' in cmd or 'show history' in cmd or 'conversation history' in cmd) and self.chat_history:
-            if 'search' in cmd:
-                match = re.search(r'search\s+(?:for\s+)?(.+)', cmd, re.I)
-                if match:
-                    query = match.group(1).strip()
-                    results = self.chat_history.search(query)
-                    if results:
-                        return f"Found {len(results)} conversations matching '{query}', {title}."
-                    return f"No conversations found matching '{query}', {title}."
-            elif 'clear' in cmd or 'delete' in cmd:
-                self.chat_history.clear_history()
-                return f"Chat history cleared, {title}."
-            else:
-                messages = self.chat_history.get_recent(5)
-                if messages:
-                    summary = "; ".join([f"{m.role}: {m.content[:40]}" for m in messages[-3:]])
-                    return f"Recent chat history, {title}: {summary}"
-                return f"No chat history yet, {title}."
-        
-        # App Switching — classifier thinks 'go back' is 'previous_track'
+    # ── step 2: local commands, in a worker thread ───────────────────────
+    def _local_command(self, cmd: str, command: str, title: str):
+        """Commands handled here before the router: explicit keyword matches the
+        ML classifier gets wrong, and features with no router handler."""
+        for step in (self._cmd_bluetooth, self._cmd_story, self._cmd_chat_history,
+                     self._cmd_switch_window, self._cmd_reminder, self._cmd_open_app,
+                     self._cmd_habit, self._cmd_task, self._cmd_wellness,
+                     self._cmd_email, self._cmd_pdf):
+            reply = step(cmd, command, title)
+            if reply is not None:
+                return reply
+        return None
+
+    def _cmd_bluetooth(self, cmd: str, command: str, title: str):
+        if 'bluetooth' not in cmd:
+            return None
+        if any(w in cmd for w in ('off', 'disable', 'switch off', 'turn off')):
+            state, word = "Off", "off"
+        elif any(w in cmd for w in ('on', 'enable', 'switch on', 'turn on')):
+            state, word = "On", "on"
+        else:
+            return None
+        try:
+            subprocess.run(['powershell', '-Command',
+                'Add-Type -AssemblyName System.Runtime.WindowsRuntime; '
+                '[Windows.Devices.Radios.Radio,Windows.System.Devices,ContentType=WindowsRuntime] | Out-Null; '
+                '$radios = [Windows.Devices.Radios.Radio]::GetRadiosAsync().AsTask().Result; '
+                '$bt = $radios | Where-Object { $_.Kind -eq "Bluetooth" }; '
+                f'$bt.SetStateAsync("{state}").AsTask().Result'],
+                capture_output=True, timeout=10)
+            return f"Bluetooth is now {word}{maybe_title(title)}."
+        except Exception as e:
+            recovered("WebSocket", e)
+            subprocess.Popen(['start', 'ms-settings:bluetooth'], shell=True)
+            return f"Opening Bluetooth settings{maybe_title(title)}. Please toggle it manually."
+
+    def _cmd_story(self, cmd: str, command: str, title: str):
+        # The ML classifier reads "bedtime story" as get_time; use the one story
+        # handler (topic, genre, full length)
+        if not ROUTER_AVAILABLE or not any(w in cmd for w in STORY_PHRASES):
+            return None
+        result = HANDLER_MAP['story'](command, {}, {'title': title, 'knowledge': self.knowledge})
+        return result.response if result and result.response else None
+
+    def _cmd_chat_history(self, cmd: str, command: str, title: str):
+        # The classifier thinks this is 'story'
+        if not (('chat history' in cmd or 'show history' in cmd or 'conversation history' in cmd)
+                and self.chat_history):
+            return None
+        if 'search' in cmd:
+            match = re.search(r'search\s+(?:for\s+)?(.+)', cmd, re.I)
+            if not match:
+                return None
+            query = match.group(1).strip()
+            results = self.chat_history.search(query)
+            if results:
+                return f"Found {len(results)} conversations matching '{query}', {title}."
+            return f"No conversations found matching '{query}', {title}."
+        if 'clear' in cmd or 'delete' in cmd:
+            self.chat_history.clear_history()
+            return f"Chat history cleared, {title}."
+        messages = self.chat_history.get_recent(5)
+        if messages:
+            summary = "; ".join(f"{m.role}: {m.content[:40]}" for m in messages[-3:])
+            return f"Recent chat history, {title}: {summary}"
+        return f"No chat history yet, {title}."
+
+    def _cmd_switch_window(self, cmd: str, command: str, title: str):
+        # The classifier thinks 'go back' is 'previous_track'
         if cmd in ('go back', 'alt tab', 'switch window', 'next window', 'previous window'):
             try:
                 import pyautogui
                 pyautogui.hotkey('alt', 'tab')
                 return f"Switched to the previous window, {title}."
             except Exception as e:
+                recovered("WebSocket", e)
                 return f"Couldn't switch windows, {title}."
-        
-        # App focus — 'switch to [app]' / 'go to [app]'. Tab commands ("switch
-        # to the next tab") are screen control and go to the router.
-        # (This used to paste the spoken name into a PowerShell script: a
-        # shell-injection risk, and slow. AppSwitcher uses Win32 calls.)
-        switched = self.switch_to_app_command(cmd, title)
-        if switched is not None:
-            return switched
-        
-        # ══════════════════════════════════════════════════════════════════
-        # REMINDERS — Route directly, don't let it fall to face-auth gate
-        # ══════════════════════════════════════════════════════════════════
-        if ('remind' in cmd or 'reminder' in cmd) and 'email' not in cmd:
-            if self.reminder_manager:
-                # "list reminders" / "show reminders" / "my reminders"
-                if 'list' in cmd or 'show' in cmd or 'my' in cmd:
-                    result = self.reminder_manager.read_reminders()
-                    return result if result else f"No upcoming reminders, {title}."
-                
-                # "set reminder to drink water in 30 minutes"
-                # "remind me to call mom at 5pm"
-                success = self.reminder_manager.set_reminder_from_command(cmd)
-                if success:
-                    return f"Reminder set, {title}."
-                return f"I couldn't parse that reminder. Try: 'remind me to X in 30 minutes', {title}."
-        
-        # ══════════════════════════════════════════════════════════════════
-        # OPEN APP — Execute IMMEDIATELY, skip ML classifier entirely
-        # This is the #1 user complaint: "open X" says it opened but didn't
-        # ══════════════════════════════════════════════════════════════════
-        import re as _re
-        open_match = _re.match(r'^(?:open|launch|start|run)\s+(.+)', cmd, _re.I)
-        if open_match:
-            app_name = open_match.group(1).strip()
-            
-            # Direct app map — no ML, no API, no lag
-            DIRECT_APPS = {
-                'calculator': 'calc', 'calc': 'calc',
-                'notepad': 'notepad', 'paint': 'mspaint',
-                'cmd': 'cmd', 'terminal': 'wt',
-                'powershell': 'powershell',
-                'file explorer': 'explorer', 'explorer': 'explorer',
-                'file manager': 'explorer', 'files': 'explorer',
-                'this pc': 'explorer', 'my computer': 'explorer',
-                'settings': 'ms-settings:', 'task manager': 'taskmgr',
-                'control panel': 'control',
-                'device manager': 'devmgmt.msc',
-                'snipping tool': 'SnippingTool',
-                'wifi': 'ms-settings:network-wifi',
-                'wifi settings': 'ms-settings:network-wifi',
-                'bluetooth': 'ms-settings:bluetooth',
-                'bluetooth settings': 'ms-settings:bluetooth',
-                'display settings': 'ms-settings:display',
-                'sound settings': 'ms-settings:sound',
-                'apps': 'ms-settings:appsfeatures',
-                'installed apps': 'ms-settings:appsfeatures',
-                'photos': 'ms-photos:',
-                'camera': 'microsoft.windows.camera:',
-                'store': 'ms-windows-store:',
-                'microsoft store': 'ms-windows-store:',
-                'chrome': 'chrome', 'firefox': 'firefox',
-                'edge': 'msedge', 'microsoft edge': 'msedge', 'brave': 'brave',
-                'vscode': 'code', 'vs code': 'code',
-                'spotify': 'spotify:', 'discord': 'discord:',
-                'telegram': 'telegram:', 'whatsapp': 'whatsapp:',
-                'whatsapp beta': 'whatsapp:', 
-            }
-            
-            WEB_APPS = {
-                'chatgpt': 'https://chat.openai.com',
-                'perplexity': 'https://perplexity.ai',
-                'youtube': 'https://youtube.com',
-                'gmail': 'https://mail.google.com',
-                'google': 'https://google.com',
-                'claude': 'https://claude.ai',
-                'github': 'https://github.com',
-            }
-            
-            app_lower = app_name.lower()
-            
-            # Try direct map first
-            if app_lower in DIRECT_APPS:
-                target = DIRECT_APPS[app_lower]
-                try:
-                    if target.startswith('http') or target.startswith('ms-') or target.endswith(':'):
-                        os.startfile(target)
-                    else:
-                        subprocess.Popen(target, shell=True)
-                    return f"Opening {app_name}, {title}."
-                except Exception as e:
-                    return f"Error opening {app_name}: {e}"
-            
-            # Try web apps
-            if app_lower in WEB_APPS:
-                import webbrowser
-                webbrowser.open(WEB_APPS[app_lower])
-                return f"Opening {app_name} in browser, {title}."
-            
-            # Try AppFinder for everything else
-            if self.jarvis and hasattr(self.jarvis, 'app_finder'):
-                try:
-                    success = self.jarvis.app_finder.open_app(app_lower)
-                    if success:
-                        return f"Opening {app_name}, {title}."
-                except Exception:
-                    pass
-            
-            # Try os.startfile as last resort
-            try:
-                os.startfile(app_lower)
-                return f"Opening {app_name}, {title}."
-            except Exception:
-                # Search Start Menu
-                try:
-                    from jarvis.core.app_finder import AppFinder
-                    finder = shared(AppFinder)
-                    success = finder.open_app(app_lower)
-                    if success:
-                        return f"Opening {app_name}, {title}."
-                except Exception:
-                    pass
-            
-            return f"Couldn't find {app_name}, {title}. Try the exact name."
-        
-        # Habits — classifier thinks this is 'conversation'
-        if 'habit' in cmd and self.habit_tracker:
-            if 'create' in cmd or 'add' in cmd or 'new' in cmd:
-                match = re.search(r'(?:create|add|new)\s+habit\s+(.+?)(?:\s+every\s+|\s+daily|\s+hourly|$)', cmd, re.I)
-                if match:
-                    desc = match.group(1).strip()
-                    self.habit_tracker.create_habit(desc, cmd)
-                    return f"Habit '{desc}' created, {title}."
-                return f"Please specify a habit, {title}. Say 'add habit drink water'."
-            elif 'list' in cmd or 'show' in cmd or 'my habits' in cmd:
-                self.habit_tracker.list_habits()
-                return f"Listing your habits, {title}."
-            elif 'check' in cmd:
-                reminders = self.habit_tracker.check_reminders()
-                if reminders:
-                    return f"You have {len(reminders)} habit reminders, {title}."
-                return f"No habit reminders due, {title}."
-        
-        # Tasks — classifier thinks this is 'conversation'
-        if ('task' in cmd or 'todo' in cmd or 'to do' in cmd) and self.task_manager_obj:
-            if 'add' in cmd or 'create' in cmd or 'new' in cmd:
-                match = re.search(r'(?:add|create|new)\s+(?:a\s+)?task\s+(.+)', cmd, re.I)
-                if match:
-                    desc = match.group(1).strip()
-                    if hasattr(self.task_manager_obj, 'add_task'):
-                        self.task_manager_obj.add_task(desc)
-                    elif hasattr(self.task_manager_obj, 'create_task'):
-                        self.task_manager_obj.create_task(desc)
-                    return f"Task added: '{desc}', {title}."
-            elif 'list' in cmd or 'show' in cmd or 'my task' in cmd:
-                if hasattr(self.task_manager_obj, 'list_tasks'):
-                    result = self.task_manager_obj.list_tasks()
-                elif hasattr(self.task_manager_obj, 'get_tasks'):
-                    result = self.task_manager_obj.get_tasks()
-                else:
-                    result = None
-                return result if isinstance(result, str) else f"Listing your tasks, {title}."
-        
-        # Wellness — classifier thinks this is 'conversation'
-        if 'wellness' in cmd and self.wellness_monitor:
-            if 'summary' in cmd or 'status' in cmd:
-                summary = self.wellness_monitor.get_wellness_summary()
-                return summary if isinstance(summary, str) else f"Your wellness looks good, {title}."
-            elif 'check' in cmd:
-                reminder = self.wellness_monitor.check_wellness()
-                return reminder if reminder else f"You're doing well, {title}."
-            elif 'reset' in cmd or 'took a break' in cmd:
-                self.wellness_monitor.reset_session()
-                return f"Session reset. Good on you for taking a break, {title}."
-        
-        # ══════════════════════════════════════════════════════════════════
-        # EMAIL — send/check/read emails directly, skip ML classifier
-        # ══════════════════════════════════════════════════════════════════
-        if ('email' in cmd or 'mail' in cmd or 'gmail' in cmd) and self.email_handler_obj:
-            import re as _re
-            
-            # Send email: "send email to user@example.com saying hello"
-            send_match = _re.search(r'send\s+(?:a\s+)?(?:email|mail)\s+to\s+(\S+@\S+)\s+(?:saying|about|subject|with)?\s*(.*)', cmd, _re.I)
-            if send_match:
-                to_email = send_match.group(1).strip()
-                body = send_match.group(2).strip() or "Hello from JARVIS"
-                subject = body[:50] + "..." if len(body) > 50 else body
-                result = self.email_handler_obj.send_email(to_email, subject, body)
-                return result
-            
-            # "send email to bob saying hi": no address. This used to fall
-            # through to the default branch and check the inbox instead.
-            if _re.search(r'\bsend\b', cmd) and 'remind' not in cmd:
-                return (f"I need an email address to send that{maybe_title(title)}. "
-                        f"Try: send email to name@example.com saying hello.")
+        # 'switch to [app]' / 'go to [app]' (Win32 calls in AppSwitcher). Tab
+        # commands ("switch to the next tab") are screen control: the router.
+        return self.switch_to_app_command(cmd, title)
 
-            # Send reminder email to self
-            if 'remind' in cmd and 'email' in cmd:
-                reminder_text = _re.sub(r'.*(?:remind|email).*?(?:to|about|that)\s+', '', cmd, flags=_re.I).strip()
-                if reminder_text:
-                    result = self.email_handler_obj.send_reminder_email(reminder_text)
-                    return result or f"Reminder email sent, {title}."
-            
-            # Summarize emails
-            if 'summarize' in cmd or 'summary' in cmd:
-                result = self.email_handler_obj.summarize_emails()
-                return f"Here's your email summary, {title}. {result}" if isinstance(result, str) else f"Summarizing your emails, {title}."
-            
-            # Check/read unread emails
-            if any(w in cmd for w in ['check', 'read', 'unread', 'inbox', 'show']):
-                result = self.email_handler_obj.get_unread_emails()
-                return f"Checking your inbox, {title}. {result}" if isinstance(result, str) else f"Checking your emails, {title}."
-            
-            # Default: check inbox
-            result = self.email_handler_obj.get_unread_emails()
-            return f"Checking your inbox, {title}. {result}" if isinstance(result, str) else f"Checking your emails, {title}."
-        
-        # PDF — no handler existed before
-        if ('read pdf' in cmd or 'open pdf' in cmd or 'pdf' in cmd) and self.pdf_handler:
-            if hasattr(self.pdf_handler, 'extract_text'):
-                return f"PDF handler ready, {title}. Please specify a file path."
-            return f"PDF handler available, {title}."
-        
-        # ══════════════════════════════════════════════════════════════════
-        # TRY INTENTROUTER FIRST - Clean, simple responses
-        # This prevents verbose Gemini AI responses for known commands
-        # ══════════════════════════════════════════════════════════════════
-        # The router's handlers make blocking network calls (LLM, weather, news).
-        # Run it in a worker thread so one slow request can't freeze the server:
-        # a hung LLM call used to stop every reply and HUD update.
+    def _cmd_reminder(self, cmd: str, command: str, title: str):
+        # Route directly, so it doesn't fall to the face-auth gate
+        if not (('remind' in cmd or 'reminder' in cmd) and 'email' not in cmd and self.reminder_manager):
+            return None
+        if 'list' in cmd or 'show' in cmd or 'my' in cmd:
+            result = self.reminder_manager.read_reminders()
+            return result if result else f"No upcoming reminders, {title}."
+        if self.reminder_manager.set_reminder_from_command(cmd):
+            return f"Reminder set, {title}."
+        return f"I couldn't parse that reminder. Try: 'remind me to X in 30 minutes', {title}."
+
+    def _cmd_open_app(self, cmd: str, command: str, title: str):
+        """'open X': direct map, web apps, AppFinder, then the Start menu. No ML."""
+        open_match = re.match(r'^(?:open|launch|start|run)\s+(.+)', cmd, re.I)
+        if not open_match:
+            return None
+        app_name = open_match.group(1).strip()
+        app_lower = app_name.lower()
+
+        if app_lower in DIRECT_APPS:
+            target = DIRECT_APPS[app_lower]
+            try:
+                if target.startswith('http') or target.startswith('ms-') or target.endswith(':'):
+                    os.startfile(target)
+                else:
+                    subprocess.Popen(target, shell=True)
+                return f"Opening {app_name}, {title}."
+            except Exception as e:
+                return f"Error opening {app_name}: {e}"
+
+        if app_lower in WEB_APPS:
+            import webbrowser
+            webbrowser.open(WEB_APPS[app_lower])
+            return f"Opening {app_name} in browser, {title}."
+
+        if self.jarvis and hasattr(self.jarvis, 'app_finder'):
+            try:
+                if self.jarvis.app_finder.open_app(app_lower):
+                    return f"Opening {app_name}, {title}."
+            except Exception as e:
+                recovered("WebSocket", e)
+
+        try:
+            os.startfile(app_lower)
+            return f"Opening {app_name}, {title}."
+        except Exception:
+            try:  # search the Start menu
+                from jarvis.core.app_finder import AppFinder
+                if shared(AppFinder).open_app(app_lower):
+                    return f"Opening {app_name}, {title}."
+            except Exception as e:
+                recovered("WebSocket", e)
+        return f"Couldn't find {app_name}, {title}. Try the exact name."
+
+    def _cmd_habit(self, cmd: str, command: str, title: str):
+        # The classifier thinks this is 'conversation'
+        if 'habit' not in cmd or not self.habit_tracker:
+            return None
+        if 'create' in cmd or 'add' in cmd or 'new' in cmd:
+            match = re.search(r'(?:create|add|new)\s+habit\s+(.+?)(?:\s+every\s+|\s+daily|\s+hourly|$)', cmd, re.I)
+            if match:
+                desc = match.group(1).strip()
+                self.habit_tracker.create_habit(desc, cmd)
+                return f"Habit '{desc}' created, {title}."
+            return f"Please specify a habit, {title}. Say 'add habit drink water'."
+        if 'list' in cmd or 'show' in cmd or 'my habits' in cmd:
+            self.habit_tracker.list_habits()
+            return f"Listing your habits, {title}."
+        if 'check' in cmd:
+            reminders = self.habit_tracker.check_reminders()
+            if reminders:
+                return f"You have {len(reminders)} habit reminders, {title}."
+            return f"No habit reminders due, {title}."
+        return None
+
+    def _cmd_task(self, cmd: str, command: str, title: str):
+        # The classifier thinks this is 'conversation'
+        if not (('task' in cmd or 'todo' in cmd or 'to do' in cmd) and self.task_manager_obj):
+            return None
+        tm = self.task_manager_obj
+        if 'add' in cmd or 'create' in cmd or 'new' in cmd:
+            match = re.search(r'(?:add|create|new)\s+(?:a\s+)?task\s+(.+)', cmd, re.I)
+            if not match:
+                return None
+            desc = match.group(1).strip()
+            if hasattr(tm, 'add_task'):
+                tm.add_task(desc)
+            elif hasattr(tm, 'create_task'):
+                tm.create_task(desc)
+            return f"Task added: '{desc}', {title}."
+        if 'list' in cmd or 'show' in cmd or 'my task' in cmd:
+            if hasattr(tm, 'list_tasks'):
+                result = tm.list_tasks()
+            elif hasattr(tm, 'get_tasks'):
+                result = tm.get_tasks()
+            else:
+                result = None
+            return result if isinstance(result, str) else f"Listing your tasks, {title}."
+        return None
+
+    def _cmd_wellness(self, cmd: str, command: str, title: str):
+        # The classifier thinks this is 'conversation'
+        if 'wellness' not in cmd or not self.wellness_monitor:
+            return None
+        if 'summary' in cmd or 'status' in cmd:
+            summary = self.wellness_monitor.get_wellness_summary()
+            return summary if isinstance(summary, str) else f"Your wellness looks good, {title}."
+        if 'check' in cmd:
+            reminder = self.wellness_monitor.check_wellness()
+            return reminder if reminder else f"You're doing well, {title}."
+        if 'reset' in cmd or 'took a break' in cmd:
+            self.wellness_monitor.reset_session()
+            return f"Session reset. Good on you for taking a break, {title}."
+        return None
+
+    def _cmd_email(self, cmd: str, command: str, title: str):
+        """Send/check/read/summarise email directly, skipping the ML classifier."""
+        if not (('email' in cmd or 'mail' in cmd or 'gmail' in cmd) and self.email_handler_obj):
+            return None
+        mail = self.email_handler_obj
+        send_match = re.search(r'send\s+(?:a\s+)?(?:email|mail)\s+to\s+(\S+@\S+)\s+(?:saying|about|subject|with)?\s*(.*)', cmd, re.I)
+        if send_match:
+            to_email = send_match.group(1).strip()
+            body = send_match.group(2).strip() or "Hello from JARVIS"
+            subject = body[:50] + "..." if len(body) > 50 else body
+            return mail.send_email(to_email, subject, body)
+        # "send email to bob saying hi": no address. This used to fall through
+        # to the default branch and check the inbox instead.
+        if re.search(r'\bsend\b', cmd) and 'remind' not in cmd:
+            return (f"I need an email address to send that{maybe_title(title)}. "
+                    f"Try: send email to name@example.com saying hello.")
+        if 'remind' in cmd and 'email' in cmd:
+            reminder_text = re.sub(r'.*(?:remind|email).*?(?:to|about|that)\s+', '', cmd, flags=re.I).strip()
+            if reminder_text:
+                return mail.send_reminder_email(reminder_text) or f"Reminder email sent, {title}."
+        if 'summarize' in cmd or 'summary' in cmd:
+            result = mail.summarize_emails()
+            return (f"Here's your email summary, {title}. {result}" if isinstance(result, str)
+                    else f"Summarizing your emails, {title}.")
+        result = mail.get_unread_emails()   # check / read / inbox, and the default
+        return (f"Checking your inbox, {title}. {result}" if isinstance(result, str)
+                else f"Checking your emails, {title}.")
+
+    def _cmd_pdf(self, cmd: str, command: str, title: str):
+        if 'pdf' not in cmd or not self.pdf_handler:
+            return None
+        if hasattr(self.pdf_handler, 'extract_text'):
+            return f"PDF handler ready, {title}. Please specify a file path."
+        return f"PDF handler available, {title}."
+
+    # ── step 3: router, HUD features, AI ─────────────────────────────────
+    async def _cmd_route_and_answer(self, cmd: str, command: str, title: str, websocket) -> str:
+        # The router's handlers make blocking network calls (LLM, weather,
+        # news): a worker thread, so one slow request can't freeze the server
         router_response = await self._run_blocking(self._route_through_router, command)
-        # Check if router gave a REAL answer (not a fallback error)
-        _error_phrases = ['trouble connecting', 'knowledge base', 'currently offline', 
-                          'encountered an issue', 'Set GROQ_API_KEY']
-        if router_response and not any(ep in (router_response or '') for ep in _error_phrases):
+        if router_response and not any(ep in router_response for ep in ROUTER_ERROR_PHRASES):
             return router_response
-        
-        # Special handling for news categories
-        news_categories = ['economics', 'economy', 'business', 'politics', 'technology', 
-                          'tech', 'sports', 'entertainment', 'world', 'global']
-        
-        for category in news_categories:
+
+        for category in NEWS_CATEGORIES:
             if category in cmd and ('news' in cmd or 'headlines' in cmd):
-                # Update news panel with category-specific news
-                news_data = self.get_news_data(category=category)
+                news_data = self.get_news_data(category=category)   # also updates the news panel
                 await self._send_to(websocket, json.dumps(news_data))
-                
-                items = news_data['items'][:3]
-                items_text = ". ".join(items)
+                items_text = ". ".join(news_data['items'][:3])
                 return f"Here are the top {category} headlines, {title}: {items_text}"
-        
-        # ══════════════════════════════════════════════════════════════════
-        # TRY HUD-SPECIFIC COMMANDS FIRST (before full JARVIS)
-        # These are features we want to handle in the HUD directly
-        # ══════════════════════════════════════════════════════════════════
-        
-        hud_commands = [
-            'screenshot', 'capture screen',
-            'read screen', 'read text', 'extract text', 'ocr',
-            'read clipboard',
-            'define ', 'meaning of ', 'definition of ',
-            'synonym',
-            'register my face', 'register face', 'register owner',
-            'verify me', 'authenticate', 'who am i',
-            'enable gesture', 'start gesture', 'gesture on',
-            'disable gesture', 'stop gesture', 'gesture off',
-            'enable emotion', 'mood detection', 'disable emotion',
-            'tell me a story', 'tell a story',
-            'recite a poem', 'poem',
-            'riddle',
-            'create note', 'new note', 'add note',
-            'list notes', 'show notes', 'my notes',
-            'set alarm',
-            'list alarm', 'show alarm', 'my alarm',
-            'switch to friday', 'activate friday',
-            'switch to jarvis', 'activate jarvis'
-        ]
-        
-        # Check if this is a HUD-specific command
-        is_hud_command = any(cmd_pattern in cmd for cmd_pattern in hud_commands)
-        
-        if is_hud_command:
-            # Process through our HUD handlers directly
+
+        if any(p in cmd for p in HUD_COMMANDS):
             return await self._fallback_process(command, websocket)
-        
-        # For general queries, ask the text model (see core/llm.py)
+
+        # General queries: the text model (see core/llm.py)
         from jarvis.core.llm import ask_gemini, gemini_client
         if gemini_client() is not None:
             try:
@@ -2542,12 +2616,11 @@ class JARVISWebSocketServer:
             if reply:
                 return reply
             # The keyword fallback would answer an unrelated question with e.g.
-            # a greeting ("translate hello…" -> "Good morning."). Be honest instead.
+            # a greeting ("translate hello..." -> "Good morning."). Be honest instead.
             return f"I couldn't reach the AI service just now{maybe_title(title)}. Please try again in a moment."
 
-        # No Gemini key: keyword-based fallback
-        return await self._fallback_process(command, websocket)
-    
+        return await self._fallback_process(command, websocket)   # no Gemini key: keywords
+
     def _route_through_router(self, command: str, force: bool = False) -> str:
         """Route command through direct handlers first, then IntentRouter.
 
@@ -2791,12 +2864,7 @@ class JARVISWebSocketServer:
                 
                 if 'gesture' in cmd_lower:
                     if jlog: jlog.route('feature_toggle', 'gesture')
-                    self.gesture_enabled = enabling
-                    if enabling and self.gesture_controller:
-                        self.gesture_controller.enable_tracking()
-                    elif self.gesture_controller:
-                        self.gesture_controller.disable_tracking()
-                    return f"Gesture control {'enabled' if enabling else 'disabled'}, {title}."
+                    return self.set_gesture_enabled(enabling, title)
                 
                 elif 'face' in cmd_lower:
                     if jlog: jlog.route('feature_toggle', 'face')
@@ -3057,8 +3125,8 @@ class JARVISWebSocketServer:
             # Fallback: direct send if queue not set up (shouldn't happen)
             try:
                 await websocket.send(msg_str)
-            except Exception:
-                pass
+            except Exception as _err:
+                recovered("WebSocket", _err)
             return
         try:
             q.put_nowait(msg_str)

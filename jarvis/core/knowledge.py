@@ -262,8 +262,10 @@ class KnowledgeLayer:
 
         # Get personality prompt with mood awareness
         try:
-            from jarvis.core.personality import JARVISPersonalityCore
-            personality = JARVISPersonalityCore(self.perception)
+            # It takes a state manager, not perception: passing self.perception
+            # crashed (.get() missing), so the mood-aware prompt was never used
+            from jarvis.core.personality import get_personality
+            personality = get_personality()
             if hasattr(personality, 'get_personality_prompt'):
                 personality_prompt = personality.get_personality_prompt(current_mood)
             else:

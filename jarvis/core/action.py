@@ -250,7 +250,7 @@ class ActionLayer:
                 os.startfile(app_name)
                 self.perception.speak(f"Opening {app_name}, {title}.")
                 return True
-            except:
+            except Exception:
                 pass
             
             # App not found - search for it online

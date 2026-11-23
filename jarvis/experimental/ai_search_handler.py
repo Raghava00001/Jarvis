@@ -255,7 +255,7 @@ class AISearchHandler:
             if self.memory_path.exists():
                 with open(self.memory_path, 'r') as f:
                     self.memory = json.load(f)
-        except:
+        except Exception:
             pass
             
     def _save_history(self):
@@ -263,7 +263,7 @@ class AISearchHandler:
         try:
             with open(self.history_path, 'w') as f:
                 json.dump(self.history[-100:], f, indent=2)
-        except:
+        except Exception:
             pass
             
     def _save_memory(self):
@@ -271,7 +271,7 @@ class AISearchHandler:
         try:
             with open(self.memory_path, 'w') as f:
                 json.dump(self.memory[-500:], f, indent=2)
-        except:
+        except Exception:
             pass
             
     def search(
@@ -416,7 +416,7 @@ class AISearchHandler:
                             item.pubDate.text.strip()[:25],
                             "%a, %d %b %Y %H:%M:%S"
                         )
-                    except:
+                    except Exception:
                         pass
                         
                 results.append(SearchResult(

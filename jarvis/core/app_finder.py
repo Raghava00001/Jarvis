@@ -211,7 +211,7 @@ class AppFinder:
                 mtime = self.cache_path.stat().st_mtime
                 age_hours = (time.time() - mtime) / 3600
                 return age_hours > 24
-        except:
+        except Exception:
             pass
         return True
         
@@ -339,12 +339,12 @@ class AppFinder:
                                             path=path,
                                             app_type=AppType.DESKTOP
                                         )
-                                except:
+                                except Exception:
                                     pass
                             i += 1
                         except OSError:
                             break
-            except:
+            except Exception:
                 pass
                 
     def _scan_common_paths(self):
@@ -373,7 +373,7 @@ class AppFinder:
                             path=str(exe),
                             app_type=AppType.DESKTOP
                         )
-                except:
+                except Exception:
                     pass
                     
     def _deduplicate(self):
@@ -597,7 +597,7 @@ class AppLauncher:
                 capture_output=True, timeout=10
             )
             return result.returncode == 0
-        except:
+        except Exception:
             return False
 
 

@@ -178,7 +178,7 @@ class PygameBackend(AudioBackend):
         try:
             self.pygame.mixer.music.set_volume(min(1.0, max(0.0, volume)))
             return True
-        except:
+        except Exception:
             return False
             
     def cleanup(self):
@@ -186,7 +186,7 @@ class PygameBackend(AudioBackend):
             try:
                 self.pygame.mixer.music.stop()
                 self.pygame.mixer.quit()
-            except:
+            except Exception:
                 pass
 
 
@@ -210,7 +210,7 @@ class FallbackBackend(AudioBackend):
             else:
                 os.system(f'paplay "{path}" &')
                 return True
-        except:
+        except Exception:
             print(f"[SOUND] Fallback play failed: {path}")
             return False
             
@@ -507,7 +507,7 @@ class ImmersiveStoryteller:
 {genre_prompts.get(genre, '')}
 Keep it 2-3 minutes. Use [PAUSE] for pauses and [EFFECT] for sound effect moments."""
                 return self.knowledge.answer_question(prompt)
-            except:
+            except Exception:
                 pass
                 
         return f"Once upon a time, there was a tale about {theme}. [PAUSE] The end."

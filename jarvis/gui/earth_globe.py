@@ -131,7 +131,7 @@ class HolographicGlobe:
             import ctypes
             hwnd = pygame.display.get_wm_info()["window"]
             ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 3)
-        except:
+        except Exception:
             pass
     
     def set_state(self, state: JARVISState):

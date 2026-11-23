@@ -478,7 +478,7 @@ class FaceRecognition:
         if not face_locations:
             try:
                 face_locations = face_recognition.face_locations(rgb_frame, model="cnn")
-            except:
+            except Exception:
                 pass
         
         if not face_locations:

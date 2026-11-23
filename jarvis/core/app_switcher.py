@@ -144,7 +144,7 @@ class AppSwitcher:
                         _, pid = win32process.GetWindowThreadProcessId(hwnd)
                         process = psutil.Process(pid)
                         process_name = process.name()
-                    except:
+                    except Exception:
                         process_name = "unknown"
                     
                     is_minimized = win32gui.IsIconic(hwnd)

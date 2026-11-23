@@ -64,7 +64,7 @@ class EmotionRouter:
                 detected = self.emotion_detector.detect(text=text)
                 if detected:
                     mood = self._normalize_mood(detected)
-            except:
+            except Exception:
                 pass
                 
         # Fallback to text-based detection

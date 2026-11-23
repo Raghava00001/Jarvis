@@ -160,7 +160,7 @@ class EdgeTTSBackend:
             # Clean up temp file
             try:
                 os.unlink(audio_path)
-            except:
+            except Exception:
                 pass
 
     def _play_audio(self, path: str):
@@ -194,7 +194,7 @@ class EdgeTTSBackend:
             import pygame
             if pygame.mixer.get_init():
                 pygame.mixer.music.stop()
-        except:
+        except Exception:
             pass
 
 

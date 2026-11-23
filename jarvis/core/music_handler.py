@@ -133,7 +133,7 @@ class SpotifyController:
                         self.device_id = d['id']
                         return
                 self.device_id = devices['devices'][0]['id']
-        except:
+        except Exception:
             pass
             
     def get_state(self) -> Tuple[PlaybackState, Optional[Track]]:
@@ -255,7 +255,7 @@ class MediaKeyController:
             self.user32 = ctypes.windll.user32
             self.available = True
             print("[MUSIC] Media keys available")
-        except:
+        except Exception:
             print("[MUSIC] Media keys not available")
             
     def _press_key(self, vk_code: int):
@@ -266,7 +266,7 @@ class MediaKeyController:
             self.user32.keybd_event(vk_code, 0, 0, 0)
             self.user32.keybd_event(vk_code, 0, 2, 0)  # Key up
             return True
-        except:
+        except Exception:
             return False
             
     def play_pause(self) -> bool:
@@ -323,7 +323,7 @@ class MusicHandler:
                 with open(self.state_path, 'r') as f:
                     data = json.load(f)
                     self.state.volume = data.get('volume', 50)
-        except:
+        except Exception:
             pass
             
     def _save_state(self):
@@ -332,7 +332,7 @@ class MusicHandler:
             self.state_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.state_path, 'w') as f:
                 json.dump(self.state.to_dict(), f)
-        except:
+        except Exception:
             pass
             
     def _update_state(self):

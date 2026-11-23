@@ -265,7 +265,7 @@ class LongTermMemory:
             if emb_blob and EMBEDDINGS_AVAILABLE:
                 try:
                     embedding = np.frombuffer(emb_blob, dtype=np.float32)
-                except:
+                except Exception:
                     pass
                     
             self._cache.append(MemoryFact(
@@ -376,7 +376,7 @@ class LongTermMemory:
             
             self._cache = [f for f in self._cache if f.fact != fact]
             return True
-        except:
+        except Exception:
             return False
             
     def get_all(self, category: str = None) -> List[str]:
@@ -423,7 +423,7 @@ class ContextMemory:
             if pref_path.exists():
                 with open(pref_path, 'r') as f:
                     self.preferences = json.load(f)
-        except:
+        except Exception:
             pass
             
     def _save_preferences(self):
@@ -433,7 +433,7 @@ class ContextMemory:
             pref_path.parent.mkdir(parents=True, exist_ok=True)
             with open(pref_path, 'w') as f:
                 json.dump(self.preferences, f, indent=2)
-        except:
+        except Exception:
             pass
             
     # Working memory shortcuts

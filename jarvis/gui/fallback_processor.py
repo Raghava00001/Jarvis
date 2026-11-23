@@ -1,4 +1,5 @@
 from jarvis.core.services import shared
+from jarvis.core.errors import recovered
 import json
 import re
 import os
@@ -136,8 +137,8 @@ class FallbackProcessor:
             if genre == 'horror' and self.server.entertainment and hasattr(self.server.entertainment, 'sound_library'):
                 try:
                     self.server.entertainment.sound_library.play('suspense')
-                except:
-                    pass
+                except Exception as _err:
+                    recovered("Fallback", _err)
             
             # One story implementation (intent_handlers.handle_story: topic,
             # genre, full length). This used to be a separate copy that cut
@@ -208,7 +209,7 @@ class FallbackProcessor:
             try:
                 os.startfile('spotify:')
                 return f"Opening Spotify for you{maybe_title(title)}."
-            except:
+            except Exception:
                 return f"Couldn't open Spotify. Make sure it's installed{maybe_title(title)}."
         
         # Volume - actually control hardware
@@ -656,8 +657,8 @@ class FallbackProcessor:
                             if all_synonyms:
                                 synonym_list = ", ".join(all_synonyms[:5])
                                 return f"Synonyms for {word}: {synonym_list}"
-                except:
-                    pass
+                except Exception as _err:
+                    recovered("Fallback", _err)
                 return f"No synonyms found for '{word}', {title}."
             return f"Dictionary not available, {title}."
         
@@ -687,23 +688,16 @@ class FallbackProcessor:
             return f"Face recognition not available, {title}."
         
         # GESTURE CONTROL
+        # (one implementation: the server's set_gesture_enabled)
         if 'enable gesture' in cmd or 'start gesture' in cmd or 'gesture on' in cmd:
-            if self.server.gesture_controller:
-                try:
-                    self.server.gesture_controller.enable_tracking()
-                    self.server.gesture_enabled = True
-                    await self.server._send_to(websocket, json.dumps(self.server.get_feature_status()))
-                    return f"Gesture control enabled, {title}. Use hand gestures to control."
-                except Exception as e:
-                    return f"Failed to start gesture control: {e}"
-            return f"Gesture control not available. Install mediapipe, {title}."
-        
+            reply = await self.server._run_blocking(self.server.set_gesture_enabled, True, title)
+            await self.server._send_to(websocket, json.dumps(self.server.get_feature_status()))
+            return reply
+
         if 'disable gesture' in cmd or 'stop gesture' in cmd or 'gesture off' in cmd:
-            if self.server.gesture_controller:
-                self.server.gesture_controller.disable_tracking()
-                self.server.gesture_enabled = False
-                return f"Gesture control disabled, {title}."
-            return f"Gesture control not active, {title}."
+            reply = await self.server._run_blocking(self.server.set_gesture_enabled, False, title)
+            await self.server._send_to(websocket, json.dumps(self.server.get_feature_status()))
+            return reply
         
         # EMOTION DETECTION
         if 'enable emotion' in cmd or 'mood detection' in cmd:

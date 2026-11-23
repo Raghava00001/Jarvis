@@ -171,7 +171,7 @@ class UnifiedPerception:
                             data={"emotion": emotion},
                             confidence=0.7
                         ))
-                except:
+                except Exception:
                     pass
                     
     def _emit_event(self, event: PerceptionEvent):

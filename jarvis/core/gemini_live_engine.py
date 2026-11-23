@@ -80,7 +80,9 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "send_message",
-        "description": "Sends a text message via WhatsApp to a contact.",
+        "description": ("Types a WhatsApp message to a contact as a draft. It is NOT sent until the "
+                        "user confirms: after they say yes/send, call send_message again with the same "
+                        "receiver and message_text to send it."),
         "parameters": {
             "type": "OBJECT",
             "properties": {
@@ -869,14 +871,27 @@ class GeminiLiveEngine:
                     result = getattr(res, "response", "Opened app.")
 
             elif name == "send_message":
+                # Spoken replies go to Gemini in live mode, so a second identical
+                # call while that draft waits is the user's "yes, send it".
+                from jarvis.core.services import peek as _peek
+                from jarvis.core.whatsapp_handler import WhatsAppHandler as _WA
+                _wa = (getattr(self.server, 'whatsapp_handler', None) if self.server else None) or _peek(_WA)
+                _draft = _wa.pending_draft() if _wa else None
                 handler = HANDLER_MAP.get("send_message")
+                if _draft and (args.get("receiver") or "").strip().lower() == _draft.contact.lower()                         and (args.get("message_text") or "").strip() == _draft.message:
+                    result = _wa.confirm_send()
+                    handler = None
                 if handler:
                     entities = {
                         "contact": args.get("receiver"),
                         "message": args.get("message_text"),
                     }
                     res = handler(cmd="", entities=entities, context=context)
-                    result = getattr(res, "response", "Message sent.")
+                    result = getattr(res, "response", "")
+                    _wa = _wa or _peek(_WA)  # the handler may have just been created
+                    if _wa and _wa.pending_draft():
+                        result += (" (Not sent yet. Ask the user to confirm; only call send_message "
+                                   "again, with the same receiver and message_text, if they say yes.)")
 
             elif name == "weather_report":
                 handler = HANDLER_MAP.get("weather")
@@ -1298,7 +1313,7 @@ class GeminiLiveEngine:
                 if self.audio_in_queue:
                     while not self.audio_in_queue.empty():
                         try: self.audio_in_queue.get_nowait()
-                        except: break
+                        except Exception: break
                 result = "Muted. I'll stay silent until you need me."
                 print("[LIVE] JARVIS muted by user request")
 
@@ -1412,7 +1427,7 @@ class GeminiLiveEngine:
                     try:
                         self.out_queue.get_nowait()
                         self.out_queue.put_nowait({"data": data, "mime_type": "audio/pcm"})
-                    except:
+                    except Exception:
                         pass
         except Exception as e:
             if self._running:
@@ -1447,7 +1462,7 @@ class GeminiLiveEngine:
                             while not self.audio_in_queue.empty():
                                 try:
                                     self.audio_in_queue.get_nowait()
-                                except:
+                                except Exception:
                                     break
                         
                             # also skip further processing of this response
@@ -1485,7 +1500,7 @@ class GeminiLiveEngine:
                                             self._current_turn_id += 1
                                             while not self.audio_in_queue.empty():
                                                 try: self.audio_in_queue.get_nowait()
-                                                except: break
+                                                except Exception: break
                                         in_buf.append(txt)
                                         self._raw_in += sc.input_transcription.text
                                         # Wake-word gate on the raw joined fragments
@@ -1677,11 +1692,11 @@ class GeminiLiveEngine:
         if self.audio_in_queue:
             while not self.audio_in_queue.empty():
                 try: self.audio_in_queue.get_nowait()
-                except: break
+                except Exception: break
         if self.out_queue:
             while not self.out_queue.empty():
                 try: self.out_queue.get_nowait()
-                except: break
+                except Exception: break
 
         print("[LIVE] Connecting to Gemini Live API...")
         client = genai.Client(api_key=self.api_key)

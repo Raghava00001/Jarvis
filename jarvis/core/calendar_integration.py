@@ -109,7 +109,7 @@ class CalendarIntegration:
                 # Use offset-based timezone
                 sign = "+" if hours >= 0 else "-"
                 return f"Etc/GMT{sign}{abs(hours)}"
-        except:
+        except Exception:
             return "UTC"
             
     def _authenticate(self):

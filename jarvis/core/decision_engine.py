@@ -147,7 +147,7 @@ class DecisionEngine:
                             priority=DecisionPriority.CAUTIOUS,
                             message=f"Setting alarm for {time_str} — this will severely impact tomorrow's performance."
                         )
-                except:
+                except Exception:
                     pass
                     
         return None

@@ -90,7 +90,7 @@ class HotkeySystem:
                 ],
                 capture_output=True, timeout=5
             )
-        except:
+        except Exception:
             pass
 
     def start_wake_word_listening(self, callback):
@@ -136,5 +136,5 @@ class HotkeySystem:
         if KEYBOARD_AVAILABLE:
             try:
                 keyboard.unhook_all()
-            except:
+            except Exception:
                 pass
