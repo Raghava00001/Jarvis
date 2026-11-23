@@ -67,36 +67,12 @@ def try_fast_path(server, text: str):
         except Exception:
             return None
 
-    # ── VOLUME (instant) ──
-    if 'volume' in cmd:
-        if server.system_control:
-            if 'up' in cmd or 'increase' in cmd:
-                server.system_control.volume_up()
-                return f"Volume up, {title}."
-            elif 'down' in cmd or 'decrease' in cmd:
-                server.system_control.volume_down()
-                return f"Volume down, {title}."
-            elif 'mute' in cmd:
-                server.system_control.mute_volume()
-                return f"Muted, {title}."
-            num = _re.search(r'(\d+)', cmd)
-            if num:
-                server.system_control.set_volume(int(num.group(1)))
-                return f"Volume set to {num.group(1)}%, {title}."
-
-    # ── BRIGHTNESS (instant) ──
-    if 'brightness' in cmd:
-        if server.system_control:
-            if 'up' in cmd or 'increase' in cmd:
-                server.system_control.brightness_up()
-                return f"Brightness up, {title}."
-            elif 'down' in cmd or 'decrease' in cmd:
-                server.system_control.brightness_down()
-                return f"Brightness down, {title}."
-            num = _re.search(r'(\d+)', cmd)
-            if num:
-                server.system_control.set_brightness(int(num.group(1)))
-                return f"Brightness set to {num.group(1)}%, {title}."
+    # ── VOLUME / BRIGHTNESS (instant; the reply is what really happened) ──
+    for kind in ('volume', 'brightness'):
+        if kind in cmd and server.system_control:
+            from jarvis.core.system_control import parse_level_request
+            if parse_level_request(cmd) is not None:
+                return server.system_control.adjust(kind, cmd)
 
     # ── PLAY IN YOUTUBE (instant — prevents Spotify conflict) ──
     yt_match = _re.search(r'play\s+(.+?)\s+(?:in|on)\s+youtube', cmd)

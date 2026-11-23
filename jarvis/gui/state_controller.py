@@ -41,7 +41,10 @@ class UIStateController:
         self.emotion_machine = EmotionStateMachine()
         
         # Vision features - ALL AUTO-ENABLED ON STARTUP
-        self.gesture_enabled = True   # Auto-enabled from boot
+        # Off until the server says otherwise (gestures start off; the camera
+        # opens only when you enable them). This said True, so the HUD showed
+        # gestures as on while nothing was watching your hand.
+        self.gesture_enabled = False
         self.face_enabled = True      # Always on by default
         self.emotion_enabled = True   # Always on by default
         

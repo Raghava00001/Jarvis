@@ -28,6 +28,58 @@ if platform.system() == "Windows":
         print("[SYSTEM] screen-brightness-control not installed")
 
 
+import re
+
+_UNMUTE_RE = re.compile(r"\bun-?mute\b", re.I)
+_MUTE_RE = re.compile(r"\b(?:mute|silence)\b", re.I)
+_MAX_RE = re.compile(r"\b(?:max(?:imum)?|full)\b", re.I)
+_MIN_RE = re.compile(r"\b(?:min(?:imum)?|lowest)\b", re.I)
+_UP_RE = re.compile(r"\b(?:up|increase\w*|raise|higher|louder|brighter|brighten|more|boost)\b", re.I)
+_DOWN_RE = re.compile(r"\b(?:down|decrease\w*|lower|reduce\w*|quieter|softer|dim\w*|darker|less)\b", re.I)
+_LEVEL_RE = re.compile(r"\b(\d{1,3})\s*(?:%|percent)?")
+
+
+def maybe_title(title) -> str:
+    return f", {title}" if title else ""
+
+
+def parse_level_request(text: str = "", level=None):
+    """('up'|'down'|'set'|'mute'|'unmute', value) from a request, or None.
+
+    'turn the brightness down' -> ('down', None); 'volume_down' -> ('down', None);
+    'set volume to 40' / level=40 -> ('set', 40); 'max' -> ('set', 100).
+    """
+    t = (text or "").replace("_", " ")
+    if level not in (None, ""):
+        try:
+            return "set", max(0, min(100, int(float(str(level).strip().rstrip("%")))))
+        except ValueError:
+            pass
+    if _UNMUTE_RE.search(t):
+        return "unmute", None
+    if _MUTE_RE.search(t):
+        return "mute", None
+    m = _LEVEL_RE.search(t)
+    if m:
+        return "set", max(0, min(100, int(m.group(1))))
+    if _MAX_RE.search(t):
+        return "set", 100
+    if _MIN_RE.search(t):
+        return "set", 0
+    if _DOWN_RE.search(t):
+        return "down", None
+    if _UP_RE.search(t):
+        return "up", None
+    return None
+
+
+def _target(action: str, value, current: int, step: int) -> int:
+    if action == "set":
+        return max(0, min(100, int(value)))
+    return max(0, min(100, current + (step if action == "up" else -step)))
+
+
+
 class SystemControl:
     """Controls system hardware (Windows) - JARVIS takes control"""
 
@@ -85,242 +137,166 @@ class SystemControl:
     def _get_title(self):
         return getattr(self.perception, 'user_title', 'sir')
 
-    # ---------- VOLUME CONTROL ----------
+    # ---------- VOLUME & BRIGHTNESS: one honest entry point ----------
+    #
+    # Every path (voice tools, router, fast path, fallback) used to call these
+    # methods and then say "Brightness decreased" whatever happened: the
+    # methods spoke for themselves (a second voice next to Gemini's) and
+    # returned True even when every way of changing the level had failed.
+    # Gemini's tools also called the handler without saying up or down, so
+    # nothing happened at all. Now adjust() parses the request, changes the
+    # level, reads it back, and returns what is really true. It never speaks.
 
-    def set_volume(self, level: int):
-        """Set volume to specific percentage (0-100)"""
+    def adjust(self, kind: str, text: str = "", level=None) -> str:
+        """kind 'volume' or 'brightness'; text like 'turn it down', 'set to 40',
+        'mute'. Returns the reply to speak: the real outcome."""
         title = self._get_title()
-        level = max(0, min(level, 100))
-        
-        # PRIMARY: Use pycaw (direct Windows API - instant and precise)
-        if self.volume_interface:
+        t = maybe_title(title)
+        request = parse_level_request(text, level)
+        if request is None:
+            return f"Should I turn the {kind} up or down{t}?"
+        action, value = request
+        if kind == "volume":
+            return self._adjust_volume(action, value, t)
+        if kind == "brightness":
+            return self._adjust_brightness(action, value, t)
+        raise ValueError(kind)
+
+    # volume
+    def _endpoint(self):
+        """The speaker volume control, made in the calling thread (a COM
+        object made in another thread can't be used here)."""
+        if not VOLUME_AVAILABLE:
+            return None
+        try:
+            CoInitialize()
+        except Exception:
+            pass
+        try:
+            dev = AudioUtilities.GetSpeakers()
+            if hasattr(dev, "EndpointVolume"):          # pycaw >= 2024
+                return dev.EndpointVolume
+            raw = getattr(dev, "_dev", dev)
+            iface = raw.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            return cast(iface, POINTER(IAudioEndpointVolume))
+        except Exception as e:
+            print(f"[SYSTEM] Volume control unavailable: {e}")
+            return None
+
+    def get_volume(self):
+        ep = self._endpoint()
+        if ep is None:
+            return None
+        try:
+            return round(ep.GetMasterVolumeLevelScalar() * 100)
+        except Exception as e:
+            print(f"[SYSTEM] Volume read error: {e}")
+            return None
+
+    def _adjust_volume(self, action: str, value, t: str) -> str:
+        ep = self._endpoint()
+        if ep is not None:
             try:
-                self.volume_interface.SetMasterVolumeLevelScalar(level / 100.0, None)
-                self.perception.speak(f"Volume set to {level}%, {title}.")
-                return True
+                if action in ("mute", "unmute"):
+                    ep.SetMute(action == "mute", None)
+                    return f"Sound {'muted' if ep.GetMute() else 'unmuted'}{t}."
+                current = round(ep.GetMasterVolumeLevelScalar() * 100)
+                target = _target(action, value, current, step=10)
+                if target == current and action in ("up", "down"):
+                    return f"The volume is already at {current}%{t}."
+                if ep.GetMute() and target > 0:
+                    ep.SetMute(False, None)
+                ep.SetMasterVolumeLevelScalar(target / 100.0, None)
+                now = round(ep.GetMasterVolumeLevelScalar() * 100)
+                return f"Volume is now {now}%{t}."
             except Exception as e:
-                print(f"[SYSTEM] pycaw error: {e}")
-        
-        # FALLBACK: Use keyboard simulation
+                print(f"[SYSTEM] Volume error: {e}")
+        # Fallback: the keyboard's volume keys (each press is about 2%)
         try:
             import pyautogui
-            
-            # Calculate current vs target (estimate based on 50 steps = 100%)
-            # Each press is ~2%
-            target_presses = level // 2
-            
-            # Set to 0 first (mute, then volume down)
-            pyautogui.press('volumemute')
-            time.sleep(0.05)
-            pyautogui.press('volumemute')
-            time.sleep(0.05)
-            
-            # Press down to zero (50 times)
-            for _ in range(50):
-                pyautogui.press('volumedown')
-            
-            # Press up to target
-            for _ in range(target_presses):
-                pyautogui.press('volumeup')
-            
-            self.perception.speak(f"Volume set to {level}%, {title}.")
-            return True
+            if action in ("mute", "unmute"):
+                pyautogui.press("volumemute")
+                return f"Toggled mute{t}."
+            if action == "set":
+                return f"I can't set an exact volume on this computer{t}, only turn it up or down."
+            key = "volumeup" if action == "up" else "volumedown"
+            for _ in range(5):
+                pyautogui.press(key)
+            return f"Turned the volume {action}{t}."
         except Exception as e:
-            print(f"[SYSTEM] Keyboard volume error: {e}")
-        
-        self.perception.speak(f"Volume control failed, {title}.")
-        return False
+            print(f"[SYSTEM] Volume keys error: {e}")
+        return f"I couldn't change the volume{t}."
 
-    def volume_up(self, amount=10):
-        """Increase volume"""
-        title = self._get_title()
-        
-        # Try pycaw first
-        if self.volume_interface:
+    # brightness
+    def get_brightness(self):
+        if BRIGHTNESS_AVAILABLE:
             try:
-                current = self.volume_interface.GetMasterVolumeLevelScalar()
-                # BUG FIX: Use 'amount' param instead of hardcoded 0.1
-                step = amount / 100.0
-                new_level = min(1.0, current + step)
-                self.volume_interface.SetMasterVolumeLevelScalar(new_level, None)
-                pct = int(new_level * 100)
-                self.perception.speak(f"Volume at {pct}%, {title}.")
-                return True
+                b = sbc.get_brightness()
+                return b[0] if isinstance(b, list) else b
             except Exception as e:
-                print(f"[SYSTEM] pycaw volume up error: {e}")
-        
-        # Fallback: Use pyautogui keyboard
+                print(f"[SYSTEM] Brightness read error: {e}")
         try:
-            import pyautogui
-            presses = max(1, amount // 2)  # Each press ~2%
-            for _ in range(presses):
-                pyautogui.press('volumeup')
-            self.perception.speak(f"Volume increased, {title}.")
-            return True
+            r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                                "(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness"
+                                " | Select-Object -First 1).CurrentBrightness"],
+                               capture_output=True, text=True, timeout=10)
+            return int(r.stdout.strip()) if r.stdout.strip().isdigit() else None
         except Exception as e:
-            print(f"[SYSTEM] Volume up error: {e}")
-        
-        self.perception.speak(f"Volume increased, {title}.")
-        return True
+            print(f"[SYSTEM] Brightness read (WMI) error: {e}")
+            return None
 
-    def volume_down(self, amount=10):
-        """Decrease volume"""
-        title = self._get_title()
-        
-        # Try pycaw first
-        if self.volume_interface:
-            try:
-                current = self.volume_interface.GetMasterVolumeLevelScalar()
-                # BUG FIX: Use 'amount' param instead of hardcoded 0.1
-                step = amount / 100.0
-                new_level = max(0.0, current - step)
-                self.volume_interface.SetMasterVolumeLevelScalar(new_level, None)
-                pct = int(new_level * 100)
-                self.perception.speak(f"Volume at {pct}%, {title}.")
-                return True
-            except Exception as e:
-                print(f"[SYSTEM] pycaw volume down error: {e}")
-        
-        # Fallback: Use pyautogui keyboard
-        try:
-            import pyautogui
-            presses = max(1, amount // 2)
-            for _ in range(presses):
-                pyautogui.press('volumedown')
-            self.perception.speak(f"Volume decreased, {title}.")
-            return True
-        except Exception as e:
-            print(f"[SYSTEM] Volume down error: {e}")
-        
-        self.perception.speak(f"Volume decreased, {title}.")
-        return True
-
-    def mute_volume(self):
-        """Toggle mute"""
-        title = self._get_title()
-        
-        # Try pycaw first
-        if self.volume_interface:
-            try:
-                current_mute = self.volume_interface.GetMute()
-                self.volume_interface.SetMute(not current_mute, None)
-                status = "muted" if not current_mute else "unmuted"
-                self.perception.speak(f"Volume {status}, {title}.")
-                return True
-            except Exception as e:
-                print(f"[SYSTEM] pycaw mute error: {e}")
-        
-        # Fallback: Use pyautogui keyboard
-        try:
-            import pyautogui
-            pyautogui.press('volumemute')
-            self.perception.speak(f"Volume muted, {title}.")
-            return True
-        except Exception as e:
-            print(f"[SYSTEM] Mute error: {e}")
-        
-        self.perception.speak(f"Volume toggled, {title}.")
-        return True
-
-    # ---------- BRIGHTNESS CONTROL ----------
-
-    def set_brightness(self, level: int):
-        """Set brightness to specific percentage"""
-        title = self._get_title()
-        level = max(0, min(level, 100))
-        
-        # PRIMARY: PowerShell WMI (works on most Windows laptops)
-        try:
-            ps_cmd = f'''
-            $brightness = {level}
-            $myMonitor = Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods
-            $myMonitor.WmiSetBrightness(1, $brightness)
-            '''
-            result = subprocess.run(
-                ['powershell', '-Command', ps_cmd],
-                capture_output=True, timeout=10
-            )
-            if result.returncode == 0:
-                self.perception.speak(f"Brightness set to {level}%, {title}.")
-                return True
-        except Exception as e:
-            print(f"[SYSTEM] PowerShell brightness error: {e}")
-        
-        # Fallback: screen_brightness_control library
+    def _write_brightness(self, level: int) -> None:
         if BRIGHTNESS_AVAILABLE:
             try:
                 sbc.set_brightness(level)
-                self.perception.speak(f"Brightness set to {level}%, {title}.")
-                return True
+                return
             except Exception as e:
-                print(f"[SYSTEM] sbc brightness error: {e}")
-        
-        self.perception.speak(f"Brightness control not available on this device, {title}.")
-        return False
+                print(f"[SYSTEM] Brightness (sbc) error: {e}")
+        subprocess.run(["powershell", "-NoProfile", "-Command",
+                        "(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods)"
+                        f".WmiSetBrightness(1, {int(level)})"],
+                       capture_output=True, timeout=10)
+
+    def _adjust_brightness(self, action: str, value, t: str) -> str:
+        current = self.get_brightness()
+        if current is None:
+            return f"I can't control the brightness of this display{t}."
+        if action in ("mute", "unmute"):
+            return f"Should I turn the brightness up or down{t}?"
+        target = _target(action, value, current, step=20)
+        if target == current:
+            return f"The brightness is already at {current}%{t}."
+        try:
+            self._write_brightness(target)
+        except Exception as e:
+            print(f"[SYSTEM] Brightness error: {e}")
+        time.sleep(0.3)  # some displays apply the change a moment later
+        now = self.get_brightness()
+        if now is None or abs(now - target) > 5:
+            return f"I tried, but the display didn't change its brightness{t}. It's at {now if now is not None else current}%."
+        return f"Brightness is now {now}%{t}."
+
+    # Old entry points (other modules call these): same honest result, no speech
+    def set_volume(self, level: int):
+        return self.adjust("volume", level=level)
+
+    def volume_up(self, amount=10):
+        return self.adjust("volume", "up")
+
+    def volume_down(self, amount=10):
+        return self.adjust("volume", "down")
+
+    def mute_volume(self):
+        return self.adjust("volume", "mute")
+
+    def set_brightness(self, level: int):
+        return self.adjust("brightness", level=level)
 
     def brightness_up(self, amount=20):
-        """Increase brightness"""
-        title = self._get_title()
-        
-        if BRIGHTNESS_AVAILABLE:
-            try:
-                current = sbc.get_brightness()
-                current = current[0] if isinstance(current, list) else current
-                new_level = min(100, current + amount)
-                sbc.set_brightness(new_level)
-                self.perception.speak(f"Brightness increased to {new_level} percent, {title}.")
-                return True
-            except Exception as e:
-                print(f"[SYSTEM] Brightness up error: {e}")
-        
-        # Fallback: PowerShell
-        try:
-            ps_cmd = '''
-            $current = (Get-WmiObject -Namespace root\\WMI -Class WmiMonitorBrightness).CurrentBrightness
-            $new = [Math]::Min(100, $current + 20)
-            $myMonitor = Get-WmiObject -Namespace root\\WMI -Class WmiMonitorBrightnessMethods
-            $myMonitor.WmiSetBrightness(1, $new)
-            '''
-            subprocess.run(['powershell', '-Command', ps_cmd], capture_output=True, timeout=10)
-            self.perception.speak(f"Brightness increased, {title}.")
-            return True
-        except Exception as e:
-            print(f"[SYSTEM] Brightness fallback error: {e}")
-        
-        self.perception.speak(f"Brightness increased, {title}.")
-        return True
+        return self.adjust("brightness", "up")
 
     def brightness_down(self, amount=20):
-        """Decrease brightness"""
-        title = self._get_title()
-        
-        if BRIGHTNESS_AVAILABLE:
-            try:
-                current = sbc.get_brightness()
-                current = current[0] if isinstance(current, list) else current
-                new_level = max(0, current - amount)
-                sbc.set_brightness(new_level)
-                self.perception.speak(f"Brightness decreased to {new_level} percent, {title}.")
-                return True
-            except Exception as e:
-                print(f"[SYSTEM] Brightness down error: {e}")
-        
-        # Fallback: PowerShell
-        try:
-            ps_cmd = '''
-            $current = (Get-WmiObject -Namespace root\\WMI -Class WmiMonitorBrightness).CurrentBrightness
-            $new = [Math]::Max(0, $current - 20)
-            $myMonitor = Get-WmiObject -Namespace root\\WMI -Class WmiMonitorBrightnessMethods
-            $myMonitor.WmiSetBrightness(1, $new)
-            '''
-            subprocess.run(['powershell', '-Command', ps_cmd], capture_output=True, timeout=10)
-            self.perception.speak(f"Brightness decreased, {title}.")
-            return True
-        except Exception as e:
-            print(f"[SYSTEM] Brightness fallback error: {e}")
-        
-        self.perception.speak(f"Brightness decreased, {title}.")
-        return True
+        return self.adjust("brightness", "down")
 
     # ---------- BLUETOOTH ----------
 
