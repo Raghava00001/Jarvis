@@ -55,8 +55,16 @@ EXPECT = {
     "take a note buy eggs": (["noted", "buy eggs"], ["[knowledge"]),
     "show my notes": (["notes"], ["[knowledge"]),
     "read my clipboard": (["clipboard"], ["[knowledge"]),
-    "read the screen": (["tesseract"], ["[knowledge"]),
+    "read the screen": (["[screen text]"], ["[knowledge"]),
     "send email to bob saying hi": (["email address"], ["inbox"]),
+    # v2.8: understanding fixes
+    "news about diabetes": (["[created]"], ["general headlines"]),        # topic briefing, not general news
+    "explain the history of the roman empire": (["[created]"], ["once upon"]),  # was a story
+    "tell me a story about a dragon": (["[created]"], []),
+    "switch to the next tab": (["next tab"], ["couldn't", "can't find"]),  # was "open app 'the next tab'"
+    "what is this": (["[screen answer]"], ["[knowledge"]),
+    "set a timer for 90 seconds": (["90 seconds"], []),
+    "send whatsapp message to mom saying hi": (["sent to mom"], ["message to mom"]),
 }
 
 HARNESS = r'''
@@ -78,6 +86,11 @@ async def main():
     client = MagicMock()
     client.models.generate_content.return_value = types.SimpleNamespace(text="[LLM answer]")
     stubs.append(patch("google.genai.Client", return_value=client))
+    # Never move window focus or capture the user's screen in tests
+    stubs.append(patch("jarvis.core.screen_control.focus_away_from_jarvis", return_value=None))
+    stubs.append(patch("jarvis.core.screen_vision.read_screen_text", return_value="[screen text]"))
+    stubs.append(patch("jarvis.core.screen_vision.ask_about_screen", return_value="[screen answer]"))
+    stubs.append(patch("jarvis.core.screen_vision.capture_screen_png", side_effect=AssertionError("no screenshots")))
     for s in stubs:
         s.start()
 
@@ -104,6 +117,7 @@ async def main():
     srv.hud_perception.voice_out = MagicMock(return_value=True)   # never play audio in tests
     if srv.knowledge:
         srv.knowledge.answer_question = MagicMock(return_value="[knowledge answer]")
+        srv.knowledge.create = MagicMock(return_value="[created] " + "A long-form answer. " * 8)
     wa = getattr(srv, "whatsapp_handler", None)
     if wa:
         wa.send_message = MagicMock(side_effect=lambda c, m: f"Message sent to {c}.")
@@ -125,8 +139,8 @@ asyncio.run(main())
 
 @pytest.fixture(scope="module")
 def replies():
-    proc = subprocess.run([sys.executable, "-c", HARNESS, json.dumps(list(EXPECT))], cwd=ROOT,
-                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=420)
+    from _subproc import run_python
+    proc = run_python(HARNESS, json.dumps(list(EXPECT)), cwd=ROOT, timeout=420)
     line = next((l for l in proc.stdout.splitlines() if l.startswith("RESULT=")), None)
     assert line, proc.stdout[-3000:] + proc.stderr[-3000:]
     return json.loads(line[len("RESULT="):])

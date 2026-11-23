@@ -221,10 +221,18 @@ def test_notes_round_trip(temp_notes):
 def test_ocr_unavailable_is_an_answer_not_a_fallthrough():
     """As success=False the router fell through to the AI, which made up the screen."""
     from jarvis.core.intent_handlers import handle_ocr
+    from jarvis.core import screen_vision
     ocr = MagicMock()
     ocr.is_available.return_value = False
-    res = handle_ocr("read the screen", {}, {"ocr_handler": ocr, "title": "sir"})
+    # No Tesseract and no vision: say what's needed
+    with patch.object(screen_vision, "vision_available", return_value=False):
+        res = handle_ocr("read the screen", {}, {"ocr_handler": ocr, "title": "sir"})
     assert res.success and "tesseract" in res.response.lower()
+    # No Tesseract but Gemini vision: it reads the screen
+    with patch.object(screen_vision, "vision_available", return_value=True), \
+         patch.object(screen_vision, "read_screen_text", return_value="Invoice total: 42 dollars."):
+        res = handle_ocr("read the screen", {}, {"ocr_handler": ocr, "title": "sir"})
+    assert res.success and res.response == "Invoice total: 42 dollars."
 
 
 def test_router_has_no_duplicate_ocr_branch():
