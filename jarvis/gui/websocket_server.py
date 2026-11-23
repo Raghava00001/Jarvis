@@ -493,6 +493,82 @@ def _gesture_mp_available() -> bool:
         return False
 
 
+# ── process_command vocabulary ──────────────────────────────────────────────
+RESUME_PHRASES = ('back online', 'come back', 'i need you', 'unmute', 'talk to me')
+STORY_PHRASES = ('bedtime story', 'bed time story', 'tell me a story',
+                 'tell a story', 'once upon', 'tell me a tale')
+# Replies that mean the router failed, so the next step should try
+ROUTER_ERROR_PHRASES = ('trouble connecting', 'knowledge base', 'currently offline',
+                        'encountered an issue', 'Set GROQ_API_KEY')
+NEWS_CATEGORIES = ('economics', 'economy', 'business', 'politics', 'technology',
+                   'tech', 'sports', 'entertainment', 'world', 'global')
+
+# "open X": no ML, no API, no lag
+DIRECT_APPS = {
+    'calculator': 'calc', 'calc': 'calc',
+    'notepad': 'notepad', 'paint': 'mspaint',
+    'cmd': 'cmd', 'terminal': 'wt',
+    'powershell': 'powershell',
+    'file explorer': 'explorer', 'explorer': 'explorer',
+    'file manager': 'explorer', 'files': 'explorer',
+    'this pc': 'explorer', 'my computer': 'explorer',
+    'settings': 'ms-settings:', 'task manager': 'taskmgr',
+    'control panel': 'control',
+    'device manager': 'devmgmt.msc',
+    'snipping tool': 'SnippingTool',
+    'wifi': 'ms-settings:network-wifi',
+    'wifi settings': 'ms-settings:network-wifi',
+    'bluetooth': 'ms-settings:bluetooth',
+    'bluetooth settings': 'ms-settings:bluetooth',
+    'display settings': 'ms-settings:display',
+    'sound settings': 'ms-settings:sound',
+    'apps': 'ms-settings:appsfeatures',
+    'installed apps': 'ms-settings:appsfeatures',
+    'photos': 'ms-photos:',
+    'camera': 'microsoft.windows.camera:',
+    'store': 'ms-windows-store:',
+    'microsoft store': 'ms-windows-store:',
+    'chrome': 'chrome', 'firefox': 'firefox',
+    'edge': 'msedge', 'microsoft edge': 'msedge', 'brave': 'brave',
+    'vscode': 'code', 'vs code': 'code',
+    'spotify': 'spotify:', 'discord': 'discord:',
+    'telegram': 'telegram:', 'whatsapp': 'whatsapp:',
+    'whatsapp beta': 'whatsapp:',
+}
+WEB_APPS = {
+    'chatgpt': 'https://chat.openai.com',
+    'perplexity': 'https://perplexity.ai',
+    'youtube': 'https://youtube.com',
+    'gmail': 'https://mail.google.com',
+    'google': 'https://google.com',
+    'claude': 'https://claude.ai',
+    'github': 'https://github.com',
+}
+
+# Features the HUD handles itself (fallback_processor), before the AI
+HUD_COMMANDS = (
+    'screenshot', 'capture screen',
+    'read screen', 'read text', 'extract text', 'ocr',
+    'read clipboard',
+    'define ', 'meaning of ', 'definition of ',
+    'synonym',
+    'register my face', 'register face', 'register owner',
+    'verify me', 'authenticate', 'who am i',
+    'enable gesture', 'start gesture', 'gesture on',
+    'disable gesture', 'stop gesture', 'gesture off',
+    'enable emotion', 'mood detection', 'disable emotion',
+    'tell me a story', 'tell a story',
+    'recite a poem', 'poem',
+    'riddle',
+    'create note', 'new note', 'add note',
+    'list notes', 'show notes', 'my notes',
+    'set alarm',
+    'list alarm', 'show alarm', 'my alarm',
+    'switch to friday', 'activate friday',
+    'switch to jarvis', 'activate jarvis',
+)
+
+
 class JARVISWebSocketServer:
     """WebSocket server with FULL JARVISUltimate integration"""
     
@@ -2177,48 +2253,55 @@ class JARVISWebSocketServer:
         return _split_compound_command(text)
 
     async def process_command(self, command: str, websocket) -> str:
-        """Process command through HUD handlers or full JARVIS"""
-        cmd = command.lower().strip()
-        name = self.hud_perception.assistant_name
+        """Answer one command. Steps run in order; the first that answers wins.
+
+        1. Voice control, pending questions, PC power and exit (on the loop:
+           they change server state or schedule the exit).
+        2. Local commands (Bluetooth, stories, windows, reminders, apps, habits,
+           tasks, wellness, email, PDF), in a worker thread: several block
+           (PowerShell for up to 10 s, email over the network) and used to
+           freeze every HUD client while they ran.
+        3. The intent router, HUD feature commands, then the AI.
+
+        This was one 475-line function.
+        """
+        cmd = normalize_command(command.lower().strip())
         title = self.hud_perception.user_title
-        
-        # ══════════════════════════════════════════════════════════════════
-        # STRIP WAKE WORD: "jarvis open perplexity" → "open perplexity"
-        # Voice input includes the wake word — strip it before routing
-        # ══════════════════════════════════════════════════════════════════
-        # M-07: Using module-level re import instead of inline
-        cmd = normalize_command(cmd)
         if not cmd:
             hour = datetime.now().hour
-            greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening" if hour < 21 else "Hey there"
+            greeting = ("Good morning" if hour < 12 else "Good afternoon" if hour < 17
+                        else "Good evening" if hour < 21 else "Hey there")
             return f"{greeting}, {title}. How may I help?"
-        
-        # ══════════════════════════════════════════════════════════════════
-        # SPEECH INTERRUPTION: "stop", "shut up", "keep quiet", "silence"
-        # Must be first — user wants to interrupt JARVIS immediately
-        # ══════════════════════════════════════════════════════════════════
+
+        for step in (self._cmd_voice_control, self._cmd_answer_pending, self._cmd_power_and_exit):
+            reply = await step(cmd, title)
+            if reply is not None:
+                return reply
+
+        reply = await self._run_blocking(self._local_command, cmd, command, title)
+        if reply is not None:
+            return reply
+
+        return await self._cmd_route_and_answer(cmd, command, title, websocket)
+
+    # ── step 1: on the event loop ────────────────────────────────────────
+    async def _cmd_voice_control(self, cmd: str, title: str):
+        """"stop"/"shut up" (interrupt, then listen only for the wake word) and "back online"."""
         if is_stop_speaking_command(cmd):
             self._stop_speaking()
-            self.quiet_mode = True  # Pause voice listening until wake word
-            self._silent_response = True  # Don't speak the response
+            self.quiet_mode = True        # pause voice listening until the wake word
+            self._silent_response = True  # don't speak the reply
             print("[VOICE] Quiet mode ON - mic paused until wake word")
             return f"Understood{maybe_title(title)}. Say my name when you need me."
-        
-        # ══════════════════════════════════════════════════════════════════
-        # RESUME FROM QUIET: "back online", "come back", "I need you"
-        # ══════════════════════════════════════════════════════════════════
-        resume_words = ['back online', 'come back', 'i need you', 'unmute', 'talk to me']
-        if any(r in cmd for r in resume_words):
+        if any(r in cmd for r in RESUME_PHRASES):
             self.quiet_mode = False
             print("[VOICE] Quiet mode OFF - JARVIS back online")
             return f"I'm back online{maybe_title(title)}. What do you need?"
-        
-        # ══════════════════════════════════════════════════════════════════
-        # SHUTDOWN: Actually exit the JARVIS process
-        # Uses word boundaries to avoid false matches (e.g. 'perplexity' has 'exit')
-        # ══════════════════════════════════════════════════════════════════
-        # ── PENDING CLARIFICATION ("I'm 60% sure… Should I proceed?") ──
-        clarify = getattr(self, '_pending_clarify', None)
+        return None
+
+    async def _cmd_answer_pending(self, cmd: str, title: str):
+        """Answers to a question JARVIS asked: a clarification, a WhatsApp draft, PC power."""
+        clarify = getattr(self, '_pending_clarify', None)   # "I'm 60% sure... Should I proceed?"
         if clarify:
             self._pending_clarify = None
             original, expires_at = clarify
@@ -2228,10 +2311,9 @@ class JARVISWebSocketServer:
                     return reply or f"I couldn't complete that{maybe_title(title)}."
                 if CANCEL_RE.match(cmd):
                     return f"Okay, never mind{maybe_title(title)}."
-            # anything else: treat as a new command
+            # anything else: a new command
 
-        # ── PENDING WHATSAPP DRAFT: typed in the chat, sent only on "send" ──
-        wa = self._whatsapp_with_draft()
+        wa = self._whatsapp_with_draft()   # typed in the chat, sent only on "send"
         if wa:
             from jarvis.core.whatsapp_handler import SEND_CONFIRM_RE, DRAFT_CANCEL_RE
             if SEND_CONFIRM_RE.match(cmd):
@@ -2240,401 +2322,283 @@ class JARVISWebSocketServer:
                 return await self._run_blocking(wa.cancel_draft)
             # anything else: a new command; the draft stays typed, unsent
 
-        # ── PENDING PC SHUTDOWN/RESTART: needs an explicit confirmation ──
-        pending = self._get_pending_power_action()
+        pending = self._get_pending_power_action()   # PC shutdown/restart needs a "confirm"
         if pending:
+            self._pending_power_action = None
             if CONFIRM_RE.match(cmd):
-                self._pending_power_action = None
                 return self._execute_power_action(pending, title)
             if CANCEL_RE.match(cmd):
-                self._pending_power_action = None
                 return f"Cancelled the {pending}{maybe_title(title)}."
-            # Anything else drops the pending request and is processed normally.
-            self._pending_power_action = None
+            # anything else drops the request and is processed normally
+        return None
 
+    async def _cmd_power_and_exit(self, cmd: str, title: str):
+        """PC shutdown/restart (asks first) and exiting JARVIS (whole-command match only)."""
         power_action = detect_pc_power_action(cmd)
         if power_action:
             return self.request_power_action(power_action, title)
-
-        # Exit JARVIS only when the whole command is an exit command.
         if is_jarvis_exit_command(cmd):
             import signal
-            farewell = f"Shutting down all systems. Until next time{maybe_title(title)}."
-            self._silent_response = True  # Don't speak the farewell
-            # Schedule actual exit after response is sent
-            async def _shutdown():
+            self._silent_response = True  # don't speak the farewell
+
+            async def _shutdown():  # after the reply has been sent
                 await asyncio.sleep(3)
                 self.running = False
                 os.kill(os.getpid(), signal.SIGTERM)
             asyncio.ensure_future(_shutdown())
-            return farewell
-        
-        # ══════════════════════════════════════════════════════════════════
-        # BLUETOOTH TOGGLE: on/off
-        # ══════════════════════════════════════════════════════════════════
-        if 'bluetooth' in cmd and any(w in cmd for w in ['off', 'disable', 'switch off', 'turn off']):
-            try:
-                subprocess.run(['powershell', '-Command',
-                    'Add-Type -AssemblyName System.Runtime.WindowsRuntime; '
-                    '[Windows.Devices.Radios.Radio,Windows.System.Devices,ContentType=WindowsRuntime] | Out-Null; '
-                    '$radios = [Windows.Devices.Radios.Radio]::GetRadiosAsync().AsTask().Result; '
-                    '$bt = $radios | Where-Object { $_.Kind -eq "Bluetooth" }; '
-                    '$bt.SetStateAsync("Off").AsTask().Result'],
-                    capture_output=True, timeout=10)
-                return f"Bluetooth is now off{maybe_title(title)}."
-            except Exception:
-                # Fallback: open bluetooth settings
-                subprocess.Popen(['start', 'ms-settings:bluetooth'], shell=True)
-                return f"Opening Bluetooth settings{maybe_title(title)}. Please toggle it manually."
-        
-        if 'bluetooth' in cmd and any(w in cmd for w in ['on', 'enable', 'switch on', 'turn on']):
-            try:
-                subprocess.run(['powershell', '-Command',
-                    'Add-Type -AssemblyName System.Runtime.WindowsRuntime; '
-                    '[Windows.Devices.Radios.Radio,Windows.System.Devices,ContentType=WindowsRuntime] | Out-Null; '
-                    '$radios = [Windows.Devices.Radios.Radio]::GetRadiosAsync().AsTask().Result; '
-                    '$bt = $radios | Where-Object { $_.Kind -eq "Bluetooth" }; '
-                    '$bt.SetStateAsync("On").AsTask().Result'],
-                    capture_output=True, timeout=10)
-                return f"Bluetooth is now on{maybe_title(title)}."
-            except Exception:
-                subprocess.Popen(['start', 'ms-settings:bluetooth'], shell=True)
-                return f"Opening Bluetooth settings{maybe_title(title)}. Please toggle it manually."
-        
-        # ══════════════════════════════════════════════════════════════════
-        # LAPTOP SHUTDOWN / RESTART
-        # ══════════════════════════════════════════════════════════════════
-        # Handled (with confirmation) near the top of process_command via
-        # detect_pc_power_action() / request_power_action().
+            return f"Shutting down all systems. Until next time{maybe_title(title)}."
+        return None
 
-        # ══════════════════════════════════════════════════════════════════
-        # PRE-ROUTER OVERRIDES: Commands the ML classifier gets wrong
-        # These explicit keyword matches run BEFORE the intent router
-        # ══════════════════════════════════════════════════════════════════
-        
-        # Stories: the ML classifier reads "bedtime story" as get_time. Use the
-        # one story handler (topic, genre, full length); this used to have its
-        # own copy that sent stories through the 400-character quick-answer path.
-        if any(w in cmd for w in ['bedtime story', 'bed time story', 'tell me a story',
-                                   'tell a story', 'once upon', 'tell me a tale']) and ROUTER_AVAILABLE:
-            result = await self._run_blocking(HANDLER_MAP['story'], command, {},
-                                              {'title': title, 'knowledge': self.knowledge})
-            if result and result.response:
-                return result.response
-        
-        # Chat History — classifier thinks this is 'story'
-        if ('chat history' in cmd or 'show history' in cmd or 'conversation history' in cmd) and self.chat_history:
-            if 'search' in cmd:
-                match = re.search(r'search\s+(?:for\s+)?(.+)', cmd, re.I)
-                if match:
-                    query = match.group(1).strip()
-                    results = self.chat_history.search(query)
-                    if results:
-                        return f"Found {len(results)} conversations matching '{query}', {title}."
-                    return f"No conversations found matching '{query}', {title}."
-            elif 'clear' in cmd or 'delete' in cmd:
-                self.chat_history.clear_history()
-                return f"Chat history cleared, {title}."
-            else:
-                messages = self.chat_history.get_recent(5)
-                if messages:
-                    summary = "; ".join([f"{m.role}: {m.content[:40]}" for m in messages[-3:]])
-                    return f"Recent chat history, {title}: {summary}"
-                return f"No chat history yet, {title}."
-        
-        # App Switching — classifier thinks 'go back' is 'previous_track'
+    # ── step 2: local commands, in a worker thread ───────────────────────
+    def _local_command(self, cmd: str, command: str, title: str):
+        """Commands handled here before the router: explicit keyword matches the
+        ML classifier gets wrong, and features with no router handler."""
+        for step in (self._cmd_bluetooth, self._cmd_story, self._cmd_chat_history,
+                     self._cmd_switch_window, self._cmd_reminder, self._cmd_open_app,
+                     self._cmd_habit, self._cmd_task, self._cmd_wellness,
+                     self._cmd_email, self._cmd_pdf):
+            reply = step(cmd, command, title)
+            if reply is not None:
+                return reply
+        return None
+
+    def _cmd_bluetooth(self, cmd: str, command: str, title: str):
+        if 'bluetooth' not in cmd:
+            return None
+        if any(w in cmd for w in ('off', 'disable', 'switch off', 'turn off')):
+            state, word = "Off", "off"
+        elif any(w in cmd for w in ('on', 'enable', 'switch on', 'turn on')):
+            state, word = "On", "on"
+        else:
+            return None
+        try:
+            subprocess.run(['powershell', '-Command',
+                'Add-Type -AssemblyName System.Runtime.WindowsRuntime; '
+                '[Windows.Devices.Radios.Radio,Windows.System.Devices,ContentType=WindowsRuntime] | Out-Null; '
+                '$radios = [Windows.Devices.Radios.Radio]::GetRadiosAsync().AsTask().Result; '
+                '$bt = $radios | Where-Object { $_.Kind -eq "Bluetooth" }; '
+                f'$bt.SetStateAsync("{state}").AsTask().Result'],
+                capture_output=True, timeout=10)
+            return f"Bluetooth is now {word}{maybe_title(title)}."
+        except Exception as e:
+            recovered("WebSocket", e)
+            subprocess.Popen(['start', 'ms-settings:bluetooth'], shell=True)
+            return f"Opening Bluetooth settings{maybe_title(title)}. Please toggle it manually."
+
+    def _cmd_story(self, cmd: str, command: str, title: str):
+        # The ML classifier reads "bedtime story" as get_time; use the one story
+        # handler (topic, genre, full length)
+        if not ROUTER_AVAILABLE or not any(w in cmd for w in STORY_PHRASES):
+            return None
+        result = HANDLER_MAP['story'](command, {}, {'title': title, 'knowledge': self.knowledge})
+        return result.response if result and result.response else None
+
+    def _cmd_chat_history(self, cmd: str, command: str, title: str):
+        # The classifier thinks this is 'story'
+        if not (('chat history' in cmd or 'show history' in cmd or 'conversation history' in cmd)
+                and self.chat_history):
+            return None
+        if 'search' in cmd:
+            match = re.search(r'search\s+(?:for\s+)?(.+)', cmd, re.I)
+            if not match:
+                return None
+            query = match.group(1).strip()
+            results = self.chat_history.search(query)
+            if results:
+                return f"Found {len(results)} conversations matching '{query}', {title}."
+            return f"No conversations found matching '{query}', {title}."
+        if 'clear' in cmd or 'delete' in cmd:
+            self.chat_history.clear_history()
+            return f"Chat history cleared, {title}."
+        messages = self.chat_history.get_recent(5)
+        if messages:
+            summary = "; ".join(f"{m.role}: {m.content[:40]}" for m in messages[-3:])
+            return f"Recent chat history, {title}: {summary}"
+        return f"No chat history yet, {title}."
+
+    def _cmd_switch_window(self, cmd: str, command: str, title: str):
+        # The classifier thinks 'go back' is 'previous_track'
         if cmd in ('go back', 'alt tab', 'switch window', 'next window', 'previous window'):
             try:
                 import pyautogui
                 pyautogui.hotkey('alt', 'tab')
                 return f"Switched to the previous window, {title}."
             except Exception as e:
+                recovered("WebSocket", e)
                 return f"Couldn't switch windows, {title}."
-        
-        # App focus — 'switch to [app]' / 'go to [app]'. Tab commands ("switch
-        # to the next tab") are screen control and go to the router.
-        # (This used to paste the spoken name into a PowerShell script: a
-        # shell-injection risk, and slow. AppSwitcher uses Win32 calls.)
-        switched = self.switch_to_app_command(cmd, title)
-        if switched is not None:
-            return switched
-        
-        # ══════════════════════════════════════════════════════════════════
-        # REMINDERS — Route directly, don't let it fall to face-auth gate
-        # ══════════════════════════════════════════════════════════════════
-        if ('remind' in cmd or 'reminder' in cmd) and 'email' not in cmd:
-            if self.reminder_manager:
-                # "list reminders" / "show reminders" / "my reminders"
-                if 'list' in cmd or 'show' in cmd or 'my' in cmd:
-                    result = self.reminder_manager.read_reminders()
-                    return result if result else f"No upcoming reminders, {title}."
-                
-                # "set reminder to drink water in 30 minutes"
-                # "remind me to call mom at 5pm"
-                success = self.reminder_manager.set_reminder_from_command(cmd)
-                if success:
-                    return f"Reminder set, {title}."
-                return f"I couldn't parse that reminder. Try: 'remind me to X in 30 minutes', {title}."
-        
-        # ══════════════════════════════════════════════════════════════════
-        # OPEN APP — Execute IMMEDIATELY, skip ML classifier entirely
-        # This is the #1 user complaint: "open X" says it opened but didn't
-        # ══════════════════════════════════════════════════════════════════
-        import re as _re
-        open_match = _re.match(r'^(?:open|launch|start|run)\s+(.+)', cmd, _re.I)
-        if open_match:
-            app_name = open_match.group(1).strip()
-            
-            # Direct app map — no ML, no API, no lag
-            DIRECT_APPS = {
-                'calculator': 'calc', 'calc': 'calc',
-                'notepad': 'notepad', 'paint': 'mspaint',
-                'cmd': 'cmd', 'terminal': 'wt',
-                'powershell': 'powershell',
-                'file explorer': 'explorer', 'explorer': 'explorer',
-                'file manager': 'explorer', 'files': 'explorer',
-                'this pc': 'explorer', 'my computer': 'explorer',
-                'settings': 'ms-settings:', 'task manager': 'taskmgr',
-                'control panel': 'control',
-                'device manager': 'devmgmt.msc',
-                'snipping tool': 'SnippingTool',
-                'wifi': 'ms-settings:network-wifi',
-                'wifi settings': 'ms-settings:network-wifi',
-                'bluetooth': 'ms-settings:bluetooth',
-                'bluetooth settings': 'ms-settings:bluetooth',
-                'display settings': 'ms-settings:display',
-                'sound settings': 'ms-settings:sound',
-                'apps': 'ms-settings:appsfeatures',
-                'installed apps': 'ms-settings:appsfeatures',
-                'photos': 'ms-photos:',
-                'camera': 'microsoft.windows.camera:',
-                'store': 'ms-windows-store:',
-                'microsoft store': 'ms-windows-store:',
-                'chrome': 'chrome', 'firefox': 'firefox',
-                'edge': 'msedge', 'microsoft edge': 'msedge', 'brave': 'brave',
-                'vscode': 'code', 'vs code': 'code',
-                'spotify': 'spotify:', 'discord': 'discord:',
-                'telegram': 'telegram:', 'whatsapp': 'whatsapp:',
-                'whatsapp beta': 'whatsapp:', 
-            }
-            
-            WEB_APPS = {
-                'chatgpt': 'https://chat.openai.com',
-                'perplexity': 'https://perplexity.ai',
-                'youtube': 'https://youtube.com',
-                'gmail': 'https://mail.google.com',
-                'google': 'https://google.com',
-                'claude': 'https://claude.ai',
-                'github': 'https://github.com',
-            }
-            
-            app_lower = app_name.lower()
-            
-            # Try direct map first
-            if app_lower in DIRECT_APPS:
-                target = DIRECT_APPS[app_lower]
-                try:
-                    if target.startswith('http') or target.startswith('ms-') or target.endswith(':'):
-                        os.startfile(target)
-                    else:
-                        subprocess.Popen(target, shell=True)
-                    return f"Opening {app_name}, {title}."
-                except Exception as e:
-                    return f"Error opening {app_name}: {e}"
-            
-            # Try web apps
-            if app_lower in WEB_APPS:
-                import webbrowser
-                webbrowser.open(WEB_APPS[app_lower])
-                return f"Opening {app_name} in browser, {title}."
-            
-            # Try AppFinder for everything else
-            if self.jarvis and hasattr(self.jarvis, 'app_finder'):
-                try:
-                    success = self.jarvis.app_finder.open_app(app_lower)
-                    if success:
-                        return f"Opening {app_name}, {title}."
-                except Exception as _err:
-                    recovered("WebSocket", _err)
-            
-            # Try os.startfile as last resort
-            try:
-                os.startfile(app_lower)
-                return f"Opening {app_name}, {title}."
-            except Exception:
-                # Search Start Menu
-                try:
-                    from jarvis.core.app_finder import AppFinder
-                    finder = shared(AppFinder)
-                    success = finder.open_app(app_lower)
-                    if success:
-                        return f"Opening {app_name}, {title}."
-                except Exception as _err:
-                    recovered("WebSocket", _err)
-            
-            return f"Couldn't find {app_name}, {title}. Try the exact name."
-        
-        # Habits — classifier thinks this is 'conversation'
-        if 'habit' in cmd and self.habit_tracker:
-            if 'create' in cmd or 'add' in cmd or 'new' in cmd:
-                match = re.search(r'(?:create|add|new)\s+habit\s+(.+?)(?:\s+every\s+|\s+daily|\s+hourly|$)', cmd, re.I)
-                if match:
-                    desc = match.group(1).strip()
-                    self.habit_tracker.create_habit(desc, cmd)
-                    return f"Habit '{desc}' created, {title}."
-                return f"Please specify a habit, {title}. Say 'add habit drink water'."
-            elif 'list' in cmd or 'show' in cmd or 'my habits' in cmd:
-                self.habit_tracker.list_habits()
-                return f"Listing your habits, {title}."
-            elif 'check' in cmd:
-                reminders = self.habit_tracker.check_reminders()
-                if reminders:
-                    return f"You have {len(reminders)} habit reminders, {title}."
-                return f"No habit reminders due, {title}."
-        
-        # Tasks — classifier thinks this is 'conversation'
-        if ('task' in cmd or 'todo' in cmd or 'to do' in cmd) and self.task_manager_obj:
-            if 'add' in cmd or 'create' in cmd or 'new' in cmd:
-                match = re.search(r'(?:add|create|new)\s+(?:a\s+)?task\s+(.+)', cmd, re.I)
-                if match:
-                    desc = match.group(1).strip()
-                    if hasattr(self.task_manager_obj, 'add_task'):
-                        self.task_manager_obj.add_task(desc)
-                    elif hasattr(self.task_manager_obj, 'create_task'):
-                        self.task_manager_obj.create_task(desc)
-                    return f"Task added: '{desc}', {title}."
-            elif 'list' in cmd or 'show' in cmd or 'my task' in cmd:
-                if hasattr(self.task_manager_obj, 'list_tasks'):
-                    result = self.task_manager_obj.list_tasks()
-                elif hasattr(self.task_manager_obj, 'get_tasks'):
-                    result = self.task_manager_obj.get_tasks()
-                else:
-                    result = None
-                return result if isinstance(result, str) else f"Listing your tasks, {title}."
-        
-        # Wellness — classifier thinks this is 'conversation'
-        if 'wellness' in cmd and self.wellness_monitor:
-            if 'summary' in cmd or 'status' in cmd:
-                summary = self.wellness_monitor.get_wellness_summary()
-                return summary if isinstance(summary, str) else f"Your wellness looks good, {title}."
-            elif 'check' in cmd:
-                reminder = self.wellness_monitor.check_wellness()
-                return reminder if reminder else f"You're doing well, {title}."
-            elif 'reset' in cmd or 'took a break' in cmd:
-                self.wellness_monitor.reset_session()
-                return f"Session reset. Good on you for taking a break, {title}."
-        
-        # ══════════════════════════════════════════════════════════════════
-        # EMAIL — send/check/read emails directly, skip ML classifier
-        # ══════════════════════════════════════════════════════════════════
-        if ('email' in cmd or 'mail' in cmd or 'gmail' in cmd) and self.email_handler_obj:
-            import re as _re
-            
-            # Send email: "send email to user@example.com saying hello"
-            send_match = _re.search(r'send\s+(?:a\s+)?(?:email|mail)\s+to\s+(\S+@\S+)\s+(?:saying|about|subject|with)?\s*(.*)', cmd, _re.I)
-            if send_match:
-                to_email = send_match.group(1).strip()
-                body = send_match.group(2).strip() or "Hello from JARVIS"
-                subject = body[:50] + "..." if len(body) > 50 else body
-                result = self.email_handler_obj.send_email(to_email, subject, body)
-                return result
-            
-            # "send email to bob saying hi": no address. This used to fall
-            # through to the default branch and check the inbox instead.
-            if _re.search(r'\bsend\b', cmd) and 'remind' not in cmd:
-                return (f"I need an email address to send that{maybe_title(title)}. "
-                        f"Try: send email to name@example.com saying hello.")
+        # 'switch to [app]' / 'go to [app]' (Win32 calls in AppSwitcher). Tab
+        # commands ("switch to the next tab") are screen control: the router.
+        return self.switch_to_app_command(cmd, title)
 
-            # Send reminder email to self
-            if 'remind' in cmd and 'email' in cmd:
-                reminder_text = _re.sub(r'.*(?:remind|email).*?(?:to|about|that)\s+', '', cmd, flags=_re.I).strip()
-                if reminder_text:
-                    result = self.email_handler_obj.send_reminder_email(reminder_text)
-                    return result or f"Reminder email sent, {title}."
-            
-            # Summarize emails
-            if 'summarize' in cmd or 'summary' in cmd:
-                result = self.email_handler_obj.summarize_emails()
-                return f"Here's your email summary, {title}. {result}" if isinstance(result, str) else f"Summarizing your emails, {title}."
-            
-            # Check/read unread emails
-            if any(w in cmd for w in ['check', 'read', 'unread', 'inbox', 'show']):
-                result = self.email_handler_obj.get_unread_emails()
-                return f"Checking your inbox, {title}. {result}" if isinstance(result, str) else f"Checking your emails, {title}."
-            
-            # Default: check inbox
-            result = self.email_handler_obj.get_unread_emails()
-            return f"Checking your inbox, {title}. {result}" if isinstance(result, str) else f"Checking your emails, {title}."
-        
-        # PDF — no handler existed before
-        if ('read pdf' in cmd or 'open pdf' in cmd or 'pdf' in cmd) and self.pdf_handler:
-            if hasattr(self.pdf_handler, 'extract_text'):
-                return f"PDF handler ready, {title}. Please specify a file path."
-            return f"PDF handler available, {title}."
-        
-        # ══════════════════════════════════════════════════════════════════
-        # TRY INTENTROUTER FIRST - Clean, simple responses
-        # This prevents verbose Gemini AI responses for known commands
-        # ══════════════════════════════════════════════════════════════════
-        # The router's handlers make blocking network calls (LLM, weather, news).
-        # Run it in a worker thread so one slow request can't freeze the server:
-        # a hung LLM call used to stop every reply and HUD update.
+    def _cmd_reminder(self, cmd: str, command: str, title: str):
+        # Route directly, so it doesn't fall to the face-auth gate
+        if not (('remind' in cmd or 'reminder' in cmd) and 'email' not in cmd and self.reminder_manager):
+            return None
+        if 'list' in cmd or 'show' in cmd or 'my' in cmd:
+            result = self.reminder_manager.read_reminders()
+            return result if result else f"No upcoming reminders, {title}."
+        if self.reminder_manager.set_reminder_from_command(cmd):
+            return f"Reminder set, {title}."
+        return f"I couldn't parse that reminder. Try: 'remind me to X in 30 minutes', {title}."
+
+    def _cmd_open_app(self, cmd: str, command: str, title: str):
+        """'open X': direct map, web apps, AppFinder, then the Start menu. No ML."""
+        open_match = re.match(r'^(?:open|launch|start|run)\s+(.+)', cmd, re.I)
+        if not open_match:
+            return None
+        app_name = open_match.group(1).strip()
+        app_lower = app_name.lower()
+
+        if app_lower in DIRECT_APPS:
+            target = DIRECT_APPS[app_lower]
+            try:
+                if target.startswith('http') or target.startswith('ms-') or target.endswith(':'):
+                    os.startfile(target)
+                else:
+                    subprocess.Popen(target, shell=True)
+                return f"Opening {app_name}, {title}."
+            except Exception as e:
+                return f"Error opening {app_name}: {e}"
+
+        if app_lower in WEB_APPS:
+            import webbrowser
+            webbrowser.open(WEB_APPS[app_lower])
+            return f"Opening {app_name} in browser, {title}."
+
+        if self.jarvis and hasattr(self.jarvis, 'app_finder'):
+            try:
+                if self.jarvis.app_finder.open_app(app_lower):
+                    return f"Opening {app_name}, {title}."
+            except Exception as e:
+                recovered("WebSocket", e)
+
+        try:
+            os.startfile(app_lower)
+            return f"Opening {app_name}, {title}."
+        except Exception:
+            try:  # search the Start menu
+                from jarvis.core.app_finder import AppFinder
+                if shared(AppFinder).open_app(app_lower):
+                    return f"Opening {app_name}, {title}."
+            except Exception as e:
+                recovered("WebSocket", e)
+        return f"Couldn't find {app_name}, {title}. Try the exact name."
+
+    def _cmd_habit(self, cmd: str, command: str, title: str):
+        # The classifier thinks this is 'conversation'
+        if 'habit' not in cmd or not self.habit_tracker:
+            return None
+        if 'create' in cmd or 'add' in cmd or 'new' in cmd:
+            match = re.search(r'(?:create|add|new)\s+habit\s+(.+?)(?:\s+every\s+|\s+daily|\s+hourly|$)', cmd, re.I)
+            if match:
+                desc = match.group(1).strip()
+                self.habit_tracker.create_habit(desc, cmd)
+                return f"Habit '{desc}' created, {title}."
+            return f"Please specify a habit, {title}. Say 'add habit drink water'."
+        if 'list' in cmd or 'show' in cmd or 'my habits' in cmd:
+            self.habit_tracker.list_habits()
+            return f"Listing your habits, {title}."
+        if 'check' in cmd:
+            reminders = self.habit_tracker.check_reminders()
+            if reminders:
+                return f"You have {len(reminders)} habit reminders, {title}."
+            return f"No habit reminders due, {title}."
+        return None
+
+    def _cmd_task(self, cmd: str, command: str, title: str):
+        # The classifier thinks this is 'conversation'
+        if not (('task' in cmd or 'todo' in cmd or 'to do' in cmd) and self.task_manager_obj):
+            return None
+        tm = self.task_manager_obj
+        if 'add' in cmd or 'create' in cmd or 'new' in cmd:
+            match = re.search(r'(?:add|create|new)\s+(?:a\s+)?task\s+(.+)', cmd, re.I)
+            if not match:
+                return None
+            desc = match.group(1).strip()
+            if hasattr(tm, 'add_task'):
+                tm.add_task(desc)
+            elif hasattr(tm, 'create_task'):
+                tm.create_task(desc)
+            return f"Task added: '{desc}', {title}."
+        if 'list' in cmd or 'show' in cmd or 'my task' in cmd:
+            if hasattr(tm, 'list_tasks'):
+                result = tm.list_tasks()
+            elif hasattr(tm, 'get_tasks'):
+                result = tm.get_tasks()
+            else:
+                result = None
+            return result if isinstance(result, str) else f"Listing your tasks, {title}."
+        return None
+
+    def _cmd_wellness(self, cmd: str, command: str, title: str):
+        # The classifier thinks this is 'conversation'
+        if 'wellness' not in cmd or not self.wellness_monitor:
+            return None
+        if 'summary' in cmd or 'status' in cmd:
+            summary = self.wellness_monitor.get_wellness_summary()
+            return summary if isinstance(summary, str) else f"Your wellness looks good, {title}."
+        if 'check' in cmd:
+            reminder = self.wellness_monitor.check_wellness()
+            return reminder if reminder else f"You're doing well, {title}."
+        if 'reset' in cmd or 'took a break' in cmd:
+            self.wellness_monitor.reset_session()
+            return f"Session reset. Good on you for taking a break, {title}."
+        return None
+
+    def _cmd_email(self, cmd: str, command: str, title: str):
+        """Send/check/read/summarise email directly, skipping the ML classifier."""
+        if not (('email' in cmd or 'mail' in cmd or 'gmail' in cmd) and self.email_handler_obj):
+            return None
+        mail = self.email_handler_obj
+        send_match = re.search(r'send\s+(?:a\s+)?(?:email|mail)\s+to\s+(\S+@\S+)\s+(?:saying|about|subject|with)?\s*(.*)', cmd, re.I)
+        if send_match:
+            to_email = send_match.group(1).strip()
+            body = send_match.group(2).strip() or "Hello from JARVIS"
+            subject = body[:50] + "..." if len(body) > 50 else body
+            return mail.send_email(to_email, subject, body)
+        # "send email to bob saying hi": no address. This used to fall through
+        # to the default branch and check the inbox instead.
+        if re.search(r'\bsend\b', cmd) and 'remind' not in cmd:
+            return (f"I need an email address to send that{maybe_title(title)}. "
+                    f"Try: send email to name@example.com saying hello.")
+        if 'remind' in cmd and 'email' in cmd:
+            reminder_text = re.sub(r'.*(?:remind|email).*?(?:to|about|that)\s+', '', cmd, flags=re.I).strip()
+            if reminder_text:
+                return mail.send_reminder_email(reminder_text) or f"Reminder email sent, {title}."
+        if 'summarize' in cmd or 'summary' in cmd:
+            result = mail.summarize_emails()
+            return (f"Here's your email summary, {title}. {result}" if isinstance(result, str)
+                    else f"Summarizing your emails, {title}.")
+        result = mail.get_unread_emails()   # check / read / inbox, and the default
+        return (f"Checking your inbox, {title}. {result}" if isinstance(result, str)
+                else f"Checking your emails, {title}.")
+
+    def _cmd_pdf(self, cmd: str, command: str, title: str):
+        if 'pdf' not in cmd or not self.pdf_handler:
+            return None
+        if hasattr(self.pdf_handler, 'extract_text'):
+            return f"PDF handler ready, {title}. Please specify a file path."
+        return f"PDF handler available, {title}."
+
+    # ── step 3: router, HUD features, AI ─────────────────────────────────
+    async def _cmd_route_and_answer(self, cmd: str, command: str, title: str, websocket) -> str:
+        # The router's handlers make blocking network calls (LLM, weather,
+        # news): a worker thread, so one slow request can't freeze the server
         router_response = await self._run_blocking(self._route_through_router, command)
-        # Check if router gave a REAL answer (not a fallback error)
-        _error_phrases = ['trouble connecting', 'knowledge base', 'currently offline', 
-                          'encountered an issue', 'Set GROQ_API_KEY']
-        if router_response and not any(ep in (router_response or '') for ep in _error_phrases):
+        if router_response and not any(ep in router_response for ep in ROUTER_ERROR_PHRASES):
             return router_response
-        
-        # Special handling for news categories
-        news_categories = ['economics', 'economy', 'business', 'politics', 'technology', 
-                          'tech', 'sports', 'entertainment', 'world', 'global']
-        
-        for category in news_categories:
+
+        for category in NEWS_CATEGORIES:
             if category in cmd and ('news' in cmd or 'headlines' in cmd):
-                # Update news panel with category-specific news
-                news_data = self.get_news_data(category=category)
+                news_data = self.get_news_data(category=category)   # also updates the news panel
                 await self._send_to(websocket, json.dumps(news_data))
-                
-                items = news_data['items'][:3]
-                items_text = ". ".join(items)
+                items_text = ". ".join(news_data['items'][:3])
                 return f"Here are the top {category} headlines, {title}: {items_text}"
-        
-        # ══════════════════════════════════════════════════════════════════
-        # TRY HUD-SPECIFIC COMMANDS FIRST (before full JARVIS)
-        # These are features we want to handle in the HUD directly
-        # ══════════════════════════════════════════════════════════════════
-        
-        hud_commands = [
-            'screenshot', 'capture screen',
-            'read screen', 'read text', 'extract text', 'ocr',
-            'read clipboard',
-            'define ', 'meaning of ', 'definition of ',
-            'synonym',
-            'register my face', 'register face', 'register owner',
-            'verify me', 'authenticate', 'who am i',
-            'enable gesture', 'start gesture', 'gesture on',
-            'disable gesture', 'stop gesture', 'gesture off',
-            'enable emotion', 'mood detection', 'disable emotion',
-            'tell me a story', 'tell a story',
-            'recite a poem', 'poem',
-            'riddle',
-            'create note', 'new note', 'add note',
-            'list notes', 'show notes', 'my notes',
-            'set alarm',
-            'list alarm', 'show alarm', 'my alarm',
-            'switch to friday', 'activate friday',
-            'switch to jarvis', 'activate jarvis'
-        ]
-        
-        # Check if this is a HUD-specific command
-        is_hud_command = any(cmd_pattern in cmd for cmd_pattern in hud_commands)
-        
-        if is_hud_command:
-            # Process through our HUD handlers directly
+
+        if any(p in cmd for p in HUD_COMMANDS):
             return await self._fallback_process(command, websocket)
-        
-        # For general queries, ask the text model (see core/llm.py)
+
+        # General queries: the text model (see core/llm.py)
         from jarvis.core.llm import ask_gemini, gemini_client
         if gemini_client() is not None:
             try:
@@ -2645,12 +2609,11 @@ class JARVISWebSocketServer:
             if reply:
                 return reply
             # The keyword fallback would answer an unrelated question with e.g.
-            # a greeting ("translate hello…" -> "Good morning."). Be honest instead.
+            # a greeting ("translate hello..." -> "Good morning."). Be honest instead.
             return f"I couldn't reach the AI service just now{maybe_title(title)}. Please try again in a moment."
 
-        # No Gemini key: keyword-based fallback
-        return await self._fallback_process(command, websocket)
-    
+        return await self._fallback_process(command, websocket)   # no Gemini key: keywords
+
     def _route_through_router(self, command: str, force: bool = False) -> str:
         """Route command through direct handlers first, then IntentRouter.
 
