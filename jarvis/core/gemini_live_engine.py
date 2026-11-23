@@ -557,6 +557,34 @@ class GeminiLiveEngine:
         if not was_awake:
             print(f"[WAKE] Awake ({reason}) for {AWAKE_WINDOW_S:.0f}s", flush=True)
 
+    def interrupt(self) -> None:
+        """Cut off the answer Gemini is speaking (palm gesture, Esc, "stop").
+
+        Thread-safe. Does nothing when JARVIS isn't talking: the skip flag below
+        drops audio until the turn completes, so setting it while idle would
+        swallow the user's next reply.
+        """
+        loop = self._loop
+        if loop is None or not self._running or loop.is_closed():
+            return
+
+        def _do():
+            q = self.audio_in_queue
+            talking = (q is not None and not q.empty()) or _time.time() < self._speaking_until
+            if not talking:
+                return
+            self._interrupt_flag = True
+            self._current_turn_id += 1
+            while q is not None and not q.empty():
+                try:
+                    q.get_nowait()
+                except Exception:
+                    break
+            self._speaking_until = 0.0
+            print("[LIVE] Answer interrupted by user", flush=True)
+
+        loop.call_soon_threadsafe(_do)
+
     def note_user_speech(self, text: str) -> bool:
         """Handle transcribed speech. Returns True if it was addressed to JARVIS."""
         if WAKE_WORD_RE.search(text or ""):
@@ -596,34 +624,17 @@ class GeminiLiveEngine:
             
         self._last_push = {'text': text, 'time': now, 'role': role}
         
-        # Route through server's central gateway (not direct broadcast)
+        # Route through the server's central gateway: the only send path, with
+        # per-client queues and backpressure
         try:
-            if hasattr(self.server, 'push_live_transcription'):
-                self.server.push_live_transcription(
-                    text=text, 
-                    role=role,
-                    source="gemini_live",
-                    stream="live",
-                    kind="transcript",
-                    turn_id=turn_id if turn_id is not None else self._current_turn_id
-                )
-            else:
-                # Fallback: direct send to first client only
-                loop = getattr(self.server, '_voice_loop', None)
-                clients = getattr(self.server, 'clients', set())
-                if loop and clients:
-                    msg = json.dumps({
-                        'type': 'live_transcription',
-                        'text': text,
-                        'role': role,
-                        'speak': False,
-                        'source': 'gemini_live',
-                        'channel': 'live'
-                    })
-                    # Send to first client only (not all)
-                    client = next(iter(clients), None)
-                    if client:
-                        asyncio.run_coroutine_threadsafe(client.send(msg), loop)
+            self.server.push_live_transcription(
+                text=text,
+                role=role,
+                source="gemini_live",
+                stream="live",
+                kind="transcript",
+                turn_id=turn_id if turn_id is not None else self._current_turn_id
+            )
         except Exception as e:
             print(f"[LIVE] Chat push error: {e}", flush=True)
 
@@ -1415,6 +1426,7 @@ class GeminiLiveEngine:
         import time as _recv_time
         in_buf = []
         out_buf = []
+        _recv_errors = 0  # consecutive receive failures (see the except below)
         try:
             while self._running:
                 try:
@@ -1566,6 +1578,7 @@ class GeminiLiveEngine:
                             async with self._tool_lock:
                                 await _handle_tools(response.tool_call, self.session)
 
+                    _recv_errors = 0  # a full turn arrived: the session is healthy
                 except StopAsyncIteration:
                     # Stream ended — Gemini closed the session, loop will reconnect
                     print("[LIVE] Receive stream ended, waiting to reconnect...")
@@ -1574,6 +1587,14 @@ class GeminiLiveEngine:
                 except Exception as recv_err:
                     if self._running:
                         print(f"[LIVE] Receive stream error: {recv_err}")
+                    # A closed connection raises on every receive(). Retrying it
+                    # forever left a dead session that never reconnected (JARVIS
+                    # went silent). End this task instead: start_async then
+                    # tears the session down and the run loop reconnects.
+                    _recv_errors += 1
+                    if _recv_errors >= 3 or 'close' in str(recv_err).lower():
+                        print("[LIVE] Session lost, reconnecting...")
+                        break
                     await asyncio.sleep(0.5)
 
         except asyncio.CancelledError:
@@ -1671,6 +1692,7 @@ class GeminiLiveEngine:
         # Fresh tool lock per event-loop iteration
         self._tool_lock = asyncio.Lock()
         self._running = True
+        self._interrupt_flag = False  # a stale flag would mute the new session's first reply
 
         async with client.aio.live.connect(
             model=LIVE_MODEL,
@@ -1707,9 +1729,21 @@ class GeminiLiveEngine:
 
             tasks = [self._listen_task, self._receive_task, self._play_task, self._send_task]
             try:
-                await asyncio.gather(*tasks)
+                # When ANY loop ends (Gemini closed the stream, a send failed),
+                # the session is over: cancel the rest so start() reconnects.
+                # gather() waited for all four, and the mic and playback loops
+                # never end on their own, so a dropped session hung forever.
+                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                if self._running:
+                    ended = [t.get_name() for t in done]
+                    print(f"[LIVE] Session ended ({', '.join(ended)}); reconnecting", flush=True)
             except asyncio.CancelledError:
                 self._running = False
+            finally:
+                self.session = None  # nothing may push text into a closed session
 
     def start(self):
         # Thread-safe double-start guard

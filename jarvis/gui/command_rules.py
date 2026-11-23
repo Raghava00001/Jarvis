@@ -64,6 +64,39 @@ def is_jarvis_exit_command(cmd: str) -> bool:
     return bool(JARVIS_EXIT_RE.match(cmd))
 
 
+# ── "Stop talking" ──────────────────────────────────────────────────────────
+# Whole-command match. The old rule also accepted anything starting with
+# "stop ", so "stop the music", "stop gesture control" or "stop the timer"
+# silenced JARVIS and put it into quiet mode instead of doing the task.
+STOP_SPEAKING_RE = re.compile(
+    r"^(?:okay\s+|ok\s+|please\s+|jarvis\s+)?(?:"
+    r"stop|enough|silence|quiet|hush|stfu|shush"
+    r"|stop\s+(?:it|that|now|please|talking|speaking|there)"
+    r"|shut\s+up|shut\s+the\s+fuck\s+up|be\s+quiet|keep\s+quiet|stay\s+(?:quiet|silent)|keep\s+silent"
+    r"|that'?s\s+enough"
+    r")(?:\s+please)?[\s.!]*$"
+)
+
+
+def is_stop_speaking_command(cmd: str) -> bool:
+    """True for "stop", "shut up", "keep quiet"…, not for "stop the music"."""
+    return bool(STOP_SPEAKING_RE.match(normalize_command(cmd)))
+
+
+COMMAND_MESSAGE_TYPES = ('text_input', 'voice_input', 'command', 'chat')
+
+
+def is_urgent_message(data: dict) -> bool:
+    """Messages answered at once, never queued behind a slow command."""
+    msg_type = data.get('type', '')
+    if msg_type in ('stop_speaking', 'get_state', 'get_status'):
+        return True
+    if msg_type in COMMAND_MESSAGE_TYPES:
+        text = data.get('text', '') or (data.get('payload') or {}).get('text', '')
+        return is_stop_speaking_command(text)
+    return False
+
+
 def detect_pc_power_action(cmd: str):
     """Return 'shutdown', 'restart' or None for a normalized command."""
     if PC_RESTART_RE.search(cmd):

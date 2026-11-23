@@ -57,7 +57,29 @@ except ImportError:
 # CLEAN GATEWAY ARCHITECTURE - Action Model & State Manager
 # ═══════════════════════════════════════════════════════════════════════════════
 
-from jarvis.gui.hud_types import Action
+from jarvis.gui.hud_types import Action, command_turn, turn_text
+import contextvars
+import functools
+
+# Keyword-classifier intents that come from exact patterns with their own
+# entities. When one fires, it is more specific than the ML brain's guess.
+PRECISE_RULE_INTENTS = {
+    'search_news',      # "news about X", "the latest on X" (topic)
+    'screen_question',  # "what is this", "explain this error"
+    'set_timer',        # "set a timer for 10 minutes"
+    'take_note', 'list_notes', 'read_clipboard', 'ocr',
+}
+
+
+def _is_precise_rule(kw_intent, command: str) -> bool:
+    if kw_intent in PRECISE_RULE_INTENTS:
+        return True
+    # Tab commands only: other screen_control words ("copy", "type") also
+    # appear in ordinary questions ("how do I copy a file in linux").
+    if kw_intent == 'screen_control':
+        from jarvis.core.screen_control import is_tab_command
+        return is_tab_command(command)
+    return False
 from jarvis.gui.fallback_processor import FallbackProcessor
 
 
@@ -132,6 +154,8 @@ from jarvis.gui.command_rules import (  # noqa: F401  (re-exported for tests/too
     normalize_command,
     is_jarvis_exit_command,
     detect_pc_power_action,
+    is_stop_speaking_command,
+    is_urgent_message,
 )
 
 # Feature availability flags
@@ -482,9 +506,11 @@ class JARVISWebSocketServer:
         # Core JARVIS instance
         self.jarvis = None
         
-        # HUD perception wrapper
+        # HUD perception wrapper. Speech outside a command (alarms, reminders,
+        # hotkeys) goes to _announce, the single place that shows and voices it.
         self.hud_perception = HUDPerception()
-        
+        self.hud_perception.announcer = self._announce
+
         # Feature handlers
         self.perception = None
         self.weather_handler = None
@@ -756,7 +782,10 @@ class JARVISWebSocketServer:
         while self.running:
             try:
                 # ━━━ LAYER 1: Flag-based echo guard + quiet mode ━━━
-                if self.perception.is_speaking or self.perception.mic_muted:
+                # hud_perception.is_speaking covers the server voice engine,
+                # which now speaks every reply
+                if (self.perception.is_speaking or self.perception.mic_muted
+                        or self.hud_perception.is_speaking):
                     time.sleep(0.3)
                     continue
                 
@@ -962,25 +991,19 @@ class JARVISWebSocketServer:
                 
                 # ━━━ OPEN PALM = STOP SPEAKING (instant) ━━━
                 if gesture == 'open_palm':
-                    if getattr(self, 'is_speaking', False) or getattr(self.hud_perception, 'is_speaking', False):  # Only fire if actually speaking
+                    # Only when JARVIS is actually talking. This checked
+                    # self.is_speaking, which nothing ever set, so the palm
+                    # gesture never stopped speech.
+                    if self._is_jarvis_talking():
                         self._stop_speaking()
                         self.state_manager.force_state("idle")
-                        # Send visual feedback to HUD
-                        if self._voice_loop and self.clients:
-                            stop_msg = json.dumps({
-                                'type': 'gesture_action',
-                                'gesture': 'open_palm',
-                                'action': 'stop_speaking',
-                                'app': 'default',
-                                'confidence': confidence
-                            })
-                            for ws in list(self.clients):
-                                try:
-                                    asyncio.run_coroutine_threadsafe(
-                                        ws.send(stop_msg), self._voice_loop
-                                    )
-                                except Exception:
-                                    pass
+                        self._dispatch_from_thread('sensors', {
+                            'type': 'gesture_action',
+                            'gesture': 'open_palm',
+                            'action': 'stop_speaking',
+                            'app': 'default',
+                            'confidence': confidence
+                        })
                     continue
                 
                 # Map gesture to action based on active app
@@ -999,27 +1022,16 @@ class JARVISWebSocketServer:
                     else:
                         execute_gesture_action(action)
                     
-                    # Send gesture event to connected clients
-                    if self._voice_loop and self.clients:
-                        gesture_msg = json.dumps({
-                            'type': 'gesture_action',
-                            'gesture': gesture,
-                            'action': action,
-                            'app': active_app,
-                            'confidence': confidence,
-                            'channel': 'sensors'
-                        })
-                        for ws in list(self.clients):
-                            channels = self._client_channels.get(ws, {'command', 'stats', 'live', 'sensors'})
-                            if 'sensors' not in channels:
-                                continue
-                            try:
-                                asyncio.run_coroutine_threadsafe(
-                                    ws.send(gesture_msg),
-                                    self._voice_loop
-                                )
-                            except Exception:
-                                pass
+                    # Send gesture event to connected clients. Through the
+                    # per-client queues: sending straight to the socket from this thread raced each
+                    # client's sender task (concurrent sends on one socket).
+                    self._dispatch_from_thread('sensors', {
+                        'type': 'gesture_action',
+                        'gesture': gesture,
+                        'action': action,
+                        'app': active_app,
+                        'confidence': confidence,
+                    })
                 
                 time.sleep(0.05)  # ~20fps
                 
@@ -1252,21 +1264,17 @@ class JARVISWebSocketServer:
     def _init_clipboard(self):
         """Create ClipboardIntelligence with HUD suggestion callback."""
         def _push_clipboard_suggestion(suggestion):
-            msg = json.dumps({
-                'type': 'clipboard_suggestion',
-                'suggestion': suggestion.get('suggestion', ''),
-                'action': suggestion.get('action', ''),
-                'content_type': suggestion.get('type', ''),
-            })
-            for client in getattr(self, 'clients', set()):
-                try:
-                    asyncio.run_coroutine_threadsafe(
-                        client.send(msg),
-                        getattr(self, '_voice_loop', None) or asyncio.get_event_loop()
-                    )
-                except Exception:
-                    pass
-        
+            # Through the per-client queues (this runs on the clipboard thread)
+            try:
+                self._dispatch_from_thread('sensors', {
+                    'type': 'clipboard_suggestion',
+                    'suggestion': suggestion.get('suggestion', ''),
+                    'action': suggestion.get('action', ''),
+                    'content_type': suggestion.get('type', ''),
+                })
+            except Exception as e:
+                print(f"[CLIPBOARD] Suggestion push error: {e}")
+
         clip = ClipboardIntelligence(
             perception=self.hud_perception,
             on_suggestion=_push_clipboard_suggestion
@@ -1342,7 +1350,25 @@ class JARVISWebSocketServer:
         
         # Start per-client sender loop (drains queue → ws.send)
         sender_task = asyncio.create_task(self._client_sender(websocket))
-        
+        stats_task = None
+
+        # Commands run one at a time, in order, on a per-client worker, so the
+        # reader below never waits on a slow command. "stop" and state queries
+        # are answered immediately; before, they queued behind e.g. a 15 s AI call.
+        command_queue = asyncio.Queue(maxsize=20)
+
+        async def _command_worker():
+            while True:
+                queued = await command_queue.get()
+                try:
+                    await self.process_message(websocket, queued)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    print(f"[WebSocket] Command error: {e}")
+
+        worker_task = asyncio.create_task(_command_worker())
+
         try:
             # ══════ BOOT SEQUENCE: Batched single payload ══════
             name = self.hud_perception.assistant_name
@@ -1351,7 +1377,8 @@ class JARVISWebSocketServer:
             boot_briefing = None
             if self.startup_orchestrator:
                 try:
-                    boot_briefing = self.startup_orchestrator.generate_boot_briefing()
+                    boot_briefing = await self._run_blocking(
+                        self.startup_orchestrator.generate_boot_briefing)
                     print(f"[BOOT] Briefing generated: {boot_briefing.get('greeting', '')[:60]}")
                 except Exception as e:
                     print(f"[BOOT] Briefing error: {e}")
@@ -1366,16 +1393,31 @@ class JARVISWebSocketServer:
                 greeting_text = f'{greeting}, sir. {name} online. How can I help you?'
 
             # ━━━ SINGLE BATCHED INIT PAYLOAD (1 send instead of 6) ━━━
+            # Weather and news are network calls and stats sample the CPU for
+            # 0.1 s: gather them in worker threads, concurrently. On the event loop
+            # they froze every client and the keepalive pings, and the resulting
+            # disconnect/reconnect cycle re-ran them (the "overloaded" socket).
+            stats, weather, news = await asyncio.gather(
+                self._run_blocking(self.get_system_stats),
+                self._run_blocking(self.get_weather_data),
+                self._run_blocking(self.get_news_data),
+            )
             init_payload = {
                 'type': 'init_payload',
                 'assistant_info': {'name': name, 'is_friday': self.hud_perception.is_friday},
-                'system_stats': self.get_system_stats(),
-                'weather': self.get_weather_data(),
-                'news': self.get_news_data(),
+                'system_stats': stats,
+                'weather': weather,
+                'news': news,
                 'features': self.get_feature_status(),
             }
             if greeting_text:
-                _greet_speak = not bool(getattr(self, 'live_engine', None))
+                # Greet aloud once per run, not on every reconnect. In live mode
+                # Gemini greets by itself.
+                _greet_speak = False
+                if not getattr(self, '_greeted_aloud', False) and not self._live_ready() \
+                        and not getattr(self, 'live_engine', None):
+                    self._greeted_aloud = True
+                    _greet_speak = not self._voice_reply(greeting_text)
                 init_payload['greeting'] = {'text': greeting_text, 'speak': _greet_speak}
             if boot_briefing:
                 init_payload['briefing'] = boot_briefing
@@ -1388,23 +1430,38 @@ class JARVISWebSocketServer:
             async for message in websocket:
                 try:
                     data = json.loads(message)
+                    if not isinstance(data, dict):
+                        continue
                     # Handle channel subscription messages
                     if data.get('type') == 'subscribe':
                         channels = data.get('channels', [])
                         if channels:
                             self._client_channels[websocket] = set(channels)
                         continue
-                    await self.process_message(websocket, data)
+                    if is_urgent_message(data):
+                        await self.process_message(websocket, data)
+                        continue
+                    try:
+                        command_queue.put_nowait(data)
+                    except asyncio.QueueFull:
+                        await self._send_to(websocket, {
+                            'type': 'error',
+                            'message': 'Still working on your earlier commands. Try again in a moment.'})
                 except json.JSONDecodeError:
                     print(f"[WebSocket] Invalid JSON")
                 except Exception as e:
                     print(f"[WebSocket] Error: {e}")
-            
-            stats_task.cancel()
-            
+
         except websockets.exceptions.ConnectionClosed:
             print(f"[WebSocket] Client disconnected: {client_id}")
         finally:
+            # Cancel this client's tasks however the connection ended. The stats
+            # task used to be cancelled only on a clean close, so every dropped
+            # connection left one polling stats/weather/news forever, and
+            # reconnects piled them up.
+            worker_task.cancel()
+            if stats_task is not None:
+                stats_task.cancel()
             sender_task.cancel()
             self.clients.discard(websocket)
             self._client_channels.pop(websocket, None)
@@ -1425,7 +1482,7 @@ class JARVISWebSocketServer:
                 await asyncio.sleep(10)  # 10s instead of 3s
                 
                 # Only send stats if values changed (delta compression)
-                stats = self.get_system_stats()
+                stats = await self._run_blocking(self.get_system_stats)
                 stats_hash = str(stats.get('cpu', 0)) + str(stats.get('ram', 0)) + str(stats.get('battery', 0))
                 if stats_hash != self._last_stats_hash:
                     self._last_stats_hash = stats_hash
@@ -1435,14 +1492,18 @@ class JARVISWebSocketServer:
                 counter += 1
                 if counter >= 18:  # Every 3 minutes (18 * 10s)
                     counter = 0
-                    weather = self.get_weather_data()
+                    weather = await self._run_blocking(self.get_weather_data)
                     weather['channel'] = 'stats'
                     await self._send_to(websocket, json.dumps(weather))
-                    news = self.get_news_data()
+                    news = await self._run_blocking(self.get_news_data)
                     news['channel'] = 'stats'
                     await self._send_to(websocket, json.dumps(news))
-            except:
+            except asyncio.CancelledError:
                 break
+            except Exception as e:
+                # One failed refresh (network blip) used to end this client's
+                # updates for good: the bare except broke out of the loop.
+                print(f"[WebSocket] Periodic update error: {e}")
     
     async def apply_action(self, websocket, action: Action):
         """Single point for all WebSocket responses - PREVENTS LOOPS"""
@@ -1456,8 +1517,10 @@ class JARVISWebSocketServer:
                 print(f"[WebSocket] Skipping duplicate response")
                 return
             
-            _should_speak = action.payload.get("speak", True) and not bool(getattr(self, 'live_engine', None))
-                
+            _should_speak = action.payload.get("speak", True) and not self._live_ready()
+            if _should_speak and self._voice_reply(text):
+                _should_speak = False  # the server spoke it; the browser must not repeat it
+
             await self._send_to(websocket, json.dumps({
                 "type": "response",
                 "text": text,
@@ -1490,18 +1553,19 @@ class JARVISWebSocketServer:
                 self.hud_perception.speak("Yes sir, I'm here.")
     
     # ── C-01: Push text into Gemini Live session ──
-    def _push_live_text(self, text):
+    def _push_live_text(self, text, wake=True):
         """Inject user text directly into the active Gemini Live session.
         This prevents dual-response clashing by using a single audio path.
+
+        wake=False for system announcements: they must not open the wake-word
+        window (that would send the next 20 s of room audio to Gemini).
         """
         le = getattr(self, 'live_engine', None)
         if not le or not le._running or not le.session:
             raise RuntimeError("Gemini Live session not available")
-        
-        from google import genai
 
         # Typing in the HUD is always deliberate: open the wake-word window
-        if hasattr(le, 'wake'):
+        if wake and hasattr(le, 'wake'):
             le.wake("typed in HUD")
 
         # Push into the live session's event loop
@@ -1521,12 +1585,12 @@ class JARVISWebSocketServer:
         - Output: result (with action/response/confidence/state) + state updates
         """
         msg_type = data.get('type', '')
-        
-        # HARD PIPELINE GATE
-        if getattr(self, "live_engine", None) and data.get("type") in ["text_input", "voice_input"]:
-            print("[PIPELINE] Live active → skipping local pipeline")
-            return
-        
+        # (A "hard gate" here used to drop every text_input whenever a live
+        # engine object existed, even while it was disconnected, so typed
+        # commands got no answer at all. The voice clash guard and live routing
+        # below handle live mode, and fall back to the local pipeline when the
+        # Gemini session is down.)
+
         # ═══════════════════════════════════════════════════════════════
         # SPEECH INTERRUPTION: Stop JARVIS mid-speech
         # Gesture (palm) or explicit 'stop' command stops TTS immediately
@@ -1554,10 +1618,7 @@ class JARVISWebSocketServer:
             # response path (text→TTS) clashing with the native audio.
             # Block that path here; text_input / command / chat still work.
             # ──────────────────────────────────────────────────────────
-            _live_active = (
-                getattr(self, 'live_engine', None) is not None
-                and getattr(self.live_engine, '_running', False)
-            )
+            _live_active = self._live_ready()
             if msg_type == 'voice_input' and _live_active:
                 if jlog:
                     jlog.warn(f'voice_input suppressed (Gemini Live active): "{text[:60]}"')
@@ -1604,8 +1665,11 @@ class JARVISWebSocketServer:
             if jlog: jlog.input(msg_type, text)
             else: print(f"[WebSocket] Input ({msg_type}): {text}")
             
-            # Deduplication
-            if self.state_manager.is_duplicate_command(text):
+            # Deduplication: only for speech, where the mic can deliver the same
+            # sentence twice. A typed or clicked command is always deliberate;
+            # dropping it silently ("what time is it" asked twice in 2 s) left
+            # the HUD waiting for an answer that never came.
+            if msg_type == 'voice_input' and self.state_manager.is_duplicate_command(text):
                 if jlog: jlog.warn(f'Skipping duplicate: "{text}"')
                 return
             
@@ -1631,8 +1695,11 @@ class JARVISWebSocketServer:
             # FAST PATH: Instant execution for common commands
             # Skips heavy routing chain — sub-100ms response
             # ═══════════════════════════════════════════════════════════════
-            fast_response = self._try_fast_path(text)
-            
+            with command_turn() as fast_said:
+                fast_response = self._try_fast_path(text)
+            if fast_response is None and fast_said:
+                fast_response = " ".join(fast_said)
+
             # ═══════════════════════════════════════════════════════════════
             # COMPOUND COMMAND SPLITTING
             # "set alarm for 5 min and remind me to drink water" → 2 commands
@@ -1652,12 +1719,12 @@ class JARVISWebSocketServer:
                     responses = []
                     for i, sub_cmd in enumerate(sub_commands):
                         print(f"[WebSocket] Processing sub-command {i+1}/{len(sub_commands)}: {sub_cmd}")
-                        sub_response = await self.process_command(sub_cmd.strip(), websocket)
+                        sub_response = await self._run_turn(sub_cmd.strip(), websocket)
                         if sub_response:
                             responses.append(sub_response)
                     response = " Also, ".join(responses) if responses else "Done."
                 else:
-                    response = await self.process_command(text, websocket)
+                    response = await self._run_turn(text, websocket)
             except Exception as e:
                 if jlog: jlog.error('Command processing failed', e)
                 else: print(f"[WebSocket] CRITICAL: process_command failed: {e}")
@@ -1700,12 +1767,23 @@ class JARVISWebSocketServer:
             # State: speaking
             self.state_manager.force_state("speaking")
             
-            # ━━━ MUTE MIC BEFORE SENDING TO HUD (prevents TTS echo) ━━━
-            # The HUD plays audio via browser TTS — mic must be off during playback
+            # ━━━ MUTE MIC BEFORE SPEAKING (prevents TTS echo) ━━━
             if self.perception:
                 self.perception.mic_muted = True
                 self.perception.is_speaking = True
-            
+
+            # ━━━ SPEAK THE REPLY EXACTLY ONCE ━━━
+            # Live mode: Gemini voices its own replies, so nothing is spoken here.
+            # Otherwise the server's voice engine (the natural Edge voice) speaks
+            # it; the browser's speechSynthesis is only a fallback when the server
+            # has no TTS. Both used to speak, so replies were heard twice in two
+            # different voices.
+            silent = getattr(self, '_silent_response', False)
+            live = _live_active
+            server_spoke = False
+            if response and not silent and not live:
+                server_spoke = self._voice_reply(response)
+
             # ═══════════════════════════════════════════════════════════════
             # SEND RESULT: action + response + confidence + state
             # This is the SINGLE unified response for all input
@@ -1713,14 +1791,14 @@ class JARVISWebSocketServer:
             result = {
                 'type': 'result',
                 'action': action,
-                # In live mode Gemini voices its own replies, so local text is
-                # blanked to avoid duplicates. Power commands are never sent to
-                # Gemini, so their confirmation prompt must still be shown.
-                'response': response if (not getattr(self, "live_engine", None) or is_local_power) else "",
+                # In live mode the text goes to Gemini, which answers itself, so
+                # this path only runs for local power commands (never sent to the
+                # LLM) or when the live session is down: always show it.
+                'response': response,
                 'confidence': confidence,
                 'mood': mood,
-                'silent': getattr(self, '_silent_response', False),
-                'speak': not getattr(self, '_silent_response', False) and not bool(getattr(self, 'live_engine', None)),
+                'silent': silent,
+                'speak': bool(response) and not silent and not live and not server_spoke,
                 'state': {'current': self.state_manager.state if self.state_manager else 'idle'},
                 'channel': 'command'
             }
@@ -1780,24 +1858,28 @@ class JARVISWebSocketServer:
         
         elif msg_type == 'switch_voice':
             voice = data.get('voice', 'jarvis')
-            if voice.lower() == 'friday':
-                self.hud_perception.switch_to_friday()
-            else:
-                self.hud_perception.switch_to_jarvis()
-            
+            with command_turn() as said:
+                if voice.lower() == 'friday':
+                    self.hud_perception.switch_to_friday()
+                else:
+                    self.hud_perception.switch_to_jarvis()
+
             await self._send_to(websocket, json.dumps({
                 'type': 'assistant_info',
                 'name': self.hud_perception.assistant_name,
                 'is_friday': self.hud_perception.is_friday
             }))
-            
-            # Get pending speech
-            speeches = self.hud_perception.get_pending_speech()
-            for speech in speeches:
+
+            # The greeting in the new voice, spoken once (server voice, or the
+            # browser only if the server can't speak)
+            greeting = " ".join(said)
+            if greeting:
+                live = self._live_ready()
+                server_spoke = (not live) and self._voice_reply(greeting)
                 await self._send_to(websocket, json.dumps({
                     'type': 'response',
-                    'text': speech,
-                    'speak': not bool(getattr(self, 'live_engine', None))
+                    'text': greeting,
+                    'speak': not live and not server_spoke
                 }))
         
         elif msg_type == 'get_status':
@@ -1886,6 +1968,102 @@ class JARVISWebSocketServer:
             return f"Shutting down the computer in 5 seconds{maybe_title(title)}. Save your work."
         return f"Restarting the computer in 5 seconds{maybe_title(title)}."
 
+    async def _run_blocking(self, fn, *args, **kwargs):
+        """Run blocking work (handlers, LLM, weather, news) in a worker thread.
+
+        The current context is copied into the thread so speech recorded by a
+        handler lands in this command's turn (see hud_types.command_turn). The
+        event loop stays free to serve other clients and keepalive pings.
+        """
+        ctx = contextvars.copy_context()
+        call = functools.partial(fn, *args, **kwargs)
+        return await asyncio.get_running_loop().run_in_executor(None, ctx.run, call)
+
+    async def _run_turn(self, command: str, websocket) -> str:
+        """Process one command as a turn: whatever handlers said becomes the reply
+        when they return no text, so it is spoken once and never re-asked of the AI."""
+        with command_turn() as said:
+            reply = await self.process_command(command, websocket)
+        return reply or " ".join(said)
+
+    SWITCH_PREFIXES = ('switch to ', 'switch with ', 'switch tab to ', 'go to ', 'switch tab ')
+
+    def switch_to_app_command(self, cmd: str, title: str = 'sir'):
+        """Handle 'switch to <app>' / 'go to <app>'. Returns the reply, or None
+        if cmd isn't an app switch (e.g. "switch to the next tab", "switch to
+        friday"). Uses AppSwitcher (Win32): the old code pasted the spoken name
+        into a PowerShell script, a shell-injection risk."""
+        from jarvis.core.screen_control import is_tab_command
+        prefix = next((p for p in self.SWITCH_PREFIXES if cmd.startswith(p)), None)
+        if prefix is None or cmd.split()[-1] in ('friday', 'jarvis') or is_tab_command(cmd):
+            return None
+        target = re.sub(r"^(?:the|my)\s+", "", cmd[len(prefix):].strip())
+        if not target:
+            return None
+        try:
+            from jarvis.core.app_switcher import AppSwitcher
+            switcher = shared(AppSwitcher, lambda: AppSwitcher(self.hud_perception))
+            if switcher.find_window(target) is None:
+                return f"I can't find {target} running. Say 'open {target}' to start it."
+            with command_turn():  # its own spoken line is replaced by ours
+                switched = switcher.switch_to(target)
+            if switched:
+                self.state_manager.active_app = target.lower()
+                self.state_manager._active_app_time = time.time()
+                return f"Switched to {target}{maybe_title(title)}."
+        except Exception as e:
+            print(f"[WebSocket] App switch error: {e}")
+        return f"Couldn't switch to {target}, {title}."
+
+    def _is_jarvis_talking(self) -> bool:
+        """True while any voice output is playing: the server's voice engine,
+        the perception layer, or Gemini Live."""
+        if self.hud_perception.is_speaking:
+            return True
+        if self.perception is not None and getattr(self.perception, 'is_speaking', False):
+            return True
+        le = getattr(self, 'live_engine', None)
+        if le is not None:
+            q = getattr(le, 'audio_in_queue', None)
+            if (q is not None and not q.empty()) or time.time() < getattr(le, '_speaking_until', 0):
+                return True
+        return False
+
+    def _live_ready(self) -> bool:
+        le = getattr(self, 'live_engine', None)
+        return bool(le is not None and getattr(le, '_running', False)
+                    and getattr(le, 'session', None) is not None)
+
+    def _voice_reply(self, text: str) -> bool:
+        """Speak a command reply once, through the server's voice engine.
+
+        Returns False when the server can't speak (no TTS), so the caller lets
+        the browser speak it instead. Never called in live mode: Gemini voices
+        its own replies there.
+        """
+        if not text:
+            return False
+        return self.hud_perception.voice_out(text)
+
+    def _announce(self, text: str) -> None:
+        """Speech outside a command (alarm, reminder, hotkey), from any thread.
+
+        Shown in the HUD chat, then voiced by whichever output owns the audio:
+        Gemini Live in live mode (these used to be silently dropped there, so an
+        alarm could ring without a sound), otherwise the local voice engine.
+        """
+        self._run_on_loop(self.dispatch('command', {
+            'type': 'response', 'text': text, 'speak': False}))
+        if self._live_ready():
+            try:
+                self._push_live_text(
+                    "[System notice, not from the user. Tell the user this now, "
+                    f"briefly and in your own words: {text}]", wake=False)
+                return
+            except Exception as e:
+                print(f"[ANNOUNCE] Live announce failed, using local voice: {e}")
+        self.hud_perception.voice_out(text)
+
     def _run_on_loop(self, coro):
         """Schedule a coroutine on the server's event loop from any thread."""
         try:
@@ -1926,11 +2104,7 @@ class JARVISWebSocketServer:
         # SPEECH INTERRUPTION: "stop", "shut up", "keep quiet", "silence"
         # Must be first — user wants to interrupt JARVIS immediately
         # ══════════════════════════════════════════════════════════════════
-        stop_words = ['stop', 'shut up', 'be quiet', 'silence', 'enough', 'okay stop',
-                      'stop talking', 'stop speaking', 'quiet', 'hush',
-                      'keep quiet', 'stay silent', 'keep silent', 'stfu',
-                      'stop the fuck up', 'shut the fuck up']
-        if cmd in stop_words or cmd.startswith('stop ') or 'keep quiet' in cmd or 'stay silent' in cmd:
+        if is_stop_speaking_command(cmd):
             self._stop_speaking()
             self.quiet_mode = True  # Pause voice listening until wake word
             self._silent_response = True  # Don't speak the response
@@ -1957,9 +2131,7 @@ class JARVISWebSocketServer:
             original, expires_at = clarify
             if time.time() <= expires_at:
                 if CONFIRM_RE.match(cmd):
-                    import functools
-                    reply = await asyncio.get_event_loop().run_in_executor(
-                        None, functools.partial(self._route_through_router, original, force=True))
+                    reply = await self._run_blocking(self._route_through_router, original, force=True)
                     return reply or f"I couldn't complete that{maybe_title(title)}."
                 if CANCEL_RE.match(cmd):
                     return f"Okay, never mind{maybe_title(title)}."
@@ -2037,19 +2209,15 @@ class JARVISWebSocketServer:
         # These explicit keyword matches run BEFORE the intent router
         # ══════════════════════════════════════════════════════════════════
         
-        # Bedtime story — classifier thinks this is 'get_time' because 'time' is in 'bedtime'
-        if any(w in cmd for w in ['bedtime story', 'bed time story', 'tell me a story', 
-                                   'tell a story', 'once upon', 'tell me a tale']):
-            # Route to AI knowledge layer for story generation
-            if self.jarvis and hasattr(self.jarvis, 'knowledge') and self.jarvis.knowledge:
-                story = self.jarvis.knowledge.answer_question(cmd)
-                if story:
-                    return story
-            if self.knowledge:
-                story = self.knowledge.answer_question(cmd)
-                if story:
-                    return story
-            return f"Once upon a time, in a kingdom far, far away... I'd tell you more, but my storytelling module needs a moment{maybe_title(title)}."
+        # Stories: the ML classifier reads "bedtime story" as get_time. Use the
+        # one story handler (topic, genre, full length); this used to have its
+        # own copy that sent stories through the 400-character quick-answer path.
+        if any(w in cmd for w in ['bedtime story', 'bed time story', 'tell me a story',
+                                   'tell a story', 'once upon', 'tell me a tale']) and ROUTER_AVAILABLE:
+            result = await self._run_blocking(HANDLER_MAP['story'], command, {},
+                                              {'title': title, 'knowledge': self.knowledge})
+            if result and result.response:
+                return result.response
         
         # Chat History — classifier thinks this is 'story'
         if ('chat history' in cmd or 'show history' in cmd or 'conversation history' in cmd) and self.chat_history:
@@ -2080,41 +2248,13 @@ class JARVISWebSocketServer:
             except Exception as e:
                 return f"Couldn't switch windows, {title}."
         
-        # App focus — 'switch to [app]' / 'switch with [app]' / 'switch tab to [app]' / 'go to [app]'
-        switch_prefixes = ('switch to ', 'switch with ', 'switch tab to ', 'go to ', 'switch tab ')
-        if any(cmd.startswith(p) for p in switch_prefixes) and cmd.split()[-1] not in ('friday', 'jarvis'):
-            target = cmd
-            for p in switch_prefixes:
-                target = target.replace(p, '', 1)
-            target = target.strip()
-            try:
-                import pyautogui
-                result = subprocess.run(
-                    ['powershell', '-command',
-                     f'(Get-Process | Where-Object {{$_.MainWindowTitle -match "{target}"}} | Select-Object -First 1).MainWindowTitle'],
-                    capture_output=True, text=True, timeout=3
-                )
-                window_title = result.stdout.strip()
-                if window_title:
-                    subprocess.run(
-                        ['powershell', '-command', f'''
-                        $window = Get-Process | Where-Object {{$_.MainWindowTitle -match "{target}"}} | Select-Object -First 1
-                        if ($window) {{
-                            $hwnd = $window.MainWindowHandle
-                            Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Win32 {{ [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); }}'
-                            [Win32]::ShowWindow($hwnd, 9)
-                            [Win32]::SetForegroundWindow($hwnd)
-                        }}
-                        '''],
-                        capture_output=True, timeout=3
-                    )
-                    self.state_manager.active_app = target.lower()
-                    self.state_manager._active_app_time = time.time()
-                    return f"Switching to {target}, {title}."
-                else:
-                    return f"I can't find {target} running. Would you like me to open it?"
-            except Exception as e:
-                return f"Couldn't switch to {target}, {title}."
+        # App focus — 'switch to [app]' / 'go to [app]'. Tab commands ("switch
+        # to the next tab") are screen control and go to the router.
+        # (This used to paste the spoken name into a PowerShell script: a
+        # shell-injection risk, and slow. AppSwitcher uses Win32 calls.)
+        switched = self.switch_to_app_command(cmd, title)
+        if switched is not None:
+            return switched
         
         # ══════════════════════════════════════════════════════════════════
         # REMINDERS — Route directly, don't let it fall to face-auth gate
@@ -2336,8 +2476,7 @@ class JARVISWebSocketServer:
         # The router's handlers make blocking network calls (LLM, weather, news).
         # Run it in a worker thread so one slow request can't freeze the server:
         # a hung LLM call used to stop every reply and HUD update.
-        router_response = await asyncio.get_event_loop().run_in_executor(
-            None, self._route_through_router, command)
+        router_response = await self._run_blocking(self._route_through_router, command)
         # Check if router gave a REAL answer (not a fallback error)
         _error_phrases = ['trouble connecting', 'knowledge base', 'currently offline', 
                           'encountered an issue', 'Set GROQ_API_KEY']
@@ -2396,8 +2535,7 @@ class JARVISWebSocketServer:
         from jarvis.core.llm import ask_gemini, gemini_client
         if gemini_client() is not None:
             try:
-                reply = await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(None, ask_gemini, command), timeout=10.0)
+                reply = await asyncio.wait_for(self._run_blocking(ask_gemini, command), timeout=10.0)
             except asyncio.TimeoutError:
                 print("[WebSocket] Gemini API timed out (10s)")
                 reply = None
@@ -2443,13 +2581,25 @@ class JARVISWebSocketServer:
                 # Names the router serves itself, outside HANDLER_MAP
                 router_native = {'list_alarms', 'read_clipboard', 'next', 'previous', 'scroll'}
                 kw_intent, kw_entities = classify_intent(command) if ROUTER_AVAILABLE else (None, {})
-                if ROUTER_AVAILABLE and intent_name not in HANDLER_MAP and intent_name not in router_native:
+                if kw_intent != intent_name and _is_precise_rule(kw_intent, command):
+                    # A precise keyword rule fired (an exact pattern with its own
+                    # entities): it beats the ML guess. The brain called "news
+                    # about diabetes" plain 'news' and the topic was lost; it
+                    # sent "what is this" to web search.
+                    intent_name, entities = kw_intent, kw_entities
+                elif ROUTER_AVAILABLE and intent_name not in HANDLER_MAP and intent_name not in router_native:
                     if kw_intent in HANDLER_MAP:
                         intent_name, entities = kw_intent, kw_entities
                 elif kw_intent == intent_name and kw_entities:
                     # Both layers agree: fill entities the ML extractor missed
-                    # (e.g. the city in "weather in london") from the rule-based ones
-                    entities = {**kw_entities, **entities}
+                    # (e.g. the city in "weather in london") from the rule-based ones.
+                    # For messages the rule parse wins: it reads contact and text
+                    # straight from the sentence (the ML extractor returned the
+                    # contact "message to mom").
+                    if intent_name in ('send_message',):
+                        entities = {**entities, **kw_entities}
+                    else:
+                        entities = {**kw_entities, **entities}
                 if jlog: jlog.intent(f"BRAIN:{intent_name}", entities=entities)
                 else: print(f"[WebSocket] BRAIN Intent: {intent_name}, Entities: {entities}, Conf: {brain_result.confidence:.2f}")
 
@@ -2740,7 +2890,14 @@ class JARVISWebSocketServer:
                     else: print(f"[WebSocket] HANDLER_MAP dispatch: {intent_name}")
                     
                     result = handler(command, entities, handler_context)
-                    
+
+                    # A handler that spoke its answer (news search, weather report)
+                    # returns "" with should_speak=False. That is an answer: use what
+                    # it said. Treating it as "no handler" made the AI answer again,
+                    # so the user heard two different replies.
+                    if result and result.success and not result.response:
+                        result.response = turn_text()
+
                     if result and result.success and result.response:
                         # Handle side-effects from handler data
                         if result.data:
@@ -2753,12 +2910,17 @@ class JARVISWebSocketServer:
                                     self.hud_perception.switch_to_jarvis()
                             # COORD-FIX: Forward news/weather data to HUD
                             elif data_type == 'news' and result.data.get('items'):
-                                # The router runs in a worker thread (see process_command),
-                                # so hand the broadcast back to the server's event loop.
-                                self._run_on_loop(self._broadcast({
-                                    'type': 'news_update',
-                                    'items': result.data['items']
-                                }))
+                                # The router runs in a worker thread, so hand the
+                                # update to the event loop. (This called a
+                                # _broadcast() that doesn't exist: the news reply
+                                # was built, then thrown away by the AttributeError,
+                                # and the AI was asked instead. The HUD's news
+                                # panel listens for type 'news'.)
+                                self._dispatch_from_thread('stats', {
+                                    'type': 'news',
+                                    'items': result.data['items'],
+                                    'category': result.data.get('category', ''),
+                                })
                         return result.response
                 except Exception as e:
                     if jlog: jlog.error(f'Handler dispatch failed: {intent_name}', e)
@@ -2776,8 +2938,23 @@ class JARVISWebSocketServer:
             return None
     
     def _stop_speaking(self):
-        """Stop JARVIS from speaking immediately — both server-side and browser TTS"""
-        # Stop through HUD perception
+        """Stop JARVIS from speaking immediately — both server-side and browser TTS.
+
+        Safe to call from any thread (the gesture thread calls it too).
+        """
+        # Stop the server's voice engine: the playing line and everything queued.
+        # (Only the perception layers were stopped before, so with no
+        # PerceptionLayer attached, queued replies kept talking after "stop".)
+        self.hud_perception.stop_speaking()
+
+        # Stop Gemini Live's current answer, if it's talking
+        le = getattr(self, 'live_engine', None)
+        if le is not None and hasattr(le, 'interrupt'):
+            try:
+                le.interrupt()
+            except Exception as e:
+                print(f"[WebSocket] Live interrupt error: {e}")
+
         if self.perception and hasattr(self.perception, 'stop_speaking'):
             self.perception.stop_speaking()
         
@@ -2796,13 +2973,11 @@ class JARVISWebSocketServer:
                 self.entertainment.storyteller.stop()
         
         # ━━━ BROADCAST TO ALL HUD CLIENTS: cancel browser speechSynthesis ━━━
+        # Through the per-client queues: sending straight to the socket here raced the
+        # sender task (two concurrent sends on one socket) and failed outright
+        # when called from the gesture thread, which has no event loop.
         if self.clients:
-            stop_msg = json.dumps({'type': 'stop_speaking'})
-            for client in self.clients:
-                try:
-                    asyncio.ensure_future(client.send(stop_msg))
-                except Exception:
-                    pass
+            self._run_on_loop(self.dispatch('command', {'type': 'stop_speaking'}))
         
         self.state_manager.force_state("idle")
         print("[WebSocket] Speech interrupted (server + browser)")
@@ -2899,20 +3074,14 @@ class JARVISWebSocketServer:
                 pass
     
     def _dispatch_from_thread(self, channel, message):
-        """Thread-safe bridge: background threads call this instead of ws.send().
-        
-        Schedules dispatch() into the event loop via run_coroutine_threadsafe.
+        """Thread-safe bridge: background threads call this instead of sending to a socket.
+
+        Schedules dispatch() on the server's event loop (works from the loop
+        thread too).
         """
-        loop = self._voice_loop
-        if not loop:
+        if not self.clients:
             return
-        try:
-            asyncio.run_coroutine_threadsafe(
-                self.dispatch(channel, message),
-                loop
-            )
-        except Exception:
-            pass
+        self._run_on_loop(self.dispatch(channel, message))
     
     async def _client_sender(self, websocket):
         """Per-client drain loop — pops from queue and sends.
@@ -2974,20 +3143,11 @@ class JARVISWebSocketServer:
             'channel': 'live'
         })
         
-        loop = self._voice_loop
-        if not loop:
-            return
-        
-        # Route through per-client queue — prevents concurrent ws.send() violations
-        for client in list(self.clients):
-            channels = self._client_channels.get(client, {'command', 'stats', 'live', 'sensors'})
-            if 'live' in channels:
-                q = self._client_queues.get(client)
-                if q:
-                    try:
-                        asyncio.run_coroutine_threadsafe(q.put(msg), loop)
-                    except Exception:
-                        pass
+        # Through dispatch(): per-client queues with backpressure. This used a
+        # blocking `await q.put()` per chunk, so a client that fell behind (tab in
+        # the background, slow machine) parked one coroutine per transcript
+        # fragment on the event loop, without limit.
+        self._dispatch_from_thread('live', msg)
     
     async def start(self):
         """Start the server"""

@@ -120,6 +120,7 @@ class TestTTSFallback:
         eng.audio_lock = threading.RLock()
         eng._speech_queue = queue.Queue()
         eng._speech_worker = None
+        eng._generation = 0
         return eng
 
     def test_circuit_breaker_disables_failing_edge_tts(self):
@@ -159,7 +160,7 @@ class TestTTSFallback:
         active, peak, spoken = [0], [0], []
         lock = threading.Lock()
 
-        def fake_play(text):
+        def fake_play(text, cancelled=None):
             with lock:
                 active[0] += 1
                 peak[0] = max(peak[0], active[0])
@@ -185,9 +186,32 @@ class TestTTSFallback:
     def test_stop_drops_queued_lines(self):
         eng = self._engine()
         for i in range(5):
-            eng._speech_queue.put(f"line {i}")
+            eng._speech_queue.put((0, f"line {i}"))
         eng.stop()
         assert eng._speech_queue.empty()
+
+    def test_stop_silences_line_still_being_synthesised(self):
+        """'stop' during the Edge TTS network fetch used to let that line play anyway."""
+        import threading, time
+        eng = self._engine()
+        fetched, played = threading.Event(), []
+
+        def fake_blocking(text, cancelled=None):
+            fetched.set()
+            time.sleep(0.1)              # synthesis in flight
+            if cancelled and cancelled():
+                return True
+            played.append(text)
+            return True
+
+        eng.edge_tts.speak_blocking.side_effect = fake_blocking
+        eng.say("a long story")
+        eng.say("and more")
+        assert fetched.wait(2)
+        eng.stop()
+        time.sleep(0.4)
+        assert played == []
+        assert not eng.busy
 
 
 # ─── Boot briefing ────────────────────────────────────────────────────────

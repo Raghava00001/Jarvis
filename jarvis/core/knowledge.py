@@ -7,9 +7,31 @@ NO Google/Gemini dependency
 """
 
 import os
+import re
 import requests
 import json
 from typing import Optional
+
+
+def clean_for_speech(text: str) -> str:
+    """Strip markdown the voice would read out ("asterisk asterisk", "hash")."""
+    text = re.sub(r"```.*?```", "", text or "", flags=re.S)
+    text = re.sub(r"^\s{0,3}#{1,6}\s*", "", text, flags=re.M)        # headings
+    text = re.sub(r"^\s*[-*•]\s+", "", text, flags=re.M)             # bullets
+    text = re.sub(r"(\*\*|__|\*|`)", "", text)                       # bold/italic/code
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)             # links
+    return re.sub(r"[ \t]+", " ", text).strip()
+
+
+def trim_spoken(text: str, limit: int = 600) -> str:
+    """Shorten a spoken answer at a sentence boundary (never mid-word)."""
+    if len(text) <= limit:
+        return text
+    cut = max(text.rfind(". ", 0, limit), text.rfind("! ", 0, limit), text.rfind("? ", 0, limit))
+    if cut >= limit // 2:
+        return text[:cut + 1]
+    cut = text.rfind(" ", 0, limit)
+    return text[:cut if cut > 0 else limit].rstrip(",;: ") + "..."
 
 # API Configuration
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -72,7 +94,7 @@ class KnowledgeLayer:
             return self.perception.current_mood
         return None
     
-    def _call_groq(self, messages: list) -> Optional[str]:
+    def _call_groq(self, messages: list, max_tokens: int = 300) -> Optional[str]:
         """Call Groq API with rate limit handling"""
         import time as _time
         
@@ -92,7 +114,7 @@ class KnowledgeLayer:
                 data = {
                     "model": GROQ_MODEL,
                     "messages": messages,
-                    "max_tokens": 300,
+                    "max_tokens": max_tokens,
                     "temperature": 0.7
                 }
                 response = requests.post(GROQ_API_URL, headers=headers, json=data, timeout=15)
@@ -100,6 +122,9 @@ class KnowledgeLayer:
                 if response.status_code == 200:
                     result = response.json()
                     return result["choices"][0]["message"]["content"]
+                elif response.status_code in (401, 403):
+                    self._disable_provider("groq", response.status_code)
+                    return None
                 elif response.status_code == 429:
                     # Rate limited — backoff and retry
                     backoff = (attempt + 1) * 0.5  # 0.5s, 1s, 1.5s
@@ -120,7 +145,7 @@ class KnowledgeLayer:
         print("[KNOWLEDGE] Groq failed after retries")
         return None
     
-    def _call_openrouter(self, messages: list) -> Optional[str]:
+    def _call_openrouter(self, messages: list, max_tokens: int = 300) -> Optional[str]:
         """Call OpenRouter API"""
         try:
             headers = {
@@ -132,7 +157,7 @@ class KnowledgeLayer:
             data = {
                 "model": OPENROUTER_MODEL,
                 "messages": messages,
-                "max_tokens": 300,
+                "max_tokens": max_tokens,
                 "temperature": 0.7
             }
             response = requests.post(OPENROUTER_API_URL, headers=headers, json=data, timeout=30)
@@ -140,43 +165,74 @@ class KnowledgeLayer:
             if response.status_code == 200:
                 result = response.json()
                 return result["choices"][0]["message"]["content"]
-            else:
-                print(f"[KNOWLEDGE] OpenRouter error: {response.status_code}")
+            if response.status_code in (401, 403):
+                self._disable_provider("openrouter", response.status_code)
                 return None
+            print(f"[KNOWLEDGE] OpenRouter error: {response.status_code}")
+            return None
         except Exception as e:
             print(f"[KNOWLEDGE] OpenRouter exception: {e}")
             return None
     
-    def _generate_response(self, system_prompt: str, user_prompt: str) -> Optional[str]:
-        """Generate AI response with fallback"""
+    def _disable_provider(self, name: str, status: int) -> None:
+        """A rejected key (401/403) won't start working mid-session: stop asking.
+
+        Each question used to try Groq, then OpenRouter, both rejected, before
+        reaching Gemini, adding seconds to every answer.
+        """
+        if name == "groq" and self.groq_key:
+            self.groq_key = None
+            print(f"[KNOWLEDGE] Groq rejected the API key ({status}); skipping Groq this session. "
+                  f"Update GROQ_API_KEY in .env.")
+        elif name == "openrouter" and getattr(self, "openrouter_key", None):
+            self.openrouter_key = None
+            print(f"[KNOWLEDGE] OpenRouter rejected the API key ({status}); skipping it this session. "
+                  f"Update OPENROUTER_API_KEY in .env.")
+
+    def _generate_response(self, system_prompt: str, user_prompt: str,
+                           max_tokens: int = 300) -> Optional[str]:
+        """Generate an AI response: Groq, then OpenRouter, then Gemini.
+
+        Every provider with a working key is tried in that order, whatever the
+        configured primary was (a dead primary used to skip straight past
+        OpenRouter).
+        """
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
-        
-        # Try primary API
-        if self.api_type == "groq" and self.groq_key:
-            result = self._call_groq(messages)
+        if self.groq_key:
+            result = self._call_groq(messages, max_tokens=max_tokens)
             if result:
                 return result
-            # Try OpenRouter as fallback
-            if getattr(self, 'openrouter_key', None):
-                result = self._call_openrouter(messages)
-                if result:
-                    return result
-        
-        # Try OpenRouter
-        if self.api_type == "openrouter" and getattr(self, 'openrouter_key', None):
-            result = self._call_openrouter(messages)
+        if getattr(self, 'openrouter_key', None):
+            result = self._call_openrouter(messages, max_tokens=max_tokens)
             if result:
                 return result
-
         # Last resort: Gemini (a revoked Groq key used to mean no answers at all)
         if getattr(self, 'gemini_key', None):
             from jarvis.core.llm import ask_gemini
             return ask_gemini(user_prompt, system=system_prompt)
-
         return None
+
+    def create(self, prompt: str, system: Optional[str] = None, max_tokens: int = 900) -> Optional[str]:
+        """Long-form content (stories, poems, explanations, briefings).
+
+        answer_question() is built for quick spoken replies: a 2-3 sentence
+        persona, 300 tokens and a 400-character cut. Stories sent through it
+        came back chopped mid-sentence ("... sir.").
+        """
+        if not self.enabled:
+            return None
+        system = system or ("You are JARVIS, a warm, articulate storyteller and explainer. "
+                            "Write for being read aloud: natural spoken English, no markdown, "
+                            "no bullet points, no headings, no emojis.")
+        try:
+            text = self._generate_response(system, prompt, max_tokens=max_tokens)
+        except Exception as e:
+            print(f"[KNOWLEDGE] Create error: {str(e)[:100]}")
+            return None
+        return clean_for_speech(text) if text else None
 
     def answer_question(self, question: str) -> str:
         """Answer a question using AI - JARVIS has opinions"""
@@ -255,14 +311,7 @@ CHARACTER (Iron Man's JARVIS — Paul Bettany's portrayal):
             if not answer:
                 return f"I'm having trouble connecting to my knowledge base, {title}."
             
-            # Safety trim
-            if len(answer) > 400:
-                cut_idx = answer.rfind(" ", 0, 400)
-                if cut_idx == -1:
-                    cut_idx = 400
-                answer = answer[:cut_idx] + f"... {title}."
-
-            return answer
+            return trim_spoken(clean_for_speech(answer), limit=600)
 
         except Exception as e:
             print(f"[KNOWLEDGE] Error: {str(e)[:100]}")

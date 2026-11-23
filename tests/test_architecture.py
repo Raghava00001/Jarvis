@@ -124,8 +124,8 @@ print('CHECKERS=' + str(len(loops)))
 
 @pytest.fixture(scope="module")
 def boot_report():
-    out = subprocess.run([sys.executable, "-c", BOOT_CHECK], cwd=ROOT, capture_output=True,
-                         text=True, encoding="utf-8", errors="replace", timeout=240)
+    from _subproc import run_python
+    out = run_python(BOOT_CHECK, cwd=ROOT, timeout=240)
     report = {}
     for line in out.stdout.splitlines():
         if "=" in line and line.split("=", 1)[0].isupper():

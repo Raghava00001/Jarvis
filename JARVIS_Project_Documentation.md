@@ -2,7 +2,7 @@
 ## AI Voice Assistant Project Documentation
 
 **Creator:** Raghava  
-**Date:** January 2026 – November 2026 (v2.7)  
+**Date:** January 2026 – November 2026 (v2.8)  
 **Platform:** Windows 10/11 (Python 3.12)
 
 ---
@@ -266,18 +266,19 @@ Verification:
 
 ---
 
-### Phase 7: Hardening (v2.1 – v2.7, November 2026)
+### Phase 7: Hardening (v2.1 – v2.8, November 2026)
 - **Security:** WebSocket origin check + per-session token (any website could previously send commands), no shell injection, XSS-safe HUD, PC shutdown/restart always confirmed, personal data removed from the repo and its history
 - **Architecture:** one module identity (37 modules were loaded twice) and a service registry so every subsystem exists once (alarms, reminders and hotkeys were duplicated)
 - **Correctness:** wake word for Gemini Live, real news instead of placeholder headlines, per-city weather, 15+ routing and crash fixes found by running real commands through the pipeline, and a fix for a native audio crash
 - **Speed:** startup 15.5 s → 4.8 s
-- **Tests:** 90 → 321, including architecture invariants and a real-pipeline command corpus
+- **Stability (v2.8):** one voice per reply, no WebSocket task leaks or event-loop blocking, Gemini Live reconnects
+- **Tests:** 90 → 429, including architecture invariants and a real-pipeline command corpus
 
 ---
 
 ## 7. Features Summary
 
-Status as verified in November 2026 (v2.7) by running real commands through the
+Status as verified in November 2026 (v2.8) by running real commands through the
 pipeline and live sessions. ⚠️ = works, with a dependency or a part not verified live.
 
 | Feature | Status |
@@ -295,7 +296,7 @@ pipeline and live sessions. ⚠️ = works, with a dependency or a part not veri
 | Alarm, timer, reminders, tasks | ✅ Working |
 | Notes ("take a note…", "show my notes") | ✅ Working |
 | Clipboard reading | ✅ Working |
-| News (real headlines by category) | ✅ Working |
+| News (real headlines by category, topic briefings) | ✅ Working |
 | Weather (any city) | ✅ Working |
 | Music / YouTube playback | ✅ Working |
 | Compound commands, spell correction | ✅ Working |
@@ -305,7 +306,7 @@ pipeline and live sessions. ⚠️ = works, with a dependency or a part not veri
 | Face recognition | ⚠️ Runs; owner matching depends on registration and lighting |
 | Hand gestures | ⚠️ Tracking loads; gesture actions not verified with a live camera |
 | Emotion detection | ⚠️ Text mood works; face emotion needs DeepFace or FER (`requirements-optional.txt`) |
-| Screen reading (OCR) | ⚠️ Needs Tesseract OCR (`pytesseract` + the Tesseract app) |
+| Screen reading, "what is this?" | ✅ Working (Gemini vision; Tesseract used if installed) |
 | Email (Gmail) | 🔧 Needs Gmail credentials |
 | Google Calendar | 🔧 Needs Google API credentials |
 
@@ -321,4 +322,4 @@ pipeline and live sessions. ⚠️ = works, with a dependency or a part not veri
 
 ---
 
-*Last updated: November 2026 (v2.7). Current setup and architecture: README.md and docs/ARCHITECTURE.md.*
+*Last updated: November 2026 (v2.8). Current setup and architecture: README.md and docs/ARCHITECTURE.md.*

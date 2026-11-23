@@ -275,12 +275,9 @@ class ReminderManager:
         for reminder in due_reminders:
             reminder_id, message, reminder_type = reminder
             
-            # When Gemini Live owns the audio channel, do NOT auto-speak.
-            _live = getattr(self.perception, '_gemini_live_active', False) if self.perception else False
-            if _live:
-                print(f"[REMINDER] (live mode - suppressed) Reminder: {message}")
-            else:
-                self._speak(f"Reminder: {message}")
+            # The HUD perception routes this to whichever output owns the audio
+            # (Gemini Live or the local voice). It used to be dropped in live mode.
+            self._speak(f"Reminder: {message}")
             
             # Mark as complete or reschedule
             with self._db_lock:

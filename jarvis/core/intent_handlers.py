@@ -7,6 +7,7 @@ from jarvis.core.services import shared
 from datetime import datetime
 from typing import Any, Dict
 import random
+import re
 
 try:
     from jarvis.core.intent_router import HandlerResult, Intent
@@ -278,24 +279,62 @@ Give a 1-2 sentence take with signature JARVIS dry humor. Use probability framin
 
 def handle_search_news(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     """Handle news search by keyword"""
+    """A briefing on a topic: background and past figures, the current picture
+    from recent headlines, and what to watch. ("diabetes" used to return the
+    general headlines: the topic was dropped on the way to the handler.)"""
     title = context.get('title', 'sir') if context else 'sir'
     news_handler = context.get('news_handler') if context else None
-    keyword = entities.get('keyword', '')
-    
+    knowledge = context.get('knowledge') if context else None
+    keyword = (entities.get('keyword') or '').strip()
+
     if not keyword:
-        return HandlerResult(success=False, response=f"What topic should I search for, {title}?")
-    
+        return HandlerResult(success=False, response=f"What topic should I look into, {title}?")
     if not news_handler:
         return HandlerResult(success=False, response=f"News service unavailable, {title}.")
-    
+
     try:
-        result = news_handler.search_news(keyword, count=5)
-        if result:
-            return HandlerResult(success=True, response="", should_speak=False)  # Handler speaks itself
+        articles = news_handler.search_items(keyword, count=8)
     except Exception as e:
         print(f"[HANDLERS] News search error: {e}")
-    
-    return HandlerResult(success=False, response=f"Couldn't find news about {keyword}, {title}.")
+        articles = []
+
+    panel = [f"{a['title']} ({a['source']}, {a['date']})" if a.get('source') else a['title'] for a in articles]
+    data = {'type': 'news', 'items': panel, 'category': keyword} if panel else None
+
+    briefing = None
+    if knowledge and hasattr(knowledge, 'create'):
+        briefing = knowledge.create(topic_briefing_prompt(keyword, articles), max_tokens=700)
+
+    if briefing:
+        return HandlerResult(success=True, response=briefing, data=data)
+    if articles:
+        top = ". ".join(f"{a['title']}, from {a['source']}" if a.get('source') else a['title'] for a in articles[:3])
+        return HandlerResult(success=True, response=f"Latest on {keyword}: {top}.", data=data)
+    return HandlerResult(success=True, response=f"I couldn't find recent news about {keyword}, {title}.")
+
+
+def topic_briefing_prompt(topic: str, articles: list) -> str:
+    """Prompt for a spoken briefing that keeps known facts, dated figures and
+    today's news clearly apart, so nothing invented is presented as current."""
+    today = datetime.now().strftime("%d %B %Y")
+    if articles:
+        lines = "\n".join(f"- {a['title']} | {a.get('source') or 'unknown source'} | {a.get('date') or 'date unknown'}"
+                          for a in articles)
+        news = f"Recent headlines (last 30 days, newest first):\n{lines}"
+    else:
+        news = "No recent headlines were found."
+    return (
+        f"Today is {today}. The user asked for the latest on: {topic}.\n\n{news}\n\n"
+        "Write a spoken briefing of about 170 words in three short parts, without headings:\n"
+        "1. Background and past figures: the most important statistics you know about this topic, "
+        "each with the year it refers to and who published it (for example 'the IDF estimated in 2021 that...'). "
+        "Say these come from your background knowledge and may be out of date. Only give figures you are "
+        "confident about; if you have none, say so instead of guessing.\n"
+        "2. The current picture: what the recent headlines above show, naming their sources. "
+        "Use only the headlines for anything described as recent or new.\n"
+        "3. One line on what to watch next.\n"
+        "Plain spoken sentences: no lists, no markdown."
+    )
 
 
 def handle_open_app(cmd: str, entities: Dict, context: Any) -> HandlerResult:
@@ -760,39 +799,63 @@ def handle_joke(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     return HandlerResult(success=True, response=f"{random.choice(jokes)}, {title}.")
 
 
+STORY_TONE = {
+    "horror": "Build slow, creeping suspense; keep it eerie rather than gory.",
+    "comedy": "Make it genuinely funny, with a comic twist at the end.",
+    "bedtime": "Keep it gentle, calm and soothing, ending peacefully.",
+    "adventure": "Keep it exciting, with vivid action and a brave choice.",
+    "sci-fi": "Ground it in a fresh scientific idea with a sense of wonder.",
+    "fantasy": "Make the world magical and vivid.",
+    "mystery": "Plant a clue early and resolve it cleverly.",
+    "romance": "Keep it warm and heartfelt.",
+    "moral": "End with a clear, simple lesson.",
+}
+
+
+def story_request(cmd: str):
+    """'tell me a long scary story about a lighthouse' -> ('horror', 'a lighthouse', 'long')."""
+    c = (cmd or "").lower()
+    genre = "bedtime"
+    for g, words in (("horror", ("horror", "scary", "spooky", "ghost")), ("comedy", ("funny", "comedy", "hilarious")),
+                     ("adventure", ("adventure", "action")), ("sci-fi", ("sci-fi", "science fiction", "space", "robot")),
+                     ("fantasy", ("fantasy", "magic", "dragon", "wizard", "fairy")), ("mystery", ("mystery", "detective")),
+                     ("romance", ("romance", "romantic", "love story")), ("moral", ("moral", "lesson"))):
+        if any(re.search(rf"\b{re.escape(w)}\b", c) for w in words):
+            genre = g
+            break
+    m = re.search(r"\bstor(?:y|ies)\s+(?:about|of|on|where|in which|featuring)\s+(.+?)[?.!]*$", c)
+    topic = m.group(1).strip() if m else None
+    length = "long" if re.search(r"\b(long|longer|detailed|full)\b", c) else (
+        "short" if re.search(r"\b(short|quick|tiny|brief)\b", c) else "medium")
+    return genre, topic, length
+
+
 def handle_story(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     """Handle story requests - uses JARVISEntertainment or AI"""
     title = context.get('title', 'sir') if context else 'sir'
-    cmd_lower = cmd.lower()
-    
-    # Determine story type
-    genre = "bedtime"
-    if "horror" in cmd_lower or "scary" in cmd_lower:
-        genre = "horror"
-    elif "funny" in cmd_lower or "comedy" in cmd_lower:
-        genre = "comedy"
-    elif "adventure" in cmd_lower:
-        genre = "adventure"
-    
-    # Try to use knowledge layer for story generation
+    genre, topic, length = story_request(cmd)
+
+    # Long-form path: the quick-answer path (answer_question) used a 2-3
+    # sentence persona and cut replies at 400 characters, so stories stopped
+    # mid-sentence, and the topic ("a story about a dragon") was ignored.
     knowledge = context.get('knowledge') if context else None
     if knowledge:
+        about = f" about {topic}" if topic else ""
+        paragraphs = {"short": "two short paragraphs", "long": "six to eight paragraphs"}.get(length, "four paragraphs")
+        prompt = (f"Tell an original {genre} story{about}, in {paragraphs}. "
+                  f"Give it a clear beginning, a turn, and a satisfying ending. "
+                  f"{STORY_TONE.get(genre, '')} "
+                  f"Start straight away with the story, with no title or preamble.")
         try:
-            prompt = f"""Tell a short {genre} story (2-3 paragraphs). 
-Requirements:
-- Be creative and engaging
-- Match the genre: {genre}
-- For horror: create suspense and tension
-- For comedy: include humor
-- For bedtime: be calming and peaceful
-- Keep it concise but complete"""
-            
-            story = knowledge.answer_question(prompt)
-            if story and len(story) > 50:
+            if hasattr(knowledge, 'create'):
+                story = knowledge.create(prompt, max_tokens=1400 if length == "long" else 900)
+            else:
+                story = knowledge.answer_question(prompt)
+            if story and len(story) > 80:
                 return HandlerResult(success=True, response=story)
         except Exception as e:
             print(f"[HANDLERS] Story generation error: {e}")
-    
+
     # Fallback story
     if genre == "horror":
         return HandlerResult(
@@ -818,13 +881,16 @@ def handle_poem(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     knowledge = context.get('knowledge') if context else None
     if knowledge:
         try:
-            theme = entities.get('theme', 'technology and friendship')
-            prompt = f"Write a short 4-line poem about {theme}. Make it thoughtful and meaningful."
-            poem = knowledge.answer_question(prompt)
+            m = re.search(r"\bpoem\s+(?:about|on|for|of)\s+(.+?)[?.!]*$", (cmd or "").lower())
+            theme = entities.get('theme') or (m.group(1) if m else 'technology and friendship')
+            prompt = (f"Write an original short poem (8 lines) about {theme}. Make it thoughtful "
+                      f"and musical when read aloud. Output only the poem.")
+            poem = knowledge.create(prompt, max_tokens=400) if hasattr(knowledge, 'create') \
+                else knowledge.answer_question(prompt)
             if poem:
                 return HandlerResult(success=True, response=poem)
-        except:
-            pass
+        except Exception as e:
+            print(f"[HANDLERS] Poem generation error: {e}")
     
     # Fallback poem
     return HandlerResult(
@@ -855,34 +921,44 @@ def handle_set_alarm(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     elif period == 'am' and hour == 12:
         hour = 0
     
-    if alarm_system:
-        try:
-            time_str = f"{hour % 12 or 12}:{minute:02d} {'AM' if hour < 12 else 'PM'}"
-            alarm_system.set_alarm(time_str)
-            return HandlerResult(success=True, response=f"Alarm set for {time_str}, {title}.")
-        except Exception as e:
-            print(f"[HANDLERS] Alarm error: {e}")
-    
     time_str = f"{hour % 12 or 12}:{minute:02d} {'AM' if hour < 12 else 'PM'}"
-    return HandlerResult(success=True, response=f"Alarm set for {time_str}, {title}.")
+    # Only claim success when an alarm was really set (it used to say "Alarm
+    # set" with no alarm system, or after set_alarm failed).
+    if not alarm_system:
+        return HandlerResult(success=False, response=f"The alarm service isn't available right now, {title}.")
+    try:
+        if alarm_system.set_alarm(time_str) is not False:
+            return HandlerResult(success=True, response=f"Alarm set for {time_str}, {title}.")
+    except Exception as e:
+        print(f"[HANDLERS] Alarm error: {e}")
+    return HandlerResult(success=False, response=f"I couldn't set that alarm, {title}.")
 
 
 def handle_set_timer(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     """Handle setting timers"""
     title = context.get('title', 'sir') if context else 'sir'
     alarm_system = context.get('alarm_system') if context else None
-    
-    duration = entities.get('duration', 5)
-    unit = entities.get('unit', 'minutes')
-    
-    if alarm_system and hasattr(alarm_system, 'set_timer'):
-        try:
-            alarm_system.set_timer(duration, unit)
+
+    # The spoken duration is the source of truth ("timer for 90 seconds").
+    # This used to default to 5 minutes and call AlarmSystem.set_timer(),
+    # which doesn't exist, then say "Timer set" anyway: no timer ever rang.
+    from jarvis.core.intent_classifier import parse_duration
+    parsed = parse_duration(cmd)
+    if parsed:
+        duration, unit = parsed
+    elif entities.get('duration'):
+        duration, unit = int(entities['duration']), entities.get('unit', 'minutes')
+    else:
+        return HandlerResult(success=False, response=f"For how long, {title}? For example, 'set a timer for 10 minutes'.")
+
+    if not alarm_system:
+        return HandlerResult(success=False, response=f"The timer service isn't available right now, {title}.")
+    try:
+        if alarm_system.set_alarm(f"in {duration} {unit}", label=f"Timer ({duration} {unit})") is not False:
             return HandlerResult(success=True, response=f"Timer set for {duration} {unit}, {title}.")
-        except Exception as e:
-            print(f"[HANDLERS] Timer error: {e}")
-    
-    return HandlerResult(success=True, response=f"Timer set for {duration} {unit}, {title}.")
+    except Exception as e:
+        print(f"[HANDLERS] Timer error: {e}")
+    return HandlerResult(success=False, response=f"I couldn't set that timer, {title}.")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -926,6 +1002,15 @@ def handle_screenshot(cmd: str, entities: Dict, context: Any) -> HandlerResult:
 # CONVERSATION HANDLER
 # ═══════════════════════════════════════════════════════════════
 
+LONG_FORM_RE = re.compile(
+    r"\b(?:explain|in detail|detailed|elaborate|step[- ]by[- ]step|history of|walk me through|"
+    r"overview of|everything about|deep dive|how does .+ work|teach me|why (?:do|does|is|are|did))\b")
+
+EXPLAINER_SYSTEM = ("You are JARVIS, a knowledgeable assistant explaining things out loud. Be accurate, "
+                    "concrete and well organised, in natural spoken English: no markdown, no lists, "
+                    "no headings. If you're unsure of a fact, say so.")
+
+
 def handle_conversation(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     """Handle casual conversation / small talk"""
     title = context.get('title', 'sir') if context else 'sir'
@@ -934,6 +1019,21 @@ def handle_conversation(cmd: str, entities: Dict, context: Any) -> HandlerResult
     
     # Try AI if available
     knowledge = context.get('knowledge') if context else None
+
+    # Explanations need room. Through the quick-answer persona (2-3 sentences)
+    # "explain the history of the Roman Empire in detail" got "that is beyond
+    # my current capabilities".
+    if knowledge and hasattr(knowledge, 'create') and LONG_FORM_RE.search(cmd_lower):
+        try:
+            text = knowledge.create(
+                f"{cmd}\n\nAnswer as a clear spoken explanation of about 150 words, or exactly "
+                f"the length asked for. Start with the direct answer, then the key points in order.",
+                system=EXPLAINER_SYSTEM, max_tokens=700)
+            if text and len(text) > 20:
+                return HandlerResult(success=True, response=text)
+        except Exception as e:
+            print(f"[HANDLERS] Explanation error: {e}")
+
     if knowledge and hasattr(knowledge, 'answer_question'):
         try:
             response = knowledge.answer_question(cmd)
@@ -954,7 +1054,6 @@ def handle_dictionary(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     word = entities.get('word', '')
     
     if not word:
-        import re
         match = re.search(r'(?:define|meaning of|what does|what is)\s+(?:the\s+word\s+)?([\w]+)', cmd, re.I)
         if match:
             word = match.group(1).strip()
@@ -1047,23 +1146,34 @@ def handle_send_message(cmd: str, entities: Dict, context: Any) -> HandlerResult
 # ═══════════════════════════════════════════════════════════════
 
 def handle_ocr(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle OCR / screen reading requests"""
+    """Read the text on the screen: local Tesseract OCR if installed, otherwise
+    Gemini vision (screen reading used to need Tesseract, so it never worked
+    on a standard setup)."""
     title = context.get('title', 'sir') if context else 'sir'
     ocr_handler = context.get('ocr_handler') if context else None
-    
+
     if not ocr_handler:
         try:
             from jarvis.core.ocr_handler import OCRHandler
             ocr_handler = shared(OCRHandler)
-        except ImportError:
-            return HandlerResult(success=False, response=f"OCR is not available, {title}. Please install pytesseract.")
-    
-    if not ocr_handler.is_available():
-        # success=True: this IS the answer. As a failure, the router fell
-        # through to the AI, which made up what was on the screen.
-        return HandlerResult(success=True, response=f"I can't read the screen yet, {title}: screen reading needs "
-                                                    f"Tesseract OCR (pip install pytesseract, plus the Tesseract app).")
-    
+        except Exception:
+            ocr_handler = None
+
+    if ocr_handler is None or not ocr_handler.is_available():
+        from jarvis.core import screen_vision
+        if screen_vision.vision_available():
+            try:
+                text = screen_vision.read_screen_text()
+                if text:
+                    return HandlerResult(success=True, response=text)
+            except Exception as e:
+                print(f"[HANDLERS] Vision screen reading error: {e}")
+            # success=True: as a failure the router fell through to the AI,
+            # which made up what was on the screen.
+            return HandlerResult(success=True, response=f"I couldn't read the screen just now, {title}. Please try again.")
+        return HandlerResult(success=True, response=f"I can't read the screen yet, {title}: it needs a GEMINI_API_KEY "
+                                                    f"in .env, or Tesseract OCR installed.")
+
     try:
         text = ocr_handler.read_screen()
         if text:
@@ -1073,6 +1183,24 @@ def handle_ocr(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     except Exception as e:
         print(f"[HANDLERS] OCR error: {e}")
         return HandlerResult(success=False, response=f"Error reading screen, {title}.")
+
+
+def handle_screen_question(cmd: str, entities: Dict, context: Any) -> HandlerResult:
+    """'what is this?', 'explain this error', 'what am I looking at?': look at
+    the screen and answer. These used to reach the text model with no idea
+    what 'this' was."""
+    title = context.get('title', 'sir') if context else 'sir'
+    from jarvis.core import screen_vision
+    if not screen_vision.vision_available():
+        return HandlerResult(success=True, response=f"I can't see your screen without a GEMINI_API_KEY in .env, {title}.")
+    try:
+        answer = screen_vision.ask_about_screen(cmd)
+        if answer:
+            from jarvis.core.knowledge import clean_for_speech
+            return HandlerResult(success=True, response=clean_for_speech(answer))
+    except Exception as e:
+        print(f"[HANDLERS] Screen question error: {e}")
+    return HandlerResult(success=True, response=f"I couldn't get a look at the screen just now, {title}. Please try again.")
 
 
 def handle_screen_control(cmd: str, entities: Dict, context: Any) -> HandlerResult:
@@ -1114,7 +1242,6 @@ def handle_habit(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             return HandlerResult(success=True, response=f"No habits tracked yet, {title}. Say 'add habit' to start.")
         
         if 'add' in cmd_lower or 'track' in cmd_lower or 'create' in cmd_lower:
-            import re
             name = re.sub(r'(add|track|create|new)\s*(habit)?\s*', '', cmd_lower).strip()
             if name:
                 tracker.add_habit(name)
@@ -1280,6 +1407,7 @@ HANDLER_MAP = {
     'switch_to_jarvis': handle_switch_to_jarvis,
     # P2-01: Newly wired features
     'ocr': handle_ocr,
+    'screen_question': handle_screen_question,
     'screen_control': handle_screen_control,
     'habit': handle_habit,
     'email': handle_email,

@@ -160,24 +160,41 @@ class NewsHandler:
             self.perception.speak("Unable to fetch Hacker News right now, sir.")
             return False
 
+    def search_items(self, keyword, count=8, days=30):
+        """Recent articles about a topic, newest first, as data (nothing is spoken).
+
+        Returns [{'title', 'source', 'date', 'age_days'}]; [] if none or offline.
+        """
+        from email.utils import parsedate_to_datetime
+        query = f"{keyword} when:{days}d" if days else keyword
+        response = requests.get(google_news_search_url(query), timeout=8)
+        if response.status_code != 200:
+            raise RuntimeError(f"News search failed ({response.status_code})")
+        out = []
+        now = datetime.now().astimezone()
+        for item in parse_rss_items(response.content, limit=count * 2):
+            title = self._clean_title((item.title.text if item.title else "").strip())
+            if not title:
+                continue
+            source = (item.source.text if item.source else "").strip()
+            # Google appends " - Source" to titles; keep the source separately
+            if source and title.endswith(f" - {source}"):
+                title = title[: -len(source) - 3].rstrip()
+            date, age = "", None
+            try:
+                when = parsedate_to_datetime(item.pubDate.text)
+                date, age = when.strftime("%d %b %Y"), max(0, (now - when).days)
+            except Exception:
+                pass
+            out.append({"title": title, "source": source, "date": date, "age_days": age})
+        out.sort(key=lambda a: a["age_days"] if a["age_days"] is not None else 9999)
+        return out[:count]
+
     def search_news(self, keyword, count=5):
         """Search news by keyword (Flutter NewsApp style)"""
         try:
-            # Use Google News search
-            search_url = google_news_search_url(keyword)
-            response = requests.get(search_url, timeout=8)
-            
-            if response.status_code != 200:
-                raise RuntimeError("Search failed")
-            
-            items = parse_rss_items(response.content, limit=count)
-            
-            headlines = []
-            for item in items:
-                title = item.title.text.strip()
-                title = self._clean_title(title)
-                headlines.append({"title": title})
-            
+            headlines = [{"title": a["title"]} for a in self.search_items(keyword, count)]
+
             if headlines:
                 self.perception.speak(f"Here are {len(headlines)} results for {keyword}, sir.")
                 for i, h in enumerate(headlines, 1):

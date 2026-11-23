@@ -91,4 +91,7 @@ def test_knowledge_falls_back_to_gemini_when_groq_rejects_the_key():
 def test_router_runs_off_the_event_loop():
     """A slow handler (LLM call) used to block the event loop and freeze every reply."""
     src = (ROOT / "jarvis/gui/websocket_server.py").read_text(encoding="utf-8")
-    assert "run_in_executor(\n            None, self._route_through_router, command)" in src.replace("\r\n", "\n")
+    assert "await self._run_blocking(self._route_through_router, command)" in src
+    # _run_blocking: a worker thread, with the command's context (turn) copied in
+    body = src.split("async def _run_blocking", 1)[1].split("\n    async def ", 1)[0]
+    assert "run_in_executor(None, ctx.run, call)" in body
