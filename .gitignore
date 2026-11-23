@@ -73,3 +73,8 @@ user_profile.json
 
 # Machine-specific scan of installed apps (rebuilt automatically)
 jarvis/data/app_cache.json
+jarvis/data/alarms.json
+jarvis/data/tasks.json
+jarvis/data/voice_prefs.json
+jarvis/data/preferences.json
+jarvis/data/memory/*.json
