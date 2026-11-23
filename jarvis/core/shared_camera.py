@@ -131,6 +131,18 @@ class SharedCamera:
                 return None
             return self._frame.copy()
     
+    def get_frame_stamped(self):
+        """(frame, capture_time) of the latest fresh frame, or (None, 0.0).
+
+        Lets a consumer skip frames it has already processed: the gesture loop
+        polled at 20 Hz on a 10 fps camera, so every frame was analysed twice
+        and hand speeds came out halved.
+        """
+        with self._frame_lock:
+            if self._frame is None or time.time() - self._last_frame_time > 2.0:
+                return None, 0.0
+            return self._frame.copy(), self._last_frame_time
+
     @property
     def is_active(self) -> bool:
         return self._running and self._cap is not None and self._cap.isOpened()

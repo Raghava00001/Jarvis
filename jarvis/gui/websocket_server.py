@@ -194,7 +194,7 @@ except ImportError:
     pass
 
 try:
-    from jarvis.core.gesture_controller import GestureController, GestureType
+    from jarvis.core.gesture_controller import GestureController  # (also asked for a non-existent GestureType, so this always failed)
     GESTURE_AVAILABLE = True
     print("[WebSocket] Gesture controller available")
 except ImportError:
@@ -473,6 +473,20 @@ except ImportError:
 from jarvis.gui.hud_types import HUDPerception
 
 
+FEATURE_TOGGLE_RE = re.compile(
+    r"^(?:please\s+)?(?:enable|disable|turn\s+on|turn\s+off|start|stop|switch\s+on|switch\s+off)\s+"
+    r"(?:the\s+)?(?:gestures?|gesture\s+control|face(?:\s+recognition)?|emotion(?:\s+detection)?|mood\s+detection)\b")
+
+
+def _gesture_mp_available() -> bool:
+    """Is MediaPipe installed? (checks the package, doesn't import it)"""
+    try:
+        from jarvis.core.gesture_controller import MP_AVAILABLE
+        return MP_AVAILABLE
+    except Exception:
+        return False
+
+
 class JARVISWebSocketServer:
     """WebSocket server with FULL JARVISUltimate integration"""
     
@@ -559,7 +573,10 @@ class JARVISWebSocketServer:
         self.last_gesture = None
         
         # ALL FEATURES AUTO-ENABLED ON STARTUP (fully operational JARVIS)
-        self.gesture_enabled = True   # Auto-enabled: gestures active from boot
+        # Gestures open the camera: on at boot only if the user turned them on
+        # last time (or JARVIS_GESTURES=1). They used to claim "on from boot"
+        # while never actually running.
+        self.gesture_enabled = self._load_gesture_pref()
         self.face_enabled = True      # Always-on: face recognition
         self.emotion_enabled = True   # Always-on: emotion detection
         
@@ -895,154 +912,172 @@ class JARVISWebSocketServer:
                 print(f"[WebSocket] Perception error: {e}")
     
     # ═══════════════════════════════════════════════════════════════
-    # GESTURE PROCESSING THREAD
-    # Captures camera → detects gestures → executes actions
+    # GESTURES
+    # Camera -> hand landmarks -> gestures (core/hand_poses.py) -> either a
+    # communication gesture handled here (_on_gesture) or a control action in
+    # the app the user is in (gesture_controller.execute_gesture_action).
+    #
+    # The thread used to start only if a GestureController existed at boot,
+    # which it never did: the import also asked for a non-existent GestureType,
+    # so GESTURE_AVAILABLE was always False and gestures never ran.
     # ═══════════════════════════════════════════════════════════════
-    
+
+    GESTURE_PREFS = Path(__file__).resolve().parent.parent.parent / "jarvis_data" / "feature_prefs.json"
+
+    def _load_gesture_pref(self) -> bool:
+        """Gestures on at boot only if the user turned them on (it opens the camera).
+        JARVIS_GESTURES=1/0 in .env overrides the saved choice."""
+        env = os.getenv("JARVIS_GESTURES")
+        if env in ("0", "1"):
+            return env == "1"
+        try:
+            return bool(json.loads(self.GESTURE_PREFS.read_text(encoding="utf-8")).get("gestures", False))
+        except Exception:
+            return False
+
+    def set_gesture_enabled(self, enabled: bool, title: str = 'sir') -> str:
+        """Turn gestures on/off (HUD button, voice, typed). Remembered for next time."""
+        if enabled and not self.gesture_controller:
+            self.gesture_enabled = False
+            return f"Gesture control isn't available, {title}: MediaPipe could not be loaded."
+        if enabled and not getattr(self.gesture_controller, 'active', False):
+            self.gesture_enabled = False
+            return f"Gesture control couldn't start, {title}: the hand-tracking model didn't load."
+        self.gesture_enabled = bool(enabled)
+        try:
+            prefs = {}
+            if self.GESTURE_PREFS.exists():
+                prefs = json.loads(self.GESTURE_PREFS.read_text(encoding="utf-8"))
+            prefs["gestures"] = self.gesture_enabled
+            self.GESTURE_PREFS.parent.mkdir(parents=True, exist_ok=True)
+            self.GESTURE_PREFS.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
+        except Exception as e:
+            print(f"[GESTURE] Could not save preference: {e}")
+        if self.gesture_enabled:
+            return (f"Gesture control on{maybe_title(title)}. Open palm stops me, thumbs up means yes, "
+                    f"thumbs down means no, a peace sign wakes me, and swipes control your app.")
+        return f"Gesture control off{maybe_title(title)}. Camera released."
+
     def _start_gesture_thread(self):
-        """Start background gesture processing thread"""
-        if not self.gesture_controller:
-            print("[GESTURE] No gesture controller - gesture thread disabled")
+        """Start the gesture thread. It idles (camera closed) while gestures are off."""
+        if not GESTURE_AVAILABLE:
+            print("[GESTURE] MediaPipe not installed - gestures unavailable")
             return
-        
         self._gesture_thread = threading.Thread(
-            target=self._gesture_process_loop,
-            daemon=True,
-            name="JARVISGestureThread"
-        )
+            target=self._gesture_process_loop, daemon=True, name="JARVISGestureThread")
         self._gesture_thread.start()
-        print("[GESTURE] Background gesture processing thread started")
-    
+        print("[GESTURE] Gesture thread started (camera opens only while gestures are on)")
+
     def _gesture_process_loop(self):
-        """Background gesture detection loop.
-        
-        Uses shared camera for frames, detects gestures, executes actions.
-        """
-        try:
-            from jarvis.core.gesture_controller import get_gesture_action, execute_gesture_action
-        except ImportError:
-            from jarvis.core.gesture_controller import get_gesture_action, execute_gesture_action
-        
-        # Use shared camera instead of opening our own
-        try:
-            from jarvis.core.shared_camera import get_shared_camera
-        except ImportError:
-            from jarvis.core.shared_camera import get_shared_camera
-        
-        shared_cam = get_shared_camera()
-        shared_cam.register("gesture")
-        print("[GESTURE] Gesture processing active (shared camera)")
-        
+        from jarvis.core.gesture_controller import (
+            app_context, get_gesture_action, execute_gesture_action, COMMUNICATION_GESTURES)
+        from jarvis.core.shared_camera import get_shared_camera
+        from jarvis.core.screen_control import user_window_title
+
+        cam = get_shared_camera()
+        registered = False
+        last_frame_t = 0.0
         while self.running:
             try:
-                # Only process if gestures are enabled
+                # Camera on only while gestures are on: it used to open at boot
+                # and stay on (camera light lit) even with gestures off.
                 if not self.gesture_enabled:
+                    if registered:
+                        cam.unregister("gesture")
+                        registered = False
+                        if self.gesture_controller:
+                            self.gesture_controller.disable_tracking()
                     time.sleep(0.5)
                     continue
-                
-                # Get frame from shared camera
-                frame = shared_cam.get_frame()
-                if frame is None:
-                    time.sleep(0.1)
+                controller = self.gesture_controller
+                if controller is None or not controller.active:
+                    time.sleep(1.0)
                     continue
-                
-                # Detect gesture
-                gesture, meta = self.gesture_controller.detect(frame)
-                
-                # Skip idle/tracking/disabled states
-                if gesture in ('idle', 'tracking', 'hand_tracking', 'disabled', 'error'):
-                    time.sleep(0.05)  # ~20fps
+                if not registered:
+                    cam.register("gesture")
+                    registered = True
+
+                frame, frame_t = cam.get_frame_stamped()
+                if frame is None or frame_t == last_frame_t:
+                    time.sleep(0.02)
                     continue
-                
-                # ━━━ CONFIDENCE GATE — skip weak detections ━━━
-                confidence = meta.get('confidence', 0.0)
-                if confidence < 0.6:
-                    time.sleep(0.05)
+                last_frame_t = frame_t
+
+                gesture, meta = controller.detect(frame, frame_t)
+                if gesture in ('idle', 'tracking', 'disabled', 'error'):
                     continue
-                
-                # ━━━ PER-GESTURE DEBOUNCE — prevent spam ━━━
-                now = time.time()
-                if not hasattr(self, '_gesture_last_fire'):
-                    self._gesture_last_fire = {}
-                
-                # Cooldowns per gesture type (seconds)
-                GESTURE_COOLDOWNS = {
-                    'pinch': 1.5,       # Click — needs long cooldown 
-                    'open_palm': 2.0,   # Stop speaking — long cooldown
-                    'swipe_left': 0.8,  # Navigation — moderate
-                    'swipe_right': 0.8,
-                    'swipe_up': 0.8,
-                    'swipe_down': 0.8,
-                    'rotate_cw': 1.0,
-                    'rotate_ccw': 1.0,
-                    'thumb_up': 2.0,
-                    'thumb_down': 2.0,
-                    'peace': 2.0,
-                    'fist': 1.5,
-                }
-                cooldown = GESTURE_COOLDOWNS.get(gesture, 1.0)
-                last_fire = self._gesture_last_fire.get(gesture, 0)
-                
-                if now - last_fire < cooldown:
-                    time.sleep(0.05)
-                    continue  # Still in cooldown
-                
-                self._gesture_last_fire[gesture] = now
-                
-                # ━━━ OPEN PALM = STOP SPEAKING (instant) ━━━
-                if gesture == 'open_palm':
-                    # Only when JARVIS is actually talking. This checked
-                    # self.is_speaking, which nothing ever set, so the palm
-                    # gesture never stopped speech.
-                    if self._is_jarvis_talking():
-                        self._stop_speaking()
-                        self.state_manager.force_state("idle")
-                        self._dispatch_from_thread('sensors', {
-                            'type': 'gesture_action',
-                            'gesture': 'open_palm',
-                            'action': 'stop_speaking',
-                            'app': 'default',
-                            'confidence': confidence
-                        })
+
+                if self.state_manager:
+                    self.state_manager.update_gesture(gesture)
+                if gesture in COMMUNICATION_GESTURES:
+                    self._on_gesture(gesture, meta)
                     continue
-                
-                # Map gesture to action based on active app
-                active_app = "default"
-                if self.state_manager and hasattr(self.state_manager, 'active_app') and self.state_manager.active_app:
-                    active_app = self.state_manager.active_app
-                
-                action = get_gesture_action(gesture, active_app)
-                
-                if action:
-                    print(f"[GESTURE] {gesture} -> {action} (app: {active_app}, conf: {confidence:.2f})")
-                    
-                    # Special: stop_speaking is handled by server, not pyautogui
-                    if action == 'stop_speaking':
-                        self._stop_speaking()
-                    else:
-                        execute_gesture_action(action)
-                    
-                    # Send gesture event to connected clients. Through the
-                    # per-client queues: sending straight to the socket from this thread raced each
-                    # client's sender task (concurrent sends on one socket).
-                    self._dispatch_from_thread('sensors', {
-                        'type': 'gesture_action',
-                        'gesture': gesture,
-                        'action': action,
-                        'app': active_app,
-                        'confidence': confidence,
-                    })
-                
-                time.sleep(0.05)  # ~20fps
-                
+
+                window = user_window_title()
+                app = app_context(window)
+                action = get_gesture_action(gesture, app)
+                done = execute_gesture_action(action) if action else False
+                print(f"[GESTURE] {gesture} -> {action or 'nothing'} (app: {app})")
+                self._gesture_feedback(gesture, action if done else None, app)
             except Exception as e:
-                err_str = str(e)
-                if 'camera' not in err_str.lower():
-                    print(f"[GESTURE] Processing error: {e}")
+                print(f"[GESTURE] Processing error: {e}")
                 time.sleep(1)
-        
-        # Cleanup
-        shared_cam.unregister("gesture")
+        if registered:
+            cam.unregister("gesture")
+
+    def _gesture_feedback(self, gesture: str, action, app: str = 'default', note: str = None):
+        """Show a gesture in the HUD (last-gesture panel + a chat line)."""
+        from jarvis.core.gesture_controller import GESTURE_EMOJI, ACTION_LABELS
+        label = note or (ACTION_LABELS.get(action, action) if action else None)
+        self._dispatch_from_thread('sensors', {
+            'type': 'gesture_action',
+            'gesture': gesture,
+            'action': action or '',
+            'app': app,
+            'label': label or '',
+            'emoji': GESTURE_EMOJI.get(gesture, ''),
+        })
+
+    def _on_gesture(self, gesture: str, meta=None):
+        """Communication gestures: JARVIS understands them like words.
+
+        open_palm    stop speaking (only while talking)
+        thumbs_up    "yes" to a pending question
+        thumbs_down  "no" to a pending question
+        peace        wake: listen without the wake word
+        """
+        title = getattr(self.hud_perception, 'user_title', 'sir')
+        if gesture == 'open_palm':
+            if self._is_jarvis_talking():
+                self._stop_speaking()
+                self._gesture_feedback(gesture, 'stop_speaking', note='Stopped speaking')
+            return
+
+        if gesture in ('thumbs_up', 'thumbs_down'):
+            pending = self._get_pending_power_action() or getattr(self, '_pending_clarify', None)
+            if not pending:
+                self._gesture_feedback(gesture, None, note='Nothing to answer')
+                return
+            reply = 'yes' if gesture == 'thumbs_up' else 'cancel'
+            self._gesture_feedback(gesture, reply, note=f"Answered '{reply}'")
+            self._run_on_loop(self._gesture_command(reply))
+            return
+
+        if gesture == 'peace':
+            le = getattr(self, 'live_engine', None)
+            if le is not None and hasattr(le, 'wake'):
+                le.wake("peace gesture")
+            self.quiet_mode = False
+            if self.perception is not None:
+                self.perception.mic_muted = False
+            self._gesture_feedback(gesture, 'wake', note=f"Listening{maybe_title(title)}")
+
+    async def _gesture_command(self, text: str):
+        """Run a gesture's answer ("yes"/"cancel") through the normal pipeline,
+        replying to the first connected HUD."""
+        for ws in list(self.clients):
+            await self.process_message(ws, {'type': 'command', 'text': text})
+            return
     
     def _init_standalone_modules(self):
         """Initialize modules: CRITICAL ones immediately, DEFERRED ones in background.
@@ -1212,7 +1247,7 @@ class JARVISWebSocketServer:
             deferred_modules = [
                 (EMOTION_AVAILABLE, '_emotion_detector', lambda: shared(EmotionDetector), "EmotionDetector"),
                 (FACE_AVAILABLE, '_face_recognition', lambda: shared(FaceRecognition, lambda: FaceRecognition(self.hud_perception)), "FaceRecognition"),
-                (GESTURE_AVAILABLE, '_gesture_controller', lambda: shared(GestureController, lambda: GestureController(self.hud_perception)), "GestureController"),
+                (GESTURE_AVAILABLE and self.gesture_enabled, '_gesture_controller', lambda: shared(GestureController, lambda: GestureController(self.hud_perception)), "GestureController"),
                 (CHAT_HISTORY_AVAILABLE, '_chat_history', lambda: shared(ChatHistory, lambda: ChatHistory(self.hud_perception)), "ChatHistory"),
                 (CONTEXT_MEMORY_AVAILABLE, '_context_memory', lambda: shared(ContextMemory), "ContextMemory"),
                 (KNOWLEDGE_AVAILABLE, '_knowledge', lambda: shared(KnowledgeLayer, lambda: KnowledgeLayer(self.hud_perception)), "KnowledgeLayer"),
@@ -1320,7 +1355,7 @@ class JARVISWebSocketServer:
         return {
             'type': 'feature_status',
             'jarvis_full': self.jarvis is not None,
-            'gesture_available': self.gesture_controller is not None,
+            'gesture_available': GESTURE_AVAILABLE and _gesture_mp_available(),  # never loads MediaPipe
             'gesture_enabled': self.gesture_enabled,
             'face_available': self.face_recognition is not None,
             'face_enabled': self.face_enabled,
@@ -1328,7 +1363,7 @@ class JARVISWebSocketServer:
             'emotion_enabled': self.emotion_enabled,
             'current_user': self.current_user,
             'current_emotion': self.current_emotion,
-            'last_gesture': self.last_gesture,
+            'last_gesture': getattr(sm, 'last_gesture', None) or self.last_gesture,
             'whatsapp_available': self.whatsapp_handler is not None,
             'active_app': getattr(sm, 'active_app', None),
             'current_mood': getattr(sm, 'current_mood', None),
@@ -1634,7 +1669,11 @@ class JARVISWebSocketServer:
             if text.strip():
                 cmd_check = normalize_command(text)
                 is_local_power = (
-                    is_jarvis_exit_command(cmd_check)
+                    # Feature switches (gestures, face, emotion) are local
+                    # settings; in live mode the HUD's gesture button was sent
+                    # to Gemini, which can't flip them.
+                    bool(FEATURE_TOGGLE_RE.match(cmd_check))
+                    or is_jarvis_exit_command(cmd_check)
                     or detect_pc_power_action(cmd_check) is not None
                     or (self._get_pending_power_action() is not None
                         and bool(CONFIRM_RE.match(cmd_check) or CANCEL_RE.match(cmd_check)))
@@ -1920,11 +1959,7 @@ class JARVISWebSocketServer:
             enabled = data.get('enabled', False)
             
             if feature == 'gesture':
-                self.gesture_enabled = enabled
-                if enabled and self.gesture_controller:
-                    self.gesture_controller.enable_tracking()
-                elif self.gesture_controller:
-                    self.gesture_controller.disable_tracking()
+                await self._run_blocking(self.set_gesture_enabled, bool(enabled))
             elif feature == 'face':
                 self.face_enabled = enabled
                 if enabled and self.face_recognition:
@@ -2791,12 +2826,7 @@ class JARVISWebSocketServer:
                 
                 if 'gesture' in cmd_lower:
                     if jlog: jlog.route('feature_toggle', 'gesture')
-                    self.gesture_enabled = enabling
-                    if enabling and self.gesture_controller:
-                        self.gesture_controller.enable_tracking()
-                    elif self.gesture_controller:
-                        self.gesture_controller.disable_tracking()
-                    return f"Gesture control {'enabled' if enabling else 'disabled'}, {title}."
+                    return self.set_gesture_enabled(enabling, title)
                 
                 elif 'face' in cmd_lower:
                     if jlog: jlog.route('feature_toggle', 'face')

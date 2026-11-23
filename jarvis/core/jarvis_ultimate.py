@@ -1014,8 +1014,10 @@ class JARVISUltimate:
         # Cleanup
         self.hotkey_system.stop()
         self.alarm_system.stop()
-        if self.gesture:
-            self.gesture.stop()
+        # _gesture, not the gesture property: that would load MediaPipe just to
+        # stop it. The controller has close(); it never had a stop().
+        if getattr(self, '_gesture', None) is not None:
+            self._gesture.close()
         self.perception.speak(f"{self.perception.assistant_name} offline. Goodbye, {self.perception.user_title}.")
 
     def on_wake_word(self):

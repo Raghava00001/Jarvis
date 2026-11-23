@@ -98,6 +98,31 @@ def focus_away_from_jarvis() -> Optional[str]:
     return None
 
 
+def user_window_title() -> str:
+    """Title of the window the user is working in, without changing focus: the
+    foreground window, or the one just below it if that's a JARVIS HUD."""
+    if os.name != "nt":
+        return ""
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        hwnd = user32.GetForegroundWindow()
+        title = _window_title(user32, hwnd)
+        if not is_jarvis_window(title):
+            return title
+        GW_HWNDNEXT = 2
+        hwnd = user32.GetWindow(hwnd, GW_HWNDNEXT)
+        while hwnd:
+            if _is_switchable(user32, hwnd):
+                title = _window_title(user32, hwnd)
+                if not is_jarvis_window(title):
+                    return title
+            hwnd = user32.GetWindow(hwnd, GW_HWNDNEXT)
+    except Exception as e:
+        print(f"[SCREEN] Window lookup failed: {e}")
+    return ""
+
+
 def _has(text: str, *phrases: str) -> bool:
     """Whole-word match ("copyright" is not "copy", "unsaved" is not "save")."""
     return any(re.search(r"(?<![a-z])" + re.escape(p) + r"(?![a-z])", text) for p in phrases)

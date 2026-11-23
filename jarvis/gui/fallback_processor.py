@@ -687,23 +687,16 @@ class FallbackProcessor:
             return f"Face recognition not available, {title}."
         
         # GESTURE CONTROL
+        # (one implementation: the server's set_gesture_enabled)
         if 'enable gesture' in cmd or 'start gesture' in cmd or 'gesture on' in cmd:
-            if self.server.gesture_controller:
-                try:
-                    self.server.gesture_controller.enable_tracking()
-                    self.server.gesture_enabled = True
-                    await self.server._send_to(websocket, json.dumps(self.server.get_feature_status()))
-                    return f"Gesture control enabled, {title}. Use hand gestures to control."
-                except Exception as e:
-                    return f"Failed to start gesture control: {e}"
-            return f"Gesture control not available. Install mediapipe, {title}."
-        
+            reply = await self.server._run_blocking(self.server.set_gesture_enabled, True, title)
+            await self.server._send_to(websocket, json.dumps(self.server.get_feature_status()))
+            return reply
+
         if 'disable gesture' in cmd or 'stop gesture' in cmd or 'gesture off' in cmd:
-            if self.server.gesture_controller:
-                self.server.gesture_controller.disable_tracking()
-                self.server.gesture_enabled = False
-                return f"Gesture control disabled, {title}."
-            return f"Gesture control not active, {title}."
+            reply = await self.server._run_blocking(self.server.set_gesture_enabled, False, title)
+            await self.server._send_to(websocket, json.dumps(self.server.get_feature_status()))
+            return reply
         
         # EMOTION DETECTION
         if 'enable emotion' in cmd or 'mood detection' in cmd:
