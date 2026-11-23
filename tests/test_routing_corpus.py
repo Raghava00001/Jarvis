@@ -88,6 +88,8 @@ async def main():
     stubs.append(patch("google.genai.Client", return_value=client))
     # Never move window focus or capture the user's screen in tests
     stubs.append(patch("jarvis.core.screen_control.focus_away_from_jarvis", return_value=None))
+    # CI has no GEMINI_API_KEY: report vision as available so the stubs below are reached
+    stubs.append(patch("jarvis.core.screen_vision.vision_available", return_value=True))
     stubs.append(patch("jarvis.core.screen_vision.read_screen_text", return_value="[screen text]"))
     stubs.append(patch("jarvis.core.screen_vision.ask_about_screen", return_value="[screen answer]"))
     stubs.append(patch("jarvis.core.screen_vision.capture_screen_png", side_effect=AssertionError("no screenshots")))
