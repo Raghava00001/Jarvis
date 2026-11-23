@@ -260,8 +260,9 @@ def test_live_engine_second_identical_call_sends():
     assert "Not sent yet. Ask the user to confirm" in src
 
 
-def test_thumbs_up_sends_a_draft_and_thumbs_down_cancels(server, keys):
-    """The gesture says 'yes'/'cancel', which reaches the draft through process_command."""
+def test_thumbs_up_never_sends_but_thumbs_down_clears(server, keys):
+    """A sent message can't be taken back and a thumbs-up happens by accident,
+    so sending needs a spoken 'send'. Thumbs down ('cancel') is safe."""
     sent = []
     server._gesture_feedback = MagicMock()
     server._pending_clarify = None
@@ -271,9 +272,13 @@ def test_thumbs_up_sends_a_draft_and_thumbs_down_cancels(server, keys):
     assert sent == []                                     # nothing pending: ignored
     server.whatsapp_handler.send_message("Mom", "hi")
     server._on_gesture("thumbs_up")
-    assert sent == ["yes"]
-    reply = asyncio.run(server.process_command("yes", None))
-    assert reply.startswith("Sent to Mom")
+    assert sent == []                                     # not sent by a gesture
+    assert "Say 'send'" in server._gesture_feedback.call_args.kwargs["note"]
+    assert not _sent(keys.log)
+    server._on_gesture("thumbs_down")
+    assert sent == ["cancel"]
+    assert "Cancelled" in asyncio.run(server.process_command("cancel", None))
+    assert not _sent(keys.log)
 
 
 class _Done:

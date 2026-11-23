@@ -1135,8 +1135,15 @@ class JARVISWebSocketServer:
             return
 
         if gesture in ('thumbs_up', 'thumbs_down'):
+            draft = self._whatsapp_with_draft()
+            if gesture == 'thumbs_up' and draft:
+                # A sent message can't be taken back, and a thumbs-up happens by
+                # accident (on calls, in videos). Sending needs a spoken "send".
+                # (Its "yes" would also reach the draft before any other question.)
+                self._gesture_feedback(gesture, None, note="Say 'send' to send the WhatsApp message")
+                return
             pending = (self._get_pending_power_action() or getattr(self, '_pending_clarify', None)
-                       or self._whatsapp_with_draft())   # 👍 sends a typed WhatsApp draft
+                       or draft)   # 👎 clears a typed WhatsApp draft
             if not pending:
                 self._gesture_feedback(gesture, None, note='Nothing to answer')
                 return
