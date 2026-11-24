@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
+from _server_src import server_source  # noqa: E402
 
 
 def _client(*outcomes):
@@ -90,7 +92,7 @@ def test_knowledge_falls_back_to_gemini_when_groq_rejects_the_key():
 
 def test_router_runs_off_the_event_loop():
     """A slow handler (LLM call) used to block the event loop and freeze every reply."""
-    src = (ROOT / "jarvis/gui/websocket_server.py").read_text(encoding="utf-8")
+    src = server_source()
     assert "await self._run_blocking(self._route_through_router, command)" in src
     # _run_blocking: a worker thread, with the command's context (turn) copied in
     body = src.split("async def _run_blocking", 1)[1].split("\n    async def ", 1)[0]

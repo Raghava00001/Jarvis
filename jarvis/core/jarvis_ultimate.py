@@ -7,6 +7,10 @@ Enhanced with emotion detection, wellness monitoring, entertainment, and more
 import logging
 _log = logging.getLogger(__name__)
 
+# Returned by an extracted step that didn't handle the request: the
+# caller carries on with its next step.
+_NEXT = object()
+
 from jarvis.core.services import shared
 import sys
 import time
@@ -364,15 +368,9 @@ class JARVISUltimate:
 
         # ========== STOP TALKING / STOP STORY ==========
         stop_talking_words = ["stop story", "stop talking", "be quiet", "shut up", "enough", "stop that", "cancel story"]
-        if any(phrase in command_lower for phrase in stop_talking_words):
-            # Stop any ongoing speech
-            if hasattr(self.perception, 'engine') and self.perception.engine:
-                try:
-                    self.perception.engine.stop()
-                except Exception:
-                    _log.debug("Ignored error", exc_info=True)
-            self.perception.speak("Okay, stopping.")
-            return True
+        _r = self._do_stop_any_ongoing_speech(command_lower, stop_talking_words)
+        if _r is not _NEXT:
+            return _r
 
         # ========== FACE RECOGNITION ACCESS CHECK ==========
         # For restricted commands (whatsapp, email, calendar, etc.), scan face and verify owner
@@ -387,28 +385,17 @@ class JARVISUltimate:
             self.face_auth.register_owner()
             return True
         
-        if "register guest" in command_lower:
-            # Extract name
-            parts = command_lower.split("register guest")
-            if len(parts) > 1:
-                guest_name = parts[1].strip()
-                if guest_name:
-                    self.face_auth.register_guest(guest_name.title())
-                    return True
-            self.perception.speak("Please specify the guest name.")
-            return True
+        _r = self._do_register_guest(command_lower)
+        if _r is not _NEXT:
+            return _r
         
         if "who am i" in command_lower or "verify me" in command_lower:
             self.face_auth.authenticate()
             return True
         
-        if "list registered users" in command_lower or "who is registered" in command_lower:
-            users = self.face_auth.list_registered_users()
-            if users:
-                self.perception.speak(f"Registered users are: {', '.join(users)}")
-            else:
-                self.perception.speak("No users are registered yet.")
-            return True
+        _r = self._do_list_registered_users_who(command_lower)
+        if _r is not _NEXT:
+            return _r
 
         # ========== SECURITY ACCESS CHECK ==========
         # Check if outsider is trying to use restricted commands
@@ -486,12 +473,9 @@ class JARVISUltimate:
 
         # ========== REMINDERS (remind me, set reminder, my reminders) ==========
         reminder_keywords = ["remind me", "set reminder", "set a reminder", "my reminders", "read reminders", "upcoming reminders"]
-        if any(kw in command_lower for kw in reminder_keywords):
-            if "read" in command_lower or "my reminders" in command_lower or "upcoming" in command_lower:
-                self.smart_reminders.read_reminders()
-            else:
-                self.smart_reminders.set_reminder_from_command(command)
-            return True
+        _r = self._do_step(command, command_lower, reminder_keywords)
+        if _r is not _NEXT:
+            return _r
 
         # ========== CALENDAR (add event, schedule, my schedule) ==========
         calendar_keywords = ["add event", "add meeting", "schedule meeting", "create event", "my schedule", 
@@ -965,6 +949,55 @@ class JARVISUltimate:
         self.learning.log_command(command, intent, confidence, success)
 
         return True
+
+    def _do_stop_any_ongoing_speech(self, command_lower, stop_talking_words):
+        """Step of _process_single_command(): Stop any ongoing speech."""
+        if any(phrase in command_lower for phrase in stop_talking_words):
+            # Stop any ongoing speech
+            if hasattr(self.perception, 'engine') and self.perception.engine:
+                try:
+                    self.perception.engine.stop()
+                except Exception:
+                    _log.debug("Ignored error", exc_info=True)
+            self.perception.speak("Okay, stopping.")
+            return True
+        return _NEXT
+
+    def _do_register_guest(self, command_lower):
+        """Step of _process_single_command(): Register guest."""
+        if "register guest" in command_lower:
+            # Extract name
+            parts = command_lower.split("register guest")
+            if len(parts) > 1:
+                guest_name = parts[1].strip()
+                if guest_name:
+                    self.face_auth.register_guest(guest_name.title())
+                    return True
+            self.perception.speak("Please specify the guest name.")
+            return True
+        return _NEXT
+
+    def _do_list_registered_users_who(self, command_lower):
+        """Step of _process_single_command(): List registered users who is registered."""
+        if "list registered users" in command_lower or "who is registered" in command_lower:
+            users = self.face_auth.list_registered_users()
+            if users:
+                self.perception.speak(f"Registered users are: {', '.join(users)}")
+            else:
+                self.perception.speak("No users are registered yet.")
+            return True
+        return _NEXT
+
+    def _do_step(self, command, command_lower, reminder_keywords):
+        """Step of _process_single_command(): _do_step."""
+        if any(kw in command_lower for kw in reminder_keywords):
+            if "read" in command_lower or "my reminders" in command_lower or "upcoming" in command_lower:
+                self.smart_reminders.read_reminders()
+            else:
+                self.smart_reminders.set_reminder_from_command(command)
+            return True
+        return _NEXT
+
 
     def run(self):
         """Main run loop"""

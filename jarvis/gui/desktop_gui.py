@@ -705,14 +705,7 @@ class JARVISDesktopApp(ctk.CTk):
 
         # ── Chat: Tool result ──
         elif msg_type == "result":
-            text = data.get("response", "")
-            if text:
-                self._add_chat_msg("jarvis", text)
-                self.orb.set_state("speaking")
-                self.after(2000, lambda: self.orb.set_state("idle"))
-            # Update state if included
-            if data.get("state"):
-                self._render_full_state(data["state"])
+            self._on_result(data)
 
         # ── Chat: User voice input ──
         elif msg_type == "voice_recognized":
@@ -733,17 +726,7 @@ class JARVISDesktopApp(ctk.CTk):
 
         # ── Gemini Live transcription (real-time audio speech) ──
         elif msg_type == "live_transcription":
-            text = data.get("text", "")
-            role = data.get("role", "jarvis")
-            if text:
-                sender = "user" if role == "user" else "jarvis"
-                self._add_chat_msg(sender, text)
-                if sender == "jarvis":
-                    self.orb.set_state("speaking")
-                    self.after(2000, lambda: self.orb.set_state("idle"))
-                else:
-                    self.orb.set_state("listening")
-                    self.after(1000, lambda: self.orb.set_state("processing"))
+            self._on_live_transcription(data)
 
         # ── Full state update ──
         elif msg_type in ("state", "feature_status"):
@@ -753,47 +736,15 @@ class JARVISDesktopApp(ctk.CTk):
 
         # ── System status (CPU/RAM from server) ──
         elif msg_type == "status":
-            try:
-                if "cpu" in data:
-                    self.sys_labels["CPU"].configure(text=f"{data['cpu']:.0f}%")
-                    self.sys_labels["CPU_bar"].set(data["cpu"] / 100)
-                if "ram" in data or "memory" in data:
-                    ram = data.get("ram", data.get("memory", 0))
-                    self.sys_labels["RAM"].configure(text=f"{ram:.0f}%")
-                    self.sys_labels["RAM_bar"].set(ram / 100)
-            except Exception:
-                _log.debug("Ignored error", exc_info=True)
+            self._on_status(data)
 
         # ── Weather ──
         elif msg_type == "weather":
-            try:
-                temp = data.get("temp", data.get("temperature", "--"))
-                desc = data.get("description", data.get("condition", ""))
-                city = data.get("city", data.get("location", ""))
-                humidity = data.get("humidity", "")
-                self.weather_temp.configure(text=f"{temp}°C")
-                desc_text = desc.title() if desc else ""
-                if humidity:
-                    desc_text += f" • 💧{humidity}%"
-                self.weather_desc.configure(text=desc_text)
-                self.weather_location.configure(text=f"📍 {city}" if city else "")
-            except Exception:
-                _log.debug("Ignored error", exc_info=True)
+            self._on_weather(data)
 
         # ── News ──
         elif msg_type == "news":
-            items = data.get("items", data.get("headlines", []))
-            if items:
-                for w in self.news_frame.winfo_children():
-                    w.destroy()
-                for item in items[:5]:
-                    title = item if isinstance(item, str) else item.get("title", "")
-                    if title:
-                        ctk.CTkLabel(
-                            self.news_frame, text=f"• {title[:60]}",
-                            font=("Consolas", 10), text_color=C["text_dim"],
-                            wraplength=180, justify="left", anchor="w"
-                        ).pack(fill="x", pady=2)
+            self._on_news(data)
 
         # ── Assistant info (name/mode) ──
         elif msg_type == "assistant_info":
@@ -803,19 +754,7 @@ class JARVISDesktopApp(ctk.CTk):
 
         # ── Gesture feedback ──
         elif msg_type in ("gesture_feedback", "gesture_action"):
-            gesture = data.get("gesture", "")
-            action = data.get("action", "")
-            if gesture:
-                if "Gesture" in self.feature_indicators:
-                    self.feature_indicators["Gesture"].configure(
-                        text=gesture.upper(), text_color=C["orange"]
-                    )
-                    # Reset after 3 seconds
-                    self.after(3000, lambda: self.feature_indicators["Gesture"].configure(
-                        text="ACTIVE", text_color=C["green"]
-                    ))
-            if action == "stop_speaking":
-                self._add_chat_msg("jarvis", "🤚 Speech stopped (palm gesture)")
+            self._on_gesture_feedback_gesture_action(data)
 
         # ── Emotion update ──
         elif msg_type == "emotion_update":
@@ -827,12 +766,7 @@ class JARVISDesktopApp(ctk.CTk):
 
         # ── Face recognition update ──
         elif msg_type == "face_update":
-            user = data.get("user", "")
-            confidence = data.get("confidence", 0)
-            if user and "Face ID" in self.feature_indicators:
-                self.feature_indicators["Face ID"].configure(
-                    text=f"{user.upper()}", text_color=C["green"]
-                )
+            self._on_face_update(data)
 
         # ── Speak request (server wants browser TTS — not needed for desktop) ──
         elif msg_type == "speak":
@@ -840,47 +774,150 @@ class JARVISDesktopApp(ctk.CTk):
 
         # ── Startup briefing (full boot data) ──
         elif msg_type == "startup_briefing":
-            briefing = data.get("briefing", {})
-            
-            # Auto-enable all feature indicators
-            features = briefing.get("features_enabled", {})
-            for name, indicator in self.feature_indicators.items():
-                indicator.configure(text="ACTIVE", text_color=C["green"])
-            
-            # Update weather from boot data
-            weather_ctx = briefing.get("weather_context", "")
-            if weather_ctx and "°C" in weather_ctx:
-                try:
-                    temp = weather_ctx.split("°C")[0].split()[-1]
-                    desc = weather_ctx.split(",")[-1].strip() if "," in weather_ctx else ""
-                    self.weather_temp.configure(text=f"{temp}°C")
-                    if desc:
-                        self.weather_desc.configure(text=desc.title())
-                except Exception:
-                    _log.debug("Ignored error", exc_info=True)
-            
-            # Update system stats from boot data
-            sys_status = briefing.get("system_status", {})
-            if sys_status:
-                for key, api_key in [("CPU", "cpu"), ("RAM", "ram")]:
-                    val = sys_status.get(api_key)
-                    if val is not None:
-                        self.sys_labels[key].configure(text=f"{val:.0f}%")
-                        self.sys_labels[f"{key}_bar"].set(val / 100)
-                bat = sys_status.get("battery")
-                if bat is not None:
-                    plug = "⚡" if sys_status.get("plugged") else ""
-                    self.sys_labels["BAT"].configure(text=f"{bat:.0f}%{plug}")
-                    self.sys_labels["BAT_bar"].set(bat / 100)
+            self._on_startup_briefing(data)
 
         # ── Init Payload / Greeting ──
         elif msg_type == "init_payload":
-            greeting_group = data.get("greeting", {})
-            greeting_text = greeting_group.get("text", "")
-            if greeting_text:
-                self._add_chat_msg("jarvis", greeting_text)
+            self._on_init_payload(data)
+
+    def _on_result(self, data):
+        """Step of _handle_ws_message(): Result."""
+        text = data.get("response", "")
+        if text:
+            self._add_chat_msg("jarvis", text)
+            self.orb.set_state("speaking")
+            self.after(2000, lambda: self.orb.set_state("idle"))
+        # Update state if included
+        if data.get("state"):
+            self._render_full_state(data["state"])
+
+    def _on_live_transcription(self, data):
+        """Step of _handle_ws_message(): Live_transcription."""
+        text = data.get("text", "")
+        role = data.get("role", "jarvis")
+        if text:
+            sender = "user" if role == "user" else "jarvis"
+            self._add_chat_msg(sender, text)
+            if sender == "jarvis":
                 self.orb.set_state("speaking")
-                self.after(3000, lambda: self.orb.set_state("idle"))
+                self.after(2000, lambda: self.orb.set_state("idle"))
+            else:
+                self.orb.set_state("listening")
+                self.after(1000, lambda: self.orb.set_state("processing"))
+
+    def _on_status(self, data):
+        """Step of _handle_ws_message(): Status."""
+        try:
+            if "cpu" in data:
+                self.sys_labels["CPU"].configure(text=f"{data['cpu']:.0f}%")
+                self.sys_labels["CPU_bar"].set(data["cpu"] / 100)
+            if "ram" in data or "memory" in data:
+                ram = data.get("ram", data.get("memory", 0))
+                self.sys_labels["RAM"].configure(text=f"{ram:.0f}%")
+                self.sys_labels["RAM_bar"].set(ram / 100)
+        except Exception:
+            _log.debug("Ignored error", exc_info=True)
+
+    def _on_weather(self, data):
+        """Step of _handle_ws_message(): Weather."""
+        try:
+            temp = data.get("temp", data.get("temperature", "--"))
+            desc = data.get("description", data.get("condition", ""))
+            city = data.get("city", data.get("location", ""))
+            humidity = data.get("humidity", "")
+            self.weather_temp.configure(text=f"{temp}°C")
+            desc_text = desc.title() if desc else ""
+            if humidity:
+                desc_text += f" • 💧{humidity}%"
+            self.weather_desc.configure(text=desc_text)
+            self.weather_location.configure(text=f"📍 {city}" if city else "")
+        except Exception:
+            _log.debug("Ignored error", exc_info=True)
+
+    def _on_news(self, data):
+        """Step of _handle_ws_message(): News."""
+        items = data.get("items", data.get("headlines", []))
+        if items:
+            for w in self.news_frame.winfo_children():
+                w.destroy()
+            for item in items[:5]:
+                title = item if isinstance(item, str) else item.get("title", "")
+                if title:
+                    ctk.CTkLabel(
+                        self.news_frame, text=f"• {title[:60]}",
+                        font=("Consolas", 10), text_color=C["text_dim"],
+                        wraplength=180, justify="left", anchor="w"
+                    ).pack(fill="x", pady=2)
+
+    def _on_gesture_feedback_gesture_action(self, data):
+        """Step of _handle_ws_message(): Gesture_feedback gesture_action."""
+        gesture = data.get("gesture", "")
+        action = data.get("action", "")
+        if gesture:
+            if "Gesture" in self.feature_indicators:
+                self.feature_indicators["Gesture"].configure(
+                    text=gesture.upper(), text_color=C["orange"]
+                )
+                # Reset after 3 seconds
+                self.after(3000, lambda: self.feature_indicators["Gesture"].configure(
+                    text="ACTIVE", text_color=C["green"]
+                ))
+        if action == "stop_speaking":
+            self._add_chat_msg("jarvis", "🤚 Speech stopped (palm gesture)")
+
+    def _on_face_update(self, data):
+        """Step of _handle_ws_message(): Face_update."""
+        user = data.get("user", "")
+        confidence = data.get("confidence", 0)
+        if user and "Face ID" in self.feature_indicators:
+            self.feature_indicators["Face ID"].configure(
+                text=f"{user.upper()}", text_color=C["green"]
+            )
+
+    def _on_startup_briefing(self, data):
+        """Step of _handle_ws_message(): Startup_briefing."""
+        briefing = data.get("briefing", {})
+
+        # Auto-enable all feature indicators
+        features = briefing.get("features_enabled", {})
+        for name, indicator in self.feature_indicators.items():
+            indicator.configure(text="ACTIVE", text_color=C["green"])
+
+        # Update weather from boot data
+        weather_ctx = briefing.get("weather_context", "")
+        if weather_ctx and "°C" in weather_ctx:
+            try:
+                temp = weather_ctx.split("°C")[0].split()[-1]
+                desc = weather_ctx.split(",")[-1].strip() if "," in weather_ctx else ""
+                self.weather_temp.configure(text=f"{temp}°C")
+                if desc:
+                    self.weather_desc.configure(text=desc.title())
+            except Exception:
+                _log.debug("Ignored error", exc_info=True)
+
+        # Update system stats from boot data
+        sys_status = briefing.get("system_status", {})
+        if sys_status:
+            for key, api_key in [("CPU", "cpu"), ("RAM", "ram")]:
+                val = sys_status.get(api_key)
+                if val is not None:
+                    self.sys_labels[key].configure(text=f"{val:.0f}%")
+                    self.sys_labels[f"{key}_bar"].set(val / 100)
+            bat = sys_status.get("battery")
+            if bat is not None:
+                plug = "⚡" if sys_status.get("plugged") else ""
+                self.sys_labels["BAT"].configure(text=f"{bat:.0f}%{plug}")
+                self.sys_labels["BAT_bar"].set(bat / 100)
+
+    def _on_init_payload(self, data):
+        """Step of _handle_ws_message(): Init_payload."""
+        greeting_group = data.get("greeting", {})
+        greeting_text = greeting_group.get("text", "")
+        if greeting_text:
+            self._add_chat_msg("jarvis", greeting_text)
+            self.orb.set_state("speaking")
+            self.after(3000, lambda: self.orb.set_state("idle"))
+
 
     def _render_full_state(self, state):
         """Update all UI panels from a full state object — mirrors renderFullState()."""

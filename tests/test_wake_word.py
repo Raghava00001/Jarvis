@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
+from _server_src import server_source  # noqa: E402  (tests/ is on sys.path)
 sys.path.insert(0, str(ROOT))
 
 
@@ -89,7 +90,7 @@ def test_gate_can_be_disabled(g, monkeypatch):
 
 
 def test_typed_hud_text_wakes_jarvis():
-    src = (ROOT / "jarvis/gui/websocket_server.py").read_text(encoding="utf-8")
+    src = server_source()
     assert 'le.wake("typed in HUD")' in src
 
 
