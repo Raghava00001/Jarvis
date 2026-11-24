@@ -219,16 +219,24 @@ def handle_weather(cmd: str, entities: Dict, context: Any) -> HandlerResult:
 
 
 def handle_system_status(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle system status queries"""
+    """'system status', 'battery level'. Reads the machine when the caller
+    passed no stats (Gemini's tool passed none, so it reported 0% for all)."""
     title = context.get('title', 'sir') if context else 'sir'
-    stats = context.get('system_stats', {}) if context else {}
-    
+    stats = (context.get('system_stats') if context else None) or {}
+    if not stats:
+        try:
+            from jarvis.gui.data_providers import get_system_stats
+            stats = get_system_stats() or {}
+        except Exception as e:
+            _log.warning(f"[HANDLERS] System stats error: {e}")
     charge = " and charging" if stats.get('charging') else ""
+    if re.search(r"\bbattery\b|\bcharge\b|\bcharging\b", (cmd or "").lower()) and 'battery' in stats:
+        return HandlerResult(success=True, response=f"Battery at {stats['battery']}%{charge}, {title}.")
     return HandlerResult(
         success=True,
-        response=f"All systems operational, {title}. CPU at {stats.get('cpu', 0)}%, "
-                 f"memory at {stats.get('memory', 0)}%, disk at {stats.get('disk', 0)}%, "
-                 f"battery at {stats.get('battery', 100)}%{charge}."
+        response=f"All systems operational, {title}. CPU at {stats.get('cpu', '?')}%, "
+                 f"memory at {stats.get('ram', stats.get('memory', '?'))}%, disk at {stats.get('disk', '?')}%, "
+                 f"battery at {stats.get('battery', '?')}%{charge}."
     )
 
 
@@ -246,6 +254,9 @@ def handle_news(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     news_handler = context.get('news_handler') if context else None
     knowledge = context.get('knowledge') if context else None
     category = entities.get('category', 'general')
+    if entities.get('topic'):
+        # Gemini's news tool passes a topic; it was ignored (general headlines)
+        return handle_search_news(cmd, {'keyword': entities['topic']}, context)
     
     if not news_handler:
         return HandlerResult(success=False, response=f"News service unavailable, {title}.")
@@ -551,9 +562,9 @@ def handle_play_music(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         else:
             # Just resume/play
             try:
-                import pyautogui
+                from jarvis.core.music_handler import MediaKeyController
                 time.sleep(0.5)
-                pyautogui.press('space')  # Toggle play in Spotify
+                MediaKeyController().play_pause()  # media key: works whatever has focus
             except Exception as _err:
                 recovered("Handlers", _err)
             return HandlerResult(success=True, response="Playing music")
@@ -562,33 +573,26 @@ def handle_play_music(cmd: str, entities: Dict, context: Any) -> HandlerResult:
 
 
 def handle_pause_music(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle music pause - DIRECT"""
-    try:
-        import pyautogui
-        pyautogui.press('space')  # Toggle play/pause
-        return HandlerResult(success=True, response="Paused")
-    except Exception:
-        return HandlerResult(success=True, response="Paused")
+    """Pause / resume: the play-pause media key (Space typed a space into
+    whatever window had focus)."""
+    from jarvis.core.music_handler import MediaKeyController
+    ok = MediaKeyController().play_pause()
+    return HandlerResult(success=True, response="Paused." if ok else "I couldn't reach the music player.")
 
 
 def handle_next_track(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Skip to next track - DIRECT"""
-    try:
-        import pyautogui
-        pyautogui.hotkey('ctrl', 'right')
-        return HandlerResult(success=True, response="Next track")
-    except Exception:
-        return HandlerResult(success=True, response="Done")
+    """Next track: the media key, which every player handles (Ctrl+Right only
+    worked while Spotify had focus)."""
+    from jarvis.core.music_handler import MediaKeyController
+    ok = MediaKeyController().next_track()
+    return HandlerResult(success=True, response="Next track." if ok else "I couldn't skip the track.")
 
 
 def handle_previous_track(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Go to previous track - DIRECT"""
-    try:
-        import pyautogui
-        pyautogui.hotkey('ctrl', 'left')
-        return HandlerResult(success=True, response="Previous track")
-    except Exception:
-        return HandlerResult(success=True, response="Done")
+    """Previous track: the media key (Ctrl+Left only worked in a focused Spotify)."""
+    from jarvis.core.music_handler import MediaKeyController
+    ok = MediaKeyController().previous_track()
+    return HandlerResult(success=True, response="Previous track." if ok else "I couldn't go back a track.")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -867,31 +871,51 @@ def handle_poem(cmd: str, entities: Dict, context: Any) -> HandlerResult:
 # ═══════════════════════════════════════════════════════════════
 
 def handle_set_alarm(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle setting alarms"""
+    """'set an alarm for 7 am', 'wake me up at 6:30 pm'.
+
+    The time comes from the entities (hour/minute/period) when the classifier
+    split it, otherwise from the spoken text. Gemini's set_alarm tool passes
+    only the text ("7 am"), so every alarm it set used to ring at midnight.
+    """
     title = context.get('title', 'sir') if context else 'sir'
     alarm_system = context.get('alarm_system') if context else None
-    
-    hour = entities.get('hour', 0)
-    minute = entities.get('minute', 0)
-    period = entities.get('period', '')
-    
-    # Convert to 24h
-    if period == 'pm' and hour != 12:
-        hour += 12
-    elif period == 'am' and hour == 12:
-        hour = 0
-    
-    time_str = f"{hour % 12 or 12}:{minute:02d} {'AM' if hour < 12 else 'PM'}"
-    # Only claim success when an alarm was really set (it used to say "Alarm
-    # set" with no alarm system, or after set_alarm failed).
+    label = entities.get('label') or "Alarm"
+    if 'hour' in entities:
+        hour, minute, period = int(entities['hour']), int(entities.get('minute', 0)), entities.get('period', '')
+        if period == 'pm' and hour != 12:
+            hour += 12
+        elif period == 'am' and hour == 12:
+            hour = 0
+        when = f"{hour % 12 or 12}:{minute:02d} {'AM' if hour < 12 else 'PM'}"
+    else:
+        when = alarm_time_text(entities.get('time') or cmd)
+        if not when:
+            return HandlerResult(success=True, response=f"What time should I set the alarm for, {title}?")
+    # Only claim success when an alarm was really set
     if not alarm_system:
         return HandlerResult(success=False, response=f"The alarm service isn't available right now, {title}.")
     try:
-        if alarm_system.set_alarm(time_str) is not False:
-            return HandlerResult(success=True, response=f"Alarm set for {time_str}, {title}.")
+        if alarm_system.set_alarm(when, label) is not False:
+            return HandlerResult(success=True, response=f"Alarm set for {when}, {title}.")
     except Exception as e:
         _log.warning(f"[HANDLERS] Alarm error: {e}")
     return HandlerResult(success=False, response=f"I couldn't set that alarm, {title}.")
+
+
+_ALARM_TIME_RE = re.compile(
+    r"\b(?:in\s+\d+\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?)"
+    r"|\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)"
+    r"|\d{1,2}:\d{2}"
+    r"|noon|midnight)\b", re.I)
+
+
+def alarm_time_text(text: str):
+    """'set alarm for 7 am wake up' -> '7 am'; None if there's no time in it."""
+    m = _ALARM_TIME_RE.search(text or "")
+    if not m:
+        return None
+    t = m.group(0).lower().replace(".", "")
+    return {"noon": "12:00 pm", "midnight": "12:00 am"}.get(t, t)
 
 
 def handle_set_timer(cmd: str, entities: Dict, context: Any) -> HandlerResult:
@@ -1202,8 +1226,8 @@ def handle_habit(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         if 'add' in cmd_lower or 'track' in cmd_lower or 'create' in cmd_lower:
             name = re.sub(r'(add|track|create|new)\s*(habit)?\s*', '', cmd_lower).strip()
             if name:
-                tracker.add_habit(name)
-                return HandlerResult(success=True, response=f"Now tracking habit: {name}")
+                tracker.create_habit(name, cmd)   # (it called add_habit(), which doesn't exist)
+                return HandlerResult(success=True, response=f"Now tracking habit: {name}, {title}.")
             return HandlerResult(success=True, response=f"What habit would you like to track, {title}?")
         
         return HandlerResult(success=True, response=f"I can track your habits, {title}. Say 'list habits' or 'add habit [name]'.")
@@ -1249,9 +1273,12 @@ def handle_calendar(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         
         cmd_lower = cmd.lower()
         if 'today' in cmd_lower or 'events' in cmd_lower or 'schedule' in cmd_lower:
-            events = cal.get_today_events_list() if hasattr(cal, 'get_today_events_list') else []
+            # (it called get_today_events_list(), which doesn't exist: always "no events")
+            events = cal.get_today_events()
             if events:
-                event_text = "; ".join(events[:5])
+                event_text = "; ".join(
+                    e.title if e.is_all_day else f"{e.title} at {e.start_time.strftime('%I:%M %p').lstrip('0')}"
+                    for e in events[:5])
                 return HandlerResult(success=True, response=f"Today's events: {event_text}")
             return HandlerResult(success=True, response=f"No events scheduled for today, {title}.")
         

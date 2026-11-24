@@ -96,6 +96,20 @@ from jarvis.gui.server.features import MISSING_IMPORTS  # noqa: E402,F401
 from jarvis.gui.server.tables import FEATURE_TOGGLE_RE, _is_precise_rule  # noqa: E402,F401
 
 
+def _display_time(ts) -> str:
+    """'Nov 23, 11:23 AM' from a datetime or an ISO string (chat history stores
+    strings; .strftime() on one crashed the conversation search)."""
+    from datetime import datetime as _dt
+    if not ts:
+        return ""
+    if isinstance(ts, str):
+        try:
+            ts = _dt.fromisoformat(ts)
+        except ValueError:
+            return ts
+    return ts.strftime('%b %d, %I:%M %p')
+
+
 class JARVISWebSocketServer(MessageMixin, RouterMixin, CommandsMixin, PendingMixin, SpeechMixin,
                             GestureMixin, VoiceInputMixin, BootMixin, ServicesMixin, TransportMixin):
     """WebSocket server with FULL JARVISUltimate integration"""
@@ -221,8 +235,10 @@ class JARVISWebSocketServer(MessageMixin, RouterMixin, CommandsMixin, PendingMix
             lines = [f"Found {len(results)} relevant conversation(s):"]
             for msg in results:
                 role = "You" if msg.role == 'user' else "JARVIS"
-                ts = msg.timestamp.strftime('%b %d, %I:%M %p') if hasattr(msg, 'timestamp') and msg.timestamp else ''
-                text = msg.text[:150] if hasattr(msg, 'text') else str(msg)[:150]
+                ts = _display_time(getattr(msg, 'timestamp', None))
+                # Chat messages keep their words in .content (.text doesn't exist,
+                # so the search used to read out "ChatMessage(id=857, ...)")
+                text = (getattr(msg, 'content', None) or getattr(msg, 'text', '') or '')[:150]
                 lines.append(f"  [{ts}] {role}: {text}")
             return "\n".join(lines)
         except Exception as e:

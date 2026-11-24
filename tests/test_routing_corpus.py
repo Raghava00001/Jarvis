@@ -39,7 +39,7 @@ EXPECT = {
     "what is quantum computing": (["[knowledge answer]"], ["searching for"]),
     "search for python tutorials": (["'python tutorials'"], ["for python"]),
     "send a whatsapp to dad saying hi": (["dad"], ["to to dad"]),
-    "battery level": (["cpu"], []),
+    "battery level": (["battery at"], ["cpu"]),        # v2.10: a battery answer, not the full status
     "what time is it": (["it's"], []),
     "what's the date today": (["today is"], []),
     "tell me a joke": ([], ["% sure"]),

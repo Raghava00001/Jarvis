@@ -55,19 +55,6 @@ def try_fast_path(server, text: str):
         except Exception:
             return None  # Fall through to normal pipeline
 
-    # ── RESUME/PAUSE VIDEO (space key, not media keys) ──
-    if any(w in cmd for w in ['resume video', 'resume the video', 'play video',
-                               'pause video', 'pause the video', 'resume youtube',
-                               'play youtube', 'pause youtube']):
-        try:
-            import pyautogui
-            pyautogui.press('space')  # Space = play/pause in YouTube
-            action = 'Resumed' if 'resume' in cmd or 'play' in cmd else 'Paused'
-            _log.info(f"[FAST] {action} video (space key)")
-            return f"{action} the video, {title}."
-        except Exception:
-            return None
-
     # ── SCREENSHOT (instant) ──
     if 'screenshot' in cmd or 'screen capture' in cmd:
         try:
@@ -92,17 +79,9 @@ def try_fast_path(server, text: str):
     if yt_match:
         query = yt_match.group(1).strip()
         try:
-            import urllib.parse, webbrowser
-            url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
-            webbrowser.open(url)
-            # Auto-click first video after page loads
-            def _auto_play():
-                import pyautogui
-                time.sleep(3.5)
-                pyautogui.press('tab', presses=8, interval=0.05)
-                time.sleep(0.2)
-                pyautogui.press('enter')
-            threading.Thread(target=_auto_play, daemon=True).start()
+            # First video, opened directly (no blind Tab/Enter key presses)
+            from jarvis.core.youtube_play import play_on_youtube
+            play_on_youtube(query)
             _log.info(f"[FAST] YouTube search: {query}")
             return f"Playing {query} on YouTube, {title}."
         except Exception:
@@ -137,19 +116,22 @@ def try_fast_path(server, text: str):
         now = datetime.now().strftime('%A, %B %d, %Y')
         return f"It's {now}, {title}."
 
-    # ── STOP / PAUSE / RESUME VIDEO (instant) ──
+    # ── PAUSE / RESUME music or video (instant) ──
+    # The play/pause media key: Spotify, YouTube in the browser and media players
+    # all handle it, whatever window has focus. (Two blocks here pressed Space,
+    # which typed a space into the focused window unless it was the player.)
     if any(p in cmd for p in ['stop video', 'pause video', 'stop the video', 'pause the video',
-                               'resume video', 'resume the video', 'unpause',
+                               'resume video', 'resume the video', 'play video', 'unpause',
+                               'resume youtube', 'play youtube', 'pause youtube',
                                'stop playing', 'stop music', 'pause music',
                                'play pause', 'play/pause']):
-        try:
-            import pyautogui
-            pyautogui.press('space')
-            _log.info(f"[FAST] Toggled playback")
-            if 'resume' in cmd or 'unpause' in cmd:
-                return f"Resuming playback, {title}."
-            return f"Paused, {title}."
-        except Exception:
-            return None
+        from jarvis.core.music_handler import MediaKeyController
+        if not MediaKeyController().play_pause():
+            return None   # no media keys here: let the normal pipeline try
+        _log.info("[FAST] Toggled playback (media key)")
+        if any(w in cmd for w in ('resume', 'unpause', 'play video', 'play youtube')):
+            return f"Resuming playback, {title}."
+        return f"Paused, {title}."
+
 
     return None  # No fast path — use normal pipeline

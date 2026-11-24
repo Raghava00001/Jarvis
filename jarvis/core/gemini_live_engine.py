@@ -708,54 +708,21 @@ class GeminiLiveEngine:
         return self._app_switcher
 
     def _read_screen(self, question: str = "Describe what you see on the screen.") -> str:
-        """Capture screenshot using existing ScreenshotHandler and analyze with Gemini Vision."""
+        """Answer a question about the screen (core/screen_vision.py).
+
+        This was a separate copy that saved every screenshot to
+        jarvis_data/screenshots before asking about it, and duplicated the
+        vision call. screen_vision never writes the image to disk.
+        """
+        from jarvis.core import screen_vision
+        if not screen_vision.vision_available():
+            return "I can't see the screen without a GEMINI_API_KEY in .env, sir."
         try:
-            from PIL import Image
-            import io
-            import base64
-
-            # Use existing ScreenshotHandler if available
-            screenshot = None
-            handler = getattr(self.server, 'screenshot_handler', None) if self.server else None
-            if handler:
-                path = handler.take_screenshot()
-                if path:
-                    screenshot = Image.open(str(path))
-            
-            # Fallback to direct capture
-            if screenshot is None:
-                import pyautogui
-                screenshot = pyautogui.screenshot()
-
-            # Resize to reduce token cost (max 1280px wide)
-            w, h = screenshot.size
-            if w > 1280:
-                ratio = 1280 / w
-                screenshot = screenshot.resize((1280, int(h * ratio)), Image.LANCZOS)
-
-            # Convert to bytes
-            buf = io.BytesIO()
-            screenshot.save(buf, format='JPEG', quality=70)
-            img_bytes = buf.getvalue()
-
-            # Use Gemini Vision (non-live) to analyze
-            client = genai.Client(api_key=self.api_key)
-            response = client.models.generate_content(
-                model=GEMINI_TEXT_MODEL,  # gemini-2.0-flash was retired (404)
-                contents=[
-                    {
-                        'parts': [
-                            {'text': f"You are JARVIS, an AI assistant. Look at this screenshot and answer: {question}. Be concise (1-3 sentences). Describe exactly what you see."},
-                            {'inline_data': {'mime_type': 'image/jpeg', 'data': base64.b64encode(img_bytes).decode()}}
-                        ]
-                    }
-                ]
-            )
-            return response.text.strip() if response.text else "I captured the screen but couldn't analyze it, sir."
+            answer = screen_vision.ask_about_screen(question)
         except Exception as e:
             _log.warning(f"[LIVE] Screen read error: {e}")
-            traceback.print_exc()
-            return f"Screen capture failed: {e}"
+            answer = None
+        return answer or "I couldn't get a look at the screen just now, sir."
 
     def _get_system_prompt(self):
         now = datetime.datetime.now().strftime("%A, %B %d, %Y - %I:%M %p")
@@ -1170,20 +1137,11 @@ class GeminiLiveEngine:
             except Exception as e:
                 _log.warning(f"[LIVE] YouTube downloader failed: {e}")
         if not played:
-            # Open YouTube search and auto-click first result
-            import urllib.parse
-            url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
-            webbrowser.open_new_tab(url)
-            # Auto-click first video after page loads
-            import time as _yt_time
-            import pyautogui as _yt_pag
-            def _auto_play():
-                _yt_time.sleep(3.5)  # Wait for YouTube page to load
-                # Tab to first video result and press Enter
-                _yt_pag.press('tab', presses=8, interval=0.05)
-                _yt_time.sleep(0.2)
-                _yt_pag.press('enter')
-            threading.Thread(target=_auto_play, daemon=True).start()
+            # Open the first video directly (core/youtube_play.py). This used to
+            # press Tab 8 times and Enter, blind, 3.5 s later, into whatever
+            # window had focus by then.
+            from jarvis.core.youtube_play import play_on_youtube
+            play_on_youtube(query)
             result = f"Playing {query} on YouTube."
         return result
 
@@ -1270,7 +1228,7 @@ class GeminiLiveEngine:
         """Step of _tool_computer_settings(): Mute unmute."""
         handler = HANDLER_MAP.get("volume")
         if handler:
-            res = handler(cmd=action, entities={}, context=context)
+            res = handler(cmd=action.replace("_", " "), entities={}, context=context)
             result = getattr(res, "response", "Audio toggled.")
         else:
             result = "Volume control not available."
@@ -1282,7 +1240,8 @@ class GeminiLiveEngine:
         handler = HANDLER_MAP.get(handler_key)
         if handler:
             entities = {"level": args.get("value", "")}
-            res = handler(cmd=action, entities=entities, context=context)
+            # "volume_up" -> "volume up": with the underscore "up" wasn't a word
+            res = handler(cmd=action.replace("_", " "), entities=entities, context=context)
             result = getattr(res, "response", "Setting adjusted.")
         else:
             result = f"{handler_key.title()} control not available."
@@ -1301,15 +1260,20 @@ class GeminiLiveEngine:
 
     def _tool_generic_fallback(self, action, args, result):
         """Step of _tool_computer_settings(): generic fallback."""
+        from jarvis.core.screen_control import ScreenControlHandler
+        words = action.replace("_", " ")
+        screen = ScreenControlHandler().handle(words)
+        if not screen.startswith(("I didn't understand", "Screen control is not available")):
+            return screen   # next tab, scroll down, minimize ... (used to be "noted", nothing done)
         sc = getattr(self.server, 'system_control', None) if self.server else None
         if sc and hasattr(sc, 'execute'):
             try:
                 res = sc.execute(action, args.get("value", ""))
                 result = res if isinstance(res, str) else "Setting adjusted."
             except Exception:
-                result = f"Computer setting '{action}' noted."
+                result = f"I can't change '{words}' yet, sir."
         else:
-            result = f"Computer setting '{action}' noted."
+            result = f"I can't change '{words}' yet, sir."
         return result
 
 
@@ -1421,8 +1385,9 @@ class GeminiLiveEngine:
         else:
             # Try pressing space for any pause/stop/play type action
             if any(w in action for w in ['pause', 'stop', 'play', 'resume']):
-                pyautogui.press('space')
-                result = f"Toggled playback."
+                from jarvis.core.music_handler import MediaKeyController
+                MediaKeyController().play_pause()   # media key (Space typed into the focused window)
+                result = "Toggled playback."
             else:
                 result = f"Unknown screen action: {action}"
         return result
@@ -1572,8 +1537,10 @@ class GeminiLiveEngine:
             subject = args.get("subject", "")
             body = args.get("body", "")
             try:
-                email_handler.send_email(to, subject, body)
-                result = f"Email sent to {to}."
+                reply = email_handler.send_email(to, subject, body)
+                # The handler explains failures ("not configured"); this used to
+                # ignore it and tell the user the email was sent.
+                result = reply if isinstance(reply, str) and reply else f"Email sent to {to}."
             except Exception as e:
                 result = f"Failed to send email: {e}"
         else:
