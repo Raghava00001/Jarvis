@@ -207,6 +207,18 @@ class MessageMixin:
                 'message': str(e)
             }))
 
+        action, confidence, response = self._on_post_process_reply(mood, response, text)
+
+        await self._on_speak_send_result(_live_active, action, confidence, mood, response, websocket)
+
+        # NOTE: Removed duplicate apply_action send - result message above
+        # already contains the response. Sending twice caused double messages.
+
+        await self._on_bookkeeping_after_reply(action, response, text, websocket)
+        return _NEXT
+
+    def _on_post_process_reply(self, mood, response, text):
+        """Step of _on_input(): Post process the reply."""
         # Infer action/intent from response (basic pattern matching)
         action = _infer_action_from_text(text)
         confidence = 0.85 if response and len(response) > 10 else 0.5
@@ -235,7 +247,17 @@ class MessageMixin:
         self._recent_responses.append(response or '')
         if len(self._recent_responses) > 3:
             self._recent_responses.pop(0)
+        return action, confidence, response
 
+
+    async def _on_speak_send_result(self, _live_active, action, confidence, mood, response, websocket):
+        live, server_spoke, silent = self._on_speak_reply(_live_active, response)
+
+        await self._on_send_result(action, confidence, live, mood, response, server_spoke, silent, websocket)
+
+    def _on_speak_reply(self, _live_active, response):
+        """Step of _on_speak_send_result(): State speaking."""
+        """Step of _on_input(): Speak and send the result."""
         # State: speaking
         self.state_manager.force_state("speaking")
 
@@ -252,7 +274,10 @@ class MessageMixin:
         server_spoke = False
         if response and not silent and not live:
             server_spoke = self._voice_reply(response)
+        return live, server_spoke, silent
 
+    async def _on_send_result(self, action, confidence, live, mood, response, server_spoke, silent, websocket):
+        """Step of _on_speak_send_result(): SEND RESULT action response confidence state This is the SINGLE unified response."""
         # ═══════════════════════════════════════════════════════════════
         # SEND RESULT: action + response + confidence + state
         # This is the SINGLE unified response for all input
@@ -295,9 +320,10 @@ class MessageMixin:
 
         asyncio.ensure_future(_unmute_after(speech_secs))
 
-        # NOTE: Removed duplicate apply_action send - result message above
-        # already contains the response. Sending twice caused double messages.
 
+
+    async def _on_bookkeeping_after_reply(self, action, response, text, websocket):
+        """Step of _on_input(): Bookkeeping after a reply."""
         self._on_save_chat_history(response, text)
 
         self._on_record_action(action, text)
@@ -312,7 +338,7 @@ class MessageMixin:
             'type': 'state',
             'state': self.state_manager.get_full_state()
         }))
-        return _NEXT
+
 
     def _on_duplicate_speech(self, msg_type, text):
         """Step of _on_input(): duplicate speech."""

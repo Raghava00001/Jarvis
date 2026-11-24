@@ -147,107 +147,7 @@ class RouterMixin:
                 if jlog: jlog.intent(intent_name, entities=entities)
                 else: _log.info(f"[WebSocket] Intent: {intent_name}, Entities: {entities}")
 
-            # ══════════════════════════════════════════════════════════════
-            # CONTEXT RESOLUTION: Disambiguate based on active_app
-            # "next" → next_track (spotify) or next_page (pdf) etc.
-            # ══════════════════════════════════════════════════════════════
-            active_app = getattr(self.state_manager, 'active_app', None)
-
-            # Clear stale context (5 min timeout)
-            app_set_time = getattr(self.state_manager, '_active_app_time', 0)
-            active_app = self._expire_active_app(active_app, app_set_time)
-
-            CONTEXT_MAP = {
-                'next': {
-                    'spotify': 'next_track', 'music': 'next_track',
-                    'pdf': 'next_page', 'reader': 'next_page',
-                    'browser': 'next_tab', 'chrome': 'next_tab',
-                },
-                'previous': {
-                    'spotify': 'previous_track', 'music': 'previous_track',
-                    'pdf': 'previous_page', 'reader': 'previous_page',
-                },
-                'scroll': {
-                    'pdf': 'scroll_pdf', 'browser': 'scroll_page',
-                },
-            }
-
-            intent_name = self._apply_app_context(CONTEXT_MAP, active_app, intent_name)
-
-            # ══════════════════════════════════════════════════════════════
-            # DIRECT HANDLERS: Critical system commands that MUST execute
-            # These bypass the router to guarantee actual hardware control
-            # ══════════════════════════════════════════════════════════════
-
-            _r = self._route_volume_brightness(command, entities, intent_name)
-            if _r is not _NEXT:
-                return _r
-
-            # --- ALARM ---
-            if intent_name == 'set_alarm' and self.alarm_system:
-                from datetime import timedelta
-                cmd_lower = command.lower()
-
-                # Handle relative time: "5 minutes from now", "in 10 minutes"
-                relative_match = re.search(r'(\d+)\s*(min|minute|minutes|hour|hours|hr|hrs)\s*(from now)?', cmd_lower)
-                if relative_match:
-                    amount = int(relative_match.group(1))
-                    unit = relative_match.group(2)
-                    if 'hour' in unit or 'hr' in unit:
-                        alarm_time = datetime.now() + timedelta(hours=amount)
-                    else:
-                        alarm_time = datetime.now() + timedelta(minutes=amount)
-                    time_str = alarm_time.strftime('%I:%M %p')
-                    label = entities.get('label', 'Alarm')
-                    result = self.alarm_system.set_alarm(time_str, label)
-                    return result if isinstance(result, str) else f"Alarm set for {time_str} ({amount} {'hours' if 'hour' in unit else 'minutes'} from now), {title}."
-
-                # Handle absolute time from entities. The ML entity extractor
-                # gives time='07:00' (24h); the keyword classifier gives hour/minute.
-                if entities.get('hour') is None and entities.get('time'):
-                    tm = re.match(r'(\d{1,2}):(\d{2})', str(entities['time']))
-                    if tm:
-                        h24 = int(tm.group(1))
-                        entities = {**entities, 'hour': (h24 % 12) or 12, 'minute': int(tm.group(2)),
-                                    'period': 'PM' if h24 >= 12 else 'AM'}
-                hour = entities.get('hour')
-                minute = entities.get('minute', 0)
-                period = entities.get('period', '')
-                if hour is not None:
-                    time_str = f"{hour}:{minute:02d} {period}".strip()
-                    label = entities.get('label', 'Alarm')
-                    result = self.alarm_system.set_alarm(time_str, label)
-                    return result if isinstance(result, str) else f"Alarm set for {time_str}, {title}."
-
-                return f"What time should I set the alarm for, {title}?"
-
-            _r = self._route_list_alarms(intent_name, title)
-            if _r is not _NEXT:
-                return _r
-
-            _r = self._route_open_app(entities, intent_name, title)
-            if _r is not _NEXT:
-                return _r
-
-            # --- TOGGLE FEATURES (gesture, face, emotion) ---
-            cmd_lower = command.lower()
-            _r = self._route_feature_switches(cmd_lower, title)
-            if _r is not _NEXT:
-                return _r
-
-            _r = self._route_music_control(_r, command, intent_name, title)
-            if _r is not _NEXT:
-                return _r
-
-            # --- OCR / READ SCREEN ---
-            # OCR: handled by HANDLER_MAP['ocr'] (handle_ocr). This inline copy
-            # skipped the Tesseract availability check and said "No readable text".
-
-            _r = self._route_read_clipboard(intent_name, title)
-            if _r is not _NEXT:
-                return _r
-
-            return self._route_dispatch_handler(_r, command, entities, intent_name, title)
+            return self._route_resolve_intent(command, entities, intent_name, title)
 
         except Exception as e:
             if jlog: jlog.error('Router pipeline failed', e)
@@ -256,6 +156,125 @@ class RouterMixin:
                 import traceback
                 traceback.print_exc()
             return None
+
+    def _route_resolve_intent(self, command, entities, intent_name, title):
+        """Step of _route_through_router(): CONTEXT RESOLUTION Disambiguate based on active app next next track spotify or."""
+        # ══════════════════════════════════════════════════════════════
+        # CONTEXT RESOLUTION: Disambiguate based on active_app
+        # "next" → next_track (spotify) or next_page (pdf) etc.
+        # ══════════════════════════════════════════════════════════════
+        active_app = getattr(self.state_manager, 'active_app', None)
+
+        # Clear stale context (5 min timeout)
+        app_set_time = getattr(self.state_manager, '_active_app_time', 0)
+        active_app = self._expire_active_app(active_app, app_set_time)
+
+        intent_name = self._route_app_context(active_app, intent_name)
+
+        # ══════════════════════════════════════════════════════════════
+        # DIRECT HANDLERS: Critical system commands that MUST execute
+        # These bypass the router to guarantee actual hardware control
+        # ══════════════════════════════════════════════════════════════
+
+        _r = self._route_volume_brightness(command, entities, intent_name)
+        if _r is not _NEXT:
+            return _r
+
+        _r = self._route_set_alarm(command, entities, intent_name, title)
+        if _r is not _NEXT:
+            return _r
+
+        _r = self._route_list_alarms(intent_name, title)
+        if _r is not _NEXT:
+            return _r
+
+        _r = self._route_open_app(entities, intent_name, title)
+        if _r is not _NEXT:
+            return _r
+
+        # --- TOGGLE FEATURES (gesture, face, emotion) ---
+        cmd_lower = command.lower()
+        _r = self._route_feature_switches(cmd_lower, title)
+        if _r is not _NEXT:
+            return _r
+
+        _r = self._route_music_control(_r, command, intent_name, title)
+        if _r is not _NEXT:
+            return _r
+
+        # --- OCR / READ SCREEN ---
+        # OCR: handled by HANDLER_MAP['ocr'] (handle_ocr). This inline copy
+        # skipped the Tesseract availability check and said "No readable text".
+
+        _r = self._route_read_clipboard(intent_name, title)
+        if _r is not _NEXT:
+            return _r
+
+        return self._route_dispatch_handler(_r, command, entities, intent_name, title)
+
+
+    def _route_app_context(self, active_app, intent_name):
+        """Step of _route_through_router(): App context."""
+        CONTEXT_MAP = {
+            'next': {
+                'spotify': 'next_track', 'music': 'next_track',
+                'pdf': 'next_page', 'reader': 'next_page',
+                'browser': 'next_tab', 'chrome': 'next_tab',
+            },
+            'previous': {
+                'spotify': 'previous_track', 'music': 'previous_track',
+                'pdf': 'previous_page', 'reader': 'previous_page',
+            },
+            'scroll': {
+                'pdf': 'scroll_pdf', 'browser': 'scroll_page',
+            },
+        }
+
+        intent_name = self._apply_app_context(CONTEXT_MAP, active_app, intent_name)
+        return intent_name
+
+
+    def _route_set_alarm(self, command, entities, intent_name, title):
+        """Step of _route_through_router(): Set alarm."""
+        # --- ALARM ---
+        if intent_name == 'set_alarm' and self.alarm_system:
+            from datetime import timedelta
+            cmd_lower = command.lower()
+
+            # Handle relative time: "5 minutes from now", "in 10 minutes"
+            relative_match = re.search(r'(\d+)\s*(min|minute|minutes|hour|hours|hr|hrs)\s*(from now)?', cmd_lower)
+            if relative_match:
+                amount = int(relative_match.group(1))
+                unit = relative_match.group(2)
+                if 'hour' in unit or 'hr' in unit:
+                    alarm_time = datetime.now() + timedelta(hours=amount)
+                else:
+                    alarm_time = datetime.now() + timedelta(minutes=amount)
+                time_str = alarm_time.strftime('%I:%M %p')
+                label = entities.get('label', 'Alarm')
+                result = self.alarm_system.set_alarm(time_str, label)
+                return result if isinstance(result, str) else f"Alarm set for {time_str} ({amount} {'hours' if 'hour' in unit else 'minutes'} from now), {title}."
+
+            # Handle absolute time from entities. The ML entity extractor
+            # gives time='07:00' (24h); the keyword classifier gives hour/minute.
+            if entities.get('hour') is None and entities.get('time'):
+                tm = re.match(r'(\d{1,2}):(\d{2})', str(entities['time']))
+                if tm:
+                    h24 = int(tm.group(1))
+                    entities = {**entities, 'hour': (h24 % 12) or 12, 'minute': int(tm.group(2)),
+                                'period': 'PM' if h24 >= 12 else 'AM'}
+            hour = entities.get('hour')
+            minute = entities.get('minute', 0)
+            period = entities.get('period', '')
+            if hour is not None:
+                time_str = f"{hour}:{minute:02d} {period}".strip()
+                label = entities.get('label', 'Alarm')
+                result = self.alarm_system.set_alarm(time_str, label)
+                return result if isinstance(result, str) else f"Alarm set for {time_str}, {title}."
+
+            return f"What time should I set the alarm for, {title}?"
+        return _NEXT
+
 
     def _route_brain(self, brain_result, command):
         """Step of _route_through_router(): _brain."""

@@ -313,46 +313,7 @@ class JARVISWebSocketServer(MessageMixin, RouterMixin, CommandsMixin, PendingMix
         worker_task = asyncio.create_task(_command_worker())
 
         try:
-            # ══════ BOOT SEQUENCE: Batched single payload ══════
-            name = self.hud_perception.assistant_name
-
-            # Generate boot briefing from orchestrator
-            boot_briefing = None
-            if self.startup_orchestrator:
-                try:
-                    boot_briefing = await self._run_blocking(
-                        self.startup_orchestrator.generate_boot_briefing)
-                    _log.info(f"[BOOT] Briefing generated: {boot_briefing.get('greeting', '')[:60]}")
-                except Exception as e:
-                    _log.warning(f"[BOOT] Briefing error: {e}")
-
-            # Build greeting for HUD chat panel (always shown — Gemini Live handles audio separately)
-            greeting_text = None
-            greeting_text = self._greeting_text(boot_briefing, greeting_text, name)
-
-            # ━━━ SINGLE BATCHED INIT PAYLOAD (1 send instead of 6) ━━━
-            # Weather and news are network calls and stats sample the CPU for
-            # 0.1 s: gather them in worker threads, concurrently. On the event loop
-            # they froze every client and the keepalive pings, and the resulting
-            # disconnect/reconnect cycle re-ran them (the "overloaded" socket).
-            stats, weather, news = await asyncio.gather(
-                self._run_blocking(self.get_system_stats),
-                self._run_blocking(self.get_weather_data),
-                self._run_blocking(self.get_news_data),
-            )
-            init_payload = {
-                'type': 'init_payload',
-                'assistant_info': {'name': name, 'is_friday': self.hud_perception.is_friday},
-                'system_stats': stats,
-                'weather': weather,
-                'news': news,
-                'features': self.get_feature_status(),
-            }
-            self._client_greet_aloud(greeting_text, init_payload)
-            if boot_briefing:
-                init_payload['briefing'] = boot_briefing
-            
-            await self._send_to(websocket, init_payload)
+            await self._send_init_payload(websocket)
             
             # Start periodic updates
             stats_task = asyncio.create_task(self.send_periodic_updates(websocket))
@@ -403,6 +364,50 @@ class JARVISWebSocketServer(MessageMixin, RouterMixin, CommandsMixin, PendingMix
                     _log.info("[BOOT] Session state saved on disconnect")
                 except Exception as e:
                     _log.warning(f"[BOOT] Session save error: {e}")
+
+    async def _send_init_payload(self, websocket):
+        """Send a new client everything the HUD shows at start: greeting,
+        briefing, stats, weather, news and feature status, in one message."""
+        # ══════ BOOT SEQUENCE: Batched single payload ══════
+        name = self.hud_perception.assistant_name
+
+        # Generate boot briefing from orchestrator
+        boot_briefing = None
+        if self.startup_orchestrator:
+            try:
+                boot_briefing = await self._run_blocking(
+                    self.startup_orchestrator.generate_boot_briefing)
+                _log.info(f"[BOOT] Briefing generated: {boot_briefing.get('greeting', '')[:60]}")
+            except Exception as e:
+                _log.warning(f"[BOOT] Briefing error: {e}")
+
+        # Build greeting for HUD chat panel (always shown — Gemini Live handles audio separately)
+        greeting_text = None
+        greeting_text = self._greeting_text(boot_briefing, greeting_text, name)
+
+        # ━━━ SINGLE BATCHED INIT PAYLOAD (1 send instead of 6) ━━━
+        # Weather and news are network calls and stats sample the CPU for
+        # 0.1 s: gather them in worker threads, concurrently. On the event loop
+        # they froze every client and the keepalive pings, and the resulting
+        # disconnect/reconnect cycle re-ran them (the "overloaded" socket).
+        stats, weather, news = await asyncio.gather(
+            self._run_blocking(self.get_system_stats),
+            self._run_blocking(self.get_weather_data),
+            self._run_blocking(self.get_news_data),
+        )
+        init_payload = {
+            'type': 'init_payload',
+            'assistant_info': {'name': name, 'is_friday': self.hud_perception.is_friday},
+            'system_stats': stats,
+            'weather': weather,
+            'news': news,
+            'features': self.get_feature_status(),
+        }
+        self._client_greet_aloud(greeting_text, init_payload)
+        if boot_briefing:
+            init_payload['briefing'] = boot_briefing
+
+        await self._send_to(websocket, init_payload)
 
     def _greeting_text(self, boot_briefing, greeting_text, name):
         """Step of handle_client(): text."""

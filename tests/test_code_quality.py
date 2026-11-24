@@ -27,11 +27,7 @@ MAX_FUNCTION_LINES = 120
 # number when you shorten one; remove the entry once it is under the limit.
 LONG_FUNCTION_BUDGET = {
     ("jarvis/core/jarvis_ultimate.py", "_process_single_command"): 418,   # console mode
-    ("jarvis/gui/server/messages.py", "_on_input"): 199,
-    ("jarvis/gui/server/router.py", "_route_through_router"): 185,
     ("jarvis/core/gemini_live_engine.py", "_receive_audio"): 184,
-    ("jarvis/core/understanding.py", "__init__"): 140,
-    ("jarvis/gui/websocket_server.py", "handle_client"): 122,
 }
 
 MAX_SERVER_FILE_LINES = 550
