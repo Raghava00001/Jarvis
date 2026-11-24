@@ -9,6 +9,9 @@ True Iron Man JARVIS personality:
 - Adjusts to user mood
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from typing import Optional
 from datetime import datetime
 import random
@@ -87,14 +90,14 @@ class JARVISPersonalityCore:
     }
     
     def __init__(self, state_manager: StateManager = None):
-        print("[PERSONALITY] Initializing JARVIS Personality v2...")
+        _log.info("[PERSONALITY] Initializing JARVIS Personality v2...")
         self.state = state_manager or get_state_manager()
         self.opinion_cooldown = 0  # Don't be opinionated every time
         self.challenge_cooldown = 0
         # Tactical tracking
         self._recent_commands = []  # (timestamp, intent) ring buffer
         self._failure_counts = {}   # intent -> consecutive fail count
-        print("[PERSONALITY] Personality Core Ready")
+        _log.info("[PERSONALITY] Personality Core Ready")
         
     def style(self, base_response: str) -> str:
         """
@@ -223,7 +226,7 @@ class JARVISPersonalityCore:
                     elif lvl >= 95:
                         return self.TACTICAL_WARNINGS["volume_near_max"]
                 except (ValueError, TypeError):
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
             if action == "up":
                 # Can't know exact level without system query, but warn on rapid increases
                 vol_ups = sum(1 for ts, i in self._recent_commands
@@ -242,7 +245,7 @@ class JARVISPersonalityCore:
                     elif lvl >= 100:
                         return self.TACTICAL_WARNINGS["brightness_ceiling"]
                 except (ValueError, TypeError):
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
         
         # ── Late-night alarm (sleep deficit) ──
         if intent == "set_alarm":
@@ -258,7 +261,7 @@ class JARVISPersonalityCore:
                     if sleep_hours < 5 and current_hour >= 22:
                         return self.TACTICAL_WARNINGS["sleep_deficit"].format(hours=sleep_hours)
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
                     
         # ── Work-hour entertainment ──
         if intent == "open_app":
@@ -293,7 +296,7 @@ class JARVISPersonalityCore:
                         self.challenge_cooldown = 8
                         return self.TACTICAL_WARNINGS["fatigue_detected"]
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
         
         return None
     

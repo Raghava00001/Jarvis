@@ -8,6 +8,9 @@ Handles complex cases like:
 - "Open VS Code and then Chrome"
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import re
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
@@ -27,13 +30,13 @@ def _get_nlp():
         try:
             _NLP = spacy.load("en_core_web_sm")
             SPACY_AVAILABLE = True
-            print("[ENTITY] spaCy loaded")
+            _log.info("[ENTITY] spaCy loaded")
             return _NLP
         except OSError:
-            print("[ENTITY] spaCy model not found (run: python -m spacy download en_core_web_sm)")
+            _log.info("[ENTITY] spaCy model not found (run: python -m spacy download en_core_web_sm)")
             return None
     except ImportError:
-        print("[ENTITY] spaCy not installed")
+        _log.info("[ENTITY] spaCy not installed")
         return None
 
 
@@ -65,9 +68,9 @@ class EntityExtractor:
     MUSIC_APPS = {"spotify", "youtube", "youtube music", "apple music", "soundcloud"}
     
     def __init__(self):
-        print("[ENTITY] Initializing Entity Extractor v2...")
+        _log.info("[ENTITY] Initializing Entity Extractor v2...")
         self.nlp = None  # Lazy loaded
-        print("[ENTITY] Entity Extractor Ready")
+        _log.info("[ENTITY] Entity Extractor Ready")
         
     def _ensure_nlp(self):
         """Lazy load NLP"""

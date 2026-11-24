@@ -3,6 +3,9 @@ System Status - CPU, Memory, Battery, and Disk information
 Provides system health reports
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import platform
 from typing import Dict, Optional
 
@@ -11,7 +14,7 @@ class SystemStatus:
     """Provides system status information"""
     
     def __init__(self, perception=None):
-        print("[STATUS] Initializing System Status...")
+        _log.info("[STATUS] Initializing System Status...")
         self.perception = perception
         
         # Check for psutil
@@ -19,11 +22,11 @@ class SystemStatus:
         try:
             import psutil
             self.psutil_available = True
-            print("[STATUS] psutil available")
+            _log.info("[STATUS] psutil available")
         except ImportError:
-            print("[STATUS] psutil not available - limited system info")
+            _log.warning("[STATUS] psutil not available - limited system info")
         
-        print("[STATUS] System Status Ready")
+        _log.info("[STATUS] System Status Ready")
     
     def _get_title(self) -> str:
         """Get user title from perception layer"""
@@ -36,7 +39,7 @@ class SystemStatus:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[STATUS] {text}")
+            _log.info(f"[STATUS] {text}")
     
     def get_cpu_usage(self) -> Optional[float]:
         """Get current CPU usage percentage"""
@@ -77,7 +80,7 @@ class SystemStatus:
                     "time_left": self._format_time(battery.secsleft) if battery.secsleft > 0 else None
                 }
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         
         return None
     

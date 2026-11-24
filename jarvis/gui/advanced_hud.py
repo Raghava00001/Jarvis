@@ -6,6 +6,9 @@ JARVIS ULTIMATE HUD v10
 - Reactive display (reads from StateManager)
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import pygame
 import math
 import random
@@ -636,16 +639,16 @@ class HUD:
     
     def __init__(self, state_manager: 'StateManager' = None):
         pygame.init()
-        print("=" * 55)
-        print("   J.A.R.V.I.S. ULTIMATE INTERFACE v9.0")
-        print("=" * 55)
+        _log.info("=" * 55)
+        _log.info("   J.A.R.V.I.S. ULTIMATE INTERFACE v9.0")
+        _log.info("=" * 55)
         
         self._state_manager = state_manager
         if self._state_manager is None and STATE_MANAGER_AVAILABLE:
             try:
                 self._state_manager = get_state_manager()
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
         
         info = pygame.display.Info()
         self.W = min(1750, int(info.current_w * 0.95))
@@ -658,11 +661,11 @@ class HUD:
         if IRON_MAN_GLOBE_AVAILABLE:
             self.globe = IronManGlobe(gcx, gcy, gradius)
             self.use_iron_man_globe = True
-            print("[HUD] Using Iron Man Globe")
+            _log.info("[HUD] Using Iron Man Globe")
         else:
             self.globe = Globe(gcx, gcy, gradius)
             self.use_iron_man_globe = False
-            print("[HUD] Using standard Globe")
+            _log.info("[HUD] Using standard Globe")
         
         self.orb = JARVISOrb(self.W, self.H)  # Work-reactive JARVIS orb
         self.orbits = Orbits(gcx, gcy)
@@ -709,7 +712,7 @@ class HUD:
         self.f_md = pygame.font.Font(None, 18)
         self.f_lg = pygame.font.Font(None, 28)
         
-        print(f"[HUD] {self.W}x{self.H} | StateManager: {'Connected' if self._state_manager else 'Standalone'}")
+        _log.info(f"[HUD] {self.W}x{self.H} | StateManager: {'Connected' if self._state_manager else 'Standalone'}")
     
     @property
     def state(self) -> State:
@@ -725,7 +728,7 @@ class HUD:
             if bat:
                 self.sys["bat"] = bat.percent
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
     
     def _parallax(self, screen):
         ox = (self.mouse_smooth[0] - self.W / 2) / 25

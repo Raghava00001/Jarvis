@@ -6,6 +6,9 @@ Integrated with StateManager for proper state transitions
 TTS Priority: Edge TTS (natural voices) > pyttsx3 (instant fallback)
 STT Priority: Google STT (real-time) with Whisper available for file transcription
 """
+
+import logging
+_log = logging.getLogger(__name__)
 import speech_recognition as sr
 import pyttsx3
 import threading
@@ -40,7 +43,7 @@ class PerceptionLayer:
     """Handles all speech input/output with voice switching and interruption support"""
 
     def __init__(self, state_manager: 'StateManager' = None):
-        print("[PERCEPTION] Initializing Perception Layer...")
+        _log.info("[PERCEPTION] Initializing Perception Layer...")
         
         # StateManager for state transitions
         self._state_manager = state_manager
@@ -49,16 +52,16 @@ class PerceptionLayer:
             try:
                 self._state_manager = get_state_manager()
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
 
         # ━━━ Voice Engine (Edge TTS - natural voices) ━━━
         self._voice_engine = None
         if VOICE_ENGINE_AVAILABLE:
             try:
                 self._voice_engine = get_voice_engine()
-                print(f"[PERCEPTION] Edge TTS: {'Active' if self._voice_engine.has_edge_tts else 'Unavailable'}")
+                _log.info(f"[PERCEPTION] Edge TTS: {'Active' if self._voice_engine.has_edge_tts else 'Unavailable'}")
             except Exception as e:
-                print(f"[PERCEPTION] Voice Engine init error: {e}")
+                _log.warning(f"[PERCEPTION] Voice Engine init error: {e}")
 
         # Speech Recognition setup
         self.recognizer = sr.Recognizer()
@@ -105,7 +108,7 @@ class PerceptionLayer:
         self._load_preferences()
 
         tts_mode = "Edge TTS" if (self._voice_engine and self._voice_engine.has_edge_tts) else "pyttsx3"
-        print(f"[PERCEPTION] {self.assistant_name} Ready | TTS: {tts_mode} | StateManager: {'Connected' if self._state_manager else 'Standalone'}")
+        _log.info(f"[PERCEPTION] {self.assistant_name} Ready | TTS: {tts_mode} | StateManager: {'Connected' if self._state_manager else 'Standalone'}")
 
     def _discover_voices(self):
         """Discover available male and female voices"""
@@ -119,11 +122,11 @@ class PerceptionLayer:
                 if any(m in name_lower for m in ['david', 'mark', 'male', 'guy']):
                     if not self.male_voice_id:
                         self.male_voice_id = voice.id
-                        print(f"[PERCEPTION] Male voice: {voice.name}")
+                        _log.info(f"[PERCEPTION] Male voice: {voice.name}")
                 elif any(f in name_lower for f in ['zira', 'hazel', 'female', 'woman', 'sabina']):
                     if not self.female_voice_id:
                         self.female_voice_id = voice.id
-                        print(f"[PERCEPTION] Female voice: {voice.name}")
+                        _log.info(f"[PERCEPTION] Female voice: {voice.name}")
             
             # Fallback: use first two voices
             if not self.male_voice_id and len(voices) > 0:
@@ -136,7 +139,7 @@ class PerceptionLayer:
             engine.stop()
             del engine
         except Exception as e:
-            print(f"[PERCEPTION] Voice discovery error: {e}")
+            _log.warning(f"[PERCEPTION] Voice discovery error: {e}")
 
     def _load_preferences(self):
         """Load voice preferences from file"""
@@ -152,7 +155,7 @@ class PerceptionLayer:
                     self.speech_rate = prefs.get("rate", 200)
                     self.speech_volume = prefs.get("volume", 0.9)
         except Exception as e:
-            print(f"[PERCEPTION] Could not load preferences: {e}")
+            _log.warning(f"[PERCEPTION] Could not load preferences: {e}")
 
     def _save_preferences(self):
         """Save voice preferences to file"""
@@ -166,7 +169,7 @@ class PerceptionLayer:
             with open(self.prefs_path, 'w') as f:
                 json.dump(prefs, f, indent=2)
         except Exception as e:
-            print(f"[PERCEPTION] Could not save preferences: {e}")
+            _log.warning(f"[PERCEPTION] Could not save preferences: {e}")
 
     def switch_to_jarvis(self):
         """Switch to JARVIS (male voice)"""
@@ -176,7 +179,7 @@ class PerceptionLayer:
             self._voice_engine.set_voice("jarvis")
         self._save_preferences()
         self.speak("JARVIS at your service, sir.")
-        print("[PERCEPTION] Switched to JARVIS")
+        _log.info("[PERCEPTION] Switched to JARVIS")
 
     def switch_to_friday(self):
         """Switch to FRIDAY (female voice)"""
@@ -186,7 +189,7 @@ class PerceptionLayer:
             self._voice_engine.set_voice("friday")
         self._save_preferences()
         self.speak("FRIDAY online. How may I assist you?")
-        print("[PERCEPTION] Switched to FRIDAY")
+        _log.info("[PERCEPTION] Switched to FRIDAY")
 
     def switch_voice(self, assistant_name: str):
         """Switch between JARVIS and FRIDAY"""
@@ -208,7 +211,7 @@ class PerceptionLayer:
         elif gender.lower() in ["female", "f", "woman", "girl", "mam", "madam"]:
             self.user_title = "mam"
         self.gender_detected = True
-        print(f"[PERCEPTION] User title set to: {self.user_title}")
+        _log.info(f"[PERCEPTION] User title set to: {self.user_title}")
 
     def _get_current_voice_id(self) -> str:
         """Get voice ID for current assistant"""
@@ -253,7 +256,7 @@ class PerceptionLayer:
             )
         
         try:
-            print(f"{self.assistant_name}: {text}")
+            _log.info(f"{self.assistant_name}: {text}")
             
             # ━━━ TRY EDGE TTS FIRST (natural voice) ━━━
             edge_used = False
@@ -263,7 +266,7 @@ class PerceptionLayer:
                     self._voice_engine.set_volume(volume)
                     edge_used = self._voice_engine.speak(text)
                 except Exception as e:
-                    print(f"[PERCEPTION] Edge TTS failed, falling back to pyttsx3: {e}")
+                    _log.warning(f"[PERCEPTION] Edge TTS failed, falling back to pyttsx3: {e}")
                     edge_used = False
             
             # ━━━ PYTTSX3 FALLBACK ━━━
@@ -293,7 +296,7 @@ class PerceptionLayer:
                     engine.stop()
                     del engine
         except Exception as e:
-            print(f"ERROR - Speech error: {e}")
+            _log.warning(f"ERROR - Speech error: {e}")
         finally:
             self.is_speaking = False
             # Wait for echo to fade before unmuting mic
@@ -353,9 +356,9 @@ class PerceptionLayer:
                             return parts[1].strip()
                         return text
         except (sr.WaitTimeoutError, sr.UnknownValueError):
-            pass
+            _log.debug("Ignored error", exc_info=True)
         except Exception as e:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         
         return None
 
@@ -389,7 +392,7 @@ class PerceptionLayer:
         
         try:
             with sr.Microphone() as source:
-                print("[LISTENING] Listening...")
+                _log.info("[LISTENING] Listening...")
                 
                 # Update context
                 if self._state_manager and STATE_MANAGER_AVAILABLE:
@@ -402,7 +405,7 @@ class PerceptionLayer:
                 if not self._ambient_calibrated:
                     self.recognizer.adjust_for_ambient_noise(source, duration=1.5)
                     self._ambient_calibrated = True
-                    print("[PERCEPTION] Ambient noise calibrated")
+                    _log.info("[PERCEPTION] Ambient noise calibrated")
                 
                 audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=15)
                 
@@ -410,14 +413,14 @@ class PerceptionLayer:
                 if self.mic_muted:
                     return None
                 
-                print("[PROCESSING] Processing...")
+                _log.info("[PROCESSING] Processing...")
                 text = self.recognizer.recognize_google(audio)
                 user_input = text.lower().strip()
                 
                 # ━━━ SPEECH CORRECTION: Fix common Google misrecognitions ━━━
                 user_input = self._correct_speech(user_input)
                 
-                print(f"YOU: {user_input}")
+                _log.info(f"YOU: {user_input}")
                 
                 # Update context with command
                 if self._state_manager and STATE_MANAGER_AVAILABLE:
@@ -431,14 +434,14 @@ class PerceptionLayer:
         except sr.WaitTimeoutError:
             return None
         except sr.UnknownValueError:
-            print("[INFO] Could not understand audio, waiting for retry...")
+            _log.warning("[INFO] Could not understand audio, waiting for retry...")
             return None
         except sr.RequestError as e:
             self.speak(f"Speech service unavailable, {self.user_title}. Check internet connection.")
-            print(f"ERROR: Google Speech API error: {e}")
+            _log.warning(f"ERROR: Google Speech API error: {e}")
             return None
         except Exception as e:
-            print(f"ERROR: {e}")
+            _log.warning(f"ERROR: {e}")
             return None
 
     def ask_gender(self):
@@ -513,7 +516,7 @@ class PerceptionLayer:
                 corrected = corrected.replace(wrong, right)
         
         if corrected != text:
-            print(f"[PERCEPTION] Speech corrected: '{text}' -> '{corrected}'")
+            _log.info(f"[PERCEPTION] Speech corrected: '{text}' -> '{corrected}'")
         
         return corrected
 

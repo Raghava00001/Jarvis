@@ -3,6 +3,9 @@ News Handler - Headlines & News
 Voice-optimized RSS news delivery
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import requests
 from jarvis.core.rss import parse_rss_items, google_news_search_url
 import json
@@ -19,7 +22,7 @@ class NewsHandler:
     HN_API_BASE = "https://hacker-news.firebaseio.com/v0"
 
     def __init__(self, perception):
-        print("[NEWS] Initializing Enhanced News Handler...")
+        _log.info("[NEWS] Initializing Enhanced News Handler...")
         self.perception = perception
 
         self.data_dir = Path(__file__).parent.parent.parent / "jarvis_data"
@@ -49,7 +52,7 @@ class NewsHandler:
             "show": "hackernews_show"
         }
 
-        print("[NEWS] Enhanced Handler Ready (with Hacker News)")
+        _log.info("[NEWS] Enhanced Handler Ready (with Hacker News)")
 
     def _load_cache(self):
         if self.cache_file.exists():
@@ -109,7 +112,7 @@ class NewsHandler:
             return True
 
         except Exception as e:
-            print(f"ERROR: News error: {e}")
+            _log.warning(f"ERROR: News error: {e}")
             self.perception.speak("Unable to fetch news right now, sir.")
             return False
 
@@ -156,7 +159,7 @@ class NewsHandler:
             return True
             
         except Exception as e:
-            print(f"[NEWS] Hacker News error: {e}")
+            _log.warning(f"[NEWS] Hacker News error: {e}")
             self.perception.speak("Unable to fetch Hacker News right now, sir.")
             return False
 
@@ -185,7 +188,7 @@ class NewsHandler:
                 when = parsedate_to_datetime(item.pubDate.text)
                 date, age = when.strftime("%d %b %Y"), max(0, (now - when).days)
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
             out.append({"title": title, "source": source, "date": date, "age_days": age})
         out.sort(key=lambda a: a["age_days"] if a["age_days"] is not None else 9999)
         return out[:count]
@@ -205,7 +208,7 @@ class NewsHandler:
                 return False
                 
         except Exception as e:
-            print(f"[NEWS] Search error: {e}")
+            _log.warning(f"[NEWS] Search error: {e}")
             self.perception.speak(f"Unable to search news for {keyword}, sir.")
             return False
 

@@ -3,6 +3,9 @@ JARVIS Web HUD Launcher
 Opens the Iron Man style holographic HUD with WebSocket backend
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import http.server
 import socketserver
 import webbrowser
@@ -49,7 +52,7 @@ def start_http_server(port=8080):
     web_dir = Path(__file__).parent / "web_hud"
     
     if not web_dir.exists():
-        print(f"[ERROR] Web HUD directory not found: {web_dir}")
+        _log.warning(f"[ERROR] Web HUD directory not found: {web_dir}")
         return None
     
     # Serve web_hud/ without os.chdir() (which changed the CWD of the whole
@@ -62,7 +65,7 @@ def start_http_server(port=8080):
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     
-    print(f"[HTTP] Serving at http://localhost:{port}")
+    _log.info(f"[HTTP] Serving at http://localhost:{port}")
     return httpd
 
 
@@ -72,45 +75,45 @@ def start_websocket_server():
         from jarvis.gui.websocket_server import JARVISWebSocketServer
         server = JARVISWebSocketServer()
         server.run_in_thread()
-        print("[WebSocket] Server started on ws://localhost:8765")
+        _log.info("[WebSocket] Server started on ws://localhost:8765")
         return server
     except ImportError as e:
-        print(f"[WebSocket] Could not start server: {e}")
-        print("[WebSocket] Install websockets: pip install websockets")
+        _log.warning(f"[WebSocket] Could not start server: {e}")
+        _log.info("[WebSocket] Install websockets: pip install websockets")
         return None
     except Exception as e:
-        print(f"[WebSocket] Error starting server: {e}")
+        _log.warning(f"[WebSocket] Error starting server: {e}")
         return None
 
 
 def main():
     """Main entry point"""
-    print("=" * 60)
-    print("       J.A.R.V.I.S. HOLOGRAPHIC HUD")
-    print("=" * 60)
-    print()
+    _log.info("=" * 60)
+    _log.info("       J.A.R.V.I.S. HOLOGRAPHIC HUD")
+    _log.info("=" * 60)
+    _log.info("")
     
     # Start HTTP server
     http_port = 8080
     httpd = start_http_server(http_port)
     
     if not httpd:
-        print("[ERROR] Could not start HTTP server")
+        _log.warning("[ERROR] Could not start HTTP server")
         return
     
     # Start WebSocket server
     ws_server = start_websocket_server()
     
-    print()
-    print("=" * 60)
-    print("  JARVIS HUD ONLINE")
-    print("=" * 60)
-    print(f"  Web Interface: http://localhost:{http_port}")
-    print(f"  WebSocket:     ws://localhost:8765")
-    print()
-    print("  Press Ctrl+C to stop all servers")
-    print("=" * 60)
-    print()
+    _log.info("")
+    _log.info("=" * 60)
+    _log.info("  JARVIS HUD ONLINE")
+    _log.info("=" * 60)
+    _log.info(f"  Web Interface: http://localhost:{http_port}")
+    _log.info(f"  WebSocket:     ws://localhost:8765")
+    _log.info("")
+    _log.info("  Press Ctrl+C to stop all servers")
+    _log.info("=" * 60)
+    _log.info("")
     
     # Open browser (Chrome preferred — Brave blocks location)
     try:
@@ -134,7 +137,7 @@ def main():
             import time
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\n[JARVIS] Shutting down...")
+        _log.info("\n[JARVIS] Shutting down...")
         httpd.shutdown()
 
 

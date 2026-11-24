@@ -8,6 +8,9 @@ When user copies text, JARVIS can:
 5. Detect phone numbers/emails and offer to call/message
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import threading
 import time
 import re
@@ -18,7 +21,7 @@ class ClipboardIntelligence:
     """Monitors clipboard and provides intelligent context actions."""
 
     def __init__(self, perception=None, on_suggestion: Optional[Callable] = None):
-        print("[CLIPBOARD] Initializing Clipboard Intelligence...")
+        _log.info("[CLIPBOARD] Initializing Clipboard Intelligence...")
         self.perception = perception
         self.on_suggestion = on_suggestion  # Callback to push suggestion to HUD
         
@@ -33,9 +36,9 @@ class ClipboardIntelligence:
             self._pyperclip = pyperclip
         except ImportError:
             self._pyperclip = None
-            print("[CLIPBOARD] pyperclip not available")
+            _log.warning("[CLIPBOARD] pyperclip not available")
         
-        print("[CLIPBOARD] Ready")
+        _log.info("[CLIPBOARD] Ready")
 
     def start(self):
         """Start monitoring clipboard in background."""
@@ -49,14 +52,14 @@ class ClipboardIntelligence:
             name="ClipboardMonitor"
         )
         self._thread.start()
-        print("[CLIPBOARD] Monitoring started")
+        _log.info("[CLIPBOARD] Monitoring started")
 
     def stop(self):
         """Stop clipboard monitoring."""
         self._running = False
         if self._thread:
             self._thread.join(timeout=2)
-        print("[CLIPBOARD] Monitoring stopped")
+        _log.info("[CLIPBOARD] Monitoring stopped")
 
     def _monitor_loop(self):
         """Background loop checking clipboard every 2 seconds."""
@@ -77,7 +80,7 @@ class ClipboardIntelligence:
                         self._push_suggestion(suggestion)
                 
             except Exception:
-                pass  # Clipboard may be locked by another app
+                _log.debug("Ignored error", exc_info=True)  # Clipboard may be locked by another app
             
             time.sleep(2)
 
@@ -160,10 +163,10 @@ class ClipboardIntelligence:
             self.on_suggestion(suggestion)
         
         # Don't speak — just log and push to HUD
-        print(f"[CLIPBOARD] Suggestion: {msg}")
+        _log.info(f"[CLIPBOARD] Suggestion: {msg}")
         if suggestion.get("content"):
             content_preview = str(suggestion["content"])[:60]
-            print(f"[CLIPBOARD] Captured: {content_preview}...")
+            _log.info(f"[CLIPBOARD] Captured: {content_preview}...")
 
     def process_action(self, action: str, content: str) -> str:
         """Process a clipboard action (called when user accepts suggestion)."""

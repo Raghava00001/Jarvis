@@ -7,6 +7,9 @@ App Switcher - Hands-Free Window Control
 - Minimize/maximize/close windows
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
 import time
 from typing import Optional, List, Dict, Tuple
@@ -22,7 +25,7 @@ try:
     WIN32_AVAILABLE = True
 except ImportError:
     WIN32_AVAILABLE = False
-    print("[APP_SWITCHER] win32gui not available - install pywin32")
+    _log.warning("[APP_SWITCHER] win32gui not available - install pywin32")
 
 try:
     import pyautogui
@@ -74,7 +77,7 @@ class AppSwitcher:
     }
     
     def __init__(self, perception=None, max_history: int = 10):
-        print("[APP_SWITCHER] Initializing App Switcher...")
+        _log.info("[APP_SWITCHER] Initializing App Switcher...")
         self.perception = perception
         self.max_history = max_history
         
@@ -89,7 +92,7 @@ class AppSwitcher:
             # Track initial focused window
             self._update_active_window()
         
-        print("[APP_SWITCHER] App Switcher Ready")
+        _log.info("[APP_SWITCHER] App Switcher Ready")
     
     def _get_title(self) -> str:
         """Get user title"""
@@ -102,7 +105,7 @@ class AppSwitcher:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[APP_SWITCHER] {text}")
+            _log.info(f"[APP_SWITCHER] {text}")
     
     def _update_active_window(self):
         """Update the currently active window"""
@@ -127,7 +130,7 @@ class AppSwitcher:
                     self.active_app = title
                     self.active_hwnd = hwnd
         except Exception as e:
-            print(f"[APP_SWITCHER] Error getting active window: {e}")
+            _log.warning(f"[APP_SWITCHER] Error getting active window: {e}")
     
     def get_windows(self) -> List[WindowInfo]:
         """Get list of all visible windows"""
@@ -161,7 +164,7 @@ class AppSwitcher:
         try:
             win32gui.EnumWindows(enum_callback, windows)
         except Exception as e:
-            print(f"[APP_SWITCHER] Error enumerating windows: {e}")
+            _log.warning(f"[APP_SWITCHER] Error enumerating windows: {e}")
         
         return windows
     
@@ -234,7 +237,7 @@ class AppSwitcher:
             return True
             
         except Exception as e:
-            print(f"[APP_SWITCHER] Error switching: {e}")
+            _log.warning(f"[APP_SWITCHER] Error switching: {e}")
             self._speak(f"Couldn't switch to {app_name}, {title}.")
             return False
     
@@ -260,7 +263,7 @@ class AppSwitcher:
             self._speak("Minimized.")
             return True
         except Exception as e:
-            print(f"[APP_SWITCHER] Error minimizing: {e}")
+            _log.warning(f"[APP_SWITCHER] Error minimizing: {e}")
             return False
     
     def maximize_current(self) -> bool:
@@ -274,7 +277,7 @@ class AppSwitcher:
             self._speak("Maximized.")
             return True
         except Exception as e:
-            print(f"[APP_SWITCHER] Error maximizing: {e}")
+            _log.warning(f"[APP_SWITCHER] Error maximizing: {e}")
             return False
     
     def close_app(self, app_name: str) -> bool:
@@ -292,7 +295,7 @@ class AppSwitcher:
             self._speak(f"Closing {app_name}.")
             return True
         except Exception as e:
-            print(f"[APP_SWITCHER] Error closing: {e}")
+            _log.warning(f"[APP_SWITCHER] Error closing: {e}")
             return False
     
     def list_windows(self) -> List[str]:

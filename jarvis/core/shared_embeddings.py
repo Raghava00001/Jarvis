@@ -1,3 +1,6 @@
+import logging
+_log = logging.getLogger(__name__)
+
 import time
 
 _shared_model = None
@@ -8,13 +11,13 @@ def get_shared_embedding_model(model_name: str = "all-MiniLM-L6-v2"):
     if _shared_model is None and _load_error is None:
         try:
             from sentence_transformers import SentenceTransformer
-            print(f"[EMBEDDINGS] Initializing shared model: {model_name}...")
+            _log.info(f"[EMBEDDINGS] Initializing shared model: {model_name}...")
             start = time.time()
             _shared_model = SentenceTransformer(model_name)
-            print(f"[EMBEDDINGS] Loaded shared model in {time.time() - start:.2f}s")
+            _log.info(f"[EMBEDDINGS] Loaded shared model in {time.time() - start:.2f}s")
         except Exception as e:
             _load_error = f"{type(e).__name__}: {e}"
-            print(f"[EMBEDDINGS] ERROR loading model (ML intent routing disabled): {_load_error}")
+            _log.warning(f"[EMBEDDINGS] ERROR loading model (ML intent routing disabled): {_load_error}")
             _shared_model = None
     return _shared_model
 

@@ -52,7 +52,7 @@ class JarvisFormatter(logging.Formatter):
 class JarvisLogger:
     """Structured logger for the JARVIS pipeline."""
     
-    def __init__(self, name: str = "jarvis"):
+    def __init__(self, name: str = "jarvis.pipeline"):
         self.logger = logging.getLogger(name)
         self.logger.setLevel(logging.DEBUG)
         

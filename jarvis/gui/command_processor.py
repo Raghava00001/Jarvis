@@ -8,6 +8,9 @@ This module must NOT touch websocket transport, audio playback,
 or client session state. It is a pure text→text processing layer.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import re
 from typing import List
 
@@ -66,7 +69,7 @@ def split_compound_command(text: str) -> List[str]:
     commands = _recursive_split(text)
     
     if len(commands) > 1:
-        print(f"[CommandProcessor] Split compound command into {len(commands)} parts: {commands}")
+        _log.info(f"[CommandProcessor] Split compound command into {len(commands)} parts: {commands}")
     
     return commands
 

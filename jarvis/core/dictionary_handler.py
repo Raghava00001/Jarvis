@@ -3,6 +3,9 @@ Dictionary Handler - Word definitions with spell correction
 Intelligent dictionary with fuzzy matching
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import json
 from pathlib import Path
 from typing import Optional, List, Dict
@@ -13,7 +16,7 @@ class DictionaryHandler:
     """Handles word definitions with intelligent spell correction"""
     
     def __init__(self, perception=None):
-        print("[DICTIONARY] Initializing Dictionary Handler...")
+        _log.info("[DICTIONARY] Initializing Dictionary Handler...")
         self.perception = perception
         
         # Dictionary data path
@@ -22,8 +25,8 @@ class DictionaryHandler:
         # Load dictionary
         self.dictionary = self._load_dictionary()
         
-        print(f"[DICTIONARY] Loaded {len(self.dictionary)} words")
-        print("[DICTIONARY] Dictionary Handler Ready")
+        _log.info(f"[DICTIONARY] Loaded {len(self.dictionary)} words")
+        _log.info("[DICTIONARY] Dictionary Handler Ready")
     
     def _get_title(self) -> str:
         """Get user title from perception layer"""
@@ -36,7 +39,7 @@ class DictionaryHandler:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[DICTIONARY] {text}")
+            _log.info(f"[DICTIONARY] {text}")
     
     def _load_dictionary(self) -> Dict:
         """Load dictionary from file or use built-in"""
@@ -45,7 +48,7 @@ class DictionaryHandler:
                 with open(self.dict_path, 'r', encoding='utf-8') as f:
                     return json.load(f)
         except Exception as e:
-            print(f"[DICTIONARY] Could not load dictionary: {e}")
+            _log.warning(f"[DICTIONARY] Could not load dictionary: {e}")
         
         # Built-in mini dictionary
         return {
@@ -130,7 +133,7 @@ class DictionaryHandler:
                         if definitions:
                             return definitions[0].get("definition", "")
         except Exception as e:
-            print(f"[DICTIONARY] Online lookup error: {e}")
+            _log.warning(f"[DICTIONARY] Online lookup error: {e}")
         
         return None
     
@@ -141,7 +144,7 @@ class DictionaryHandler:
             with open(self.dict_path, 'w', encoding='utf-8') as f:
                 json.dump(self.dictionary, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"[DICTIONARY] Could not save dictionary: {e}")
+            _log.warning(f"[DICTIONARY] Could not save dictionary: {e}")
     
     def add_word(self, word: str, definition: str) -> bool:
         """Add a new word to the dictionary"""
@@ -179,7 +182,7 @@ class DictionaryHandler:
                         self._speak(f"Synonyms for {word}: {synonym_list}")
                         return True
         except Exception as e:
-            print(f"[DICTIONARY] Synonym lookup error: {e}")
+            _log.warning(f"[DICTIONARY] Synonym lookup error: {e}")
         
         self._speak(f"I couldn't find synonyms for '{word}', {title}.")
         return False

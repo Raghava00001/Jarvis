@@ -3,6 +3,9 @@ Screenshot Handler - Screen capture capabilities
 Captures full screen or specific regions
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import os
 from pathlib import Path
 from datetime import datetime
@@ -13,7 +16,7 @@ class ScreenshotHandler:
     """Handles screenshot capture and management"""
     
     def __init__(self, perception=None):
-        print("[SCREENSHOT] Initializing Screenshot Handler...")
+        _log.info("[SCREENSHOT] Initializing Screenshot Handler...")
         self.perception = perception
         
         # Screenshot save directory
@@ -25,20 +28,20 @@ class ScreenshotHandler:
         try:
             import pyautogui
             self.pyautogui_available = True
-            print("[SCREENSHOT] pyautogui available")
+            _log.info("[SCREENSHOT] pyautogui available")
         except ImportError:
-            print("[SCREENSHOT] pyautogui not available")
+            _log.warning("[SCREENSHOT] pyautogui not available")
         
         # Check for PIL
         self.pil_available = False
         try:
             from PIL import ImageGrab
             self.pil_available = True
-            print("[SCREENSHOT] PIL available")
+            _log.info("[SCREENSHOT] PIL available")
         except ImportError:
-            print("[SCREENSHOT] PIL not available")
+            _log.warning("[SCREENSHOT] PIL not available")
         
-        print("[SCREENSHOT] Screenshot Handler Ready")
+        _log.info("[SCREENSHOT] Screenshot Handler Ready")
     
     def _get_title(self) -> str:
         """Get user title from perception layer"""
@@ -51,7 +54,7 @@ class ScreenshotHandler:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[SCREENSHOT] {text}")
+            _log.info(f"[SCREENSHOT] {text}")
     
     def _generate_filename(self, prefix: str = "screenshot") -> Path:
         """Generate a unique filename for screenshot"""
@@ -112,7 +115,7 @@ class ScreenshotHandler:
             return save_path
             
         except Exception as e:
-            print(f"[SCREENSHOT] Error: {e}")
+            _log.warning(f"[SCREENSHOT] Error: {e}")
             self._speak(f"Failed to take screenshot, {title}.")
             return None
     
@@ -162,7 +165,7 @@ class ScreenshotHandler:
             return False
             
         except Exception as e:
-            print(f"[SCREENSHOT] Clipboard error: {e}")
+            _log.warning(f"[SCREENSHOT] Clipboard error: {e}")
             self._speak(f"Failed to copy screenshot, {title}.")
             return False
     
@@ -176,7 +179,7 @@ class ScreenshotHandler:
             )
             return screenshots[:count]
         except Exception as e:
-            print(f"[SCREENSHOT] Error listing screenshots: {e}")
+            _log.warning(f"[SCREENSHOT] Error listing screenshots: {e}")
             return []
     
     def open_screenshot_folder(self) -> bool:
@@ -188,6 +191,6 @@ class ScreenshotHandler:
             self._speak(f"Opening screenshot folder, {title}.")
             return True
         except Exception as e:
-            print(f"[SCREENSHOT] Error opening folder: {e}")
+            _log.warning(f"[SCREENSHOT] Error opening folder: {e}")
             self._speak(f"Could not open screenshot folder, {title}.")
             return False

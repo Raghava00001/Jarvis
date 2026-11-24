@@ -3,6 +3,9 @@ Emotion Detector - Combined Voice + Face Analysis
 Detects user mood for adaptive JARVIS responses
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import numpy as np
 import time as _time
 import threading
@@ -90,14 +93,14 @@ class VoiceEmotionAnalyzer:
     """Analyzes voice audio for emotional cues"""
     
     def __init__(self):
-        print("[EMOTION] Initializing Voice Emotion Analyzer...")
+        _log.info("[EMOTION] Initializing Voice Emotion Analyzer...")
         self.librosa_available = False
         try:
             import librosa
             self.librosa_available = True
-            print("[EMOTION] librosa available for voice analysis")
+            _log.info("[EMOTION] librosa available for voice analysis")
         except ImportError:
-            print("[EMOTION] librosa not available - using basic analysis")
+            _log.warning("[EMOTION] librosa not available - using basic analysis")
     
     def analyze(self, audio_data: bytes = None, text: str = None) -> EmotionState:
         """Analyze voice for emotion
@@ -122,7 +125,7 @@ class VoiceEmotionAnalyzer:
         try:
             return self._analyze_audio_features(audio_data)
         except Exception as e:
-            print(f"[EMOTION] Voice analysis error: {e}")
+            _log.warning(f"[EMOTION] Voice analysis error: {e}")
             return EmotionState.NEUTRAL
     
     def _analyze_keywords(self, text: str) -> EmotionState:
@@ -199,7 +202,7 @@ class FaceEmotionAnalyzer:
     """Analyzes facial expressions for emotional cues using DeepFace"""
     
     def __init__(self):
-        print("[EMOTION] Initializing Face Emotion Analyzer...")
+        _log.info("[EMOTION] Initializing Face Emotion Analyzer...")
         self.deepface_available = False
         self.fer_available = False
         self.detector = None
@@ -212,17 +215,17 @@ class FaceEmotionAnalyzer:
             from deepface import DeepFace
             self.DeepFace = DeepFace
             self.deepface_available = True
-            print("[EMOTION] DeepFace available for emotion detection")
+            _log.info("[EMOTION] DeepFace available for emotion detection")
         except ImportError:
-            print("[EMOTION] DeepFace not available, trying FER...")
+            _log.warning("[EMOTION] DeepFace not available, trying FER...")
             # Fallback to FER
             try:
                 from fer import FER
                 self.detector = FER(mtcnn=True)
                 self.fer_available = True
-                print("[EMOTION] FER available for face analysis")
+                _log.info("[EMOTION] FER available for face analysis")
             except ImportError:
-                print("[EMOTION] FER not available - face emotion disabled")
+                _log.warning("[EMOTION] FER not available - face emotion disabled")
     
     def analyze(self, frame) -> Optional[EmotionState]:
         """Analyze facial expression in camera frame"""
@@ -242,7 +245,7 @@ class FaceEmotionAnalyzer:
             else:
                 return self._analyze_fer(frame)
         except Exception as e:
-            print(f"[EMOTION] Face analysis error: {e}")
+            _log.warning(f"[EMOTION] Face analysis error: {e}")
             return None
     
     def _analyze_deepface(self, frame) -> Optional[EmotionState]:
@@ -299,7 +302,7 @@ class FaceEmotionAnalyzer:
             # Suppress common errors (no face detected, etc.)
             error_str = str(e)
             if "Face could not be detected" not in error_str and "enforce" not in error_str:
-                print(f"[EMOTION] DeepFace error: {e}")
+                _log.warning(f"[EMOTION] DeepFace error: {e}")
             return None
     
     def _analyze_fer(self, frame) -> Optional[EmotionState]:
@@ -332,7 +335,7 @@ class FaceEmotionAnalyzer:
             return self.last_emotion
             
         except Exception as e:
-            print(f"[EMOTION] FER error: {e}")
+            _log.warning(f"[EMOTION] FER error: {e}")
             return None
 
 
@@ -344,7 +347,7 @@ class EmotionDetector:
     STABILITY_THRESHOLD = 4  # Need 4 consistent emotions to change stable
     
     def __init__(self):
-        print("[EMOTION] Initializing Combined Emotion Detector...")
+        _log.info("[EMOTION] Initializing Combined Emotion Detector...")
         self.voice_analyzer = VoiceEmotionAnalyzer()
         self.face_analyzer = FaceEmotionAnalyzer()
         self.last_emotion = EmotionState.NEUTRAL
@@ -355,7 +358,7 @@ class EmotionDetector:
         self.stable_emotion = EmotionState.NEUTRAL
         self.stable_confidence = 0.5
         
-        print("[EMOTION] Emotion Detector Ready")
+        _log.info("[EMOTION] Emotion Detector Ready")
     
     def detect(self, audio_data: bytes = None, text: str = None, 
                camera_frame = None) -> EmotionResult:

@@ -3,6 +3,9 @@ JARVIS Desktop GUI — Iron Man Holographic HUD (mirrors Web HUD)
 CustomTkinter + Canvas-based interface matching the web_hud/index.html design.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import customtkinter as ctk
 import tkinter as tk
 import threading
@@ -221,7 +224,7 @@ class JARVISDesktopApp(ctk.CTk):
             try:
                 self.iconbitmap(str(icon_path))
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
 
         # State
         self.ws = None
@@ -578,7 +581,7 @@ class JARVISDesktopApp(ctk.CTk):
                 from jarvis.gui.web_hud_launcher import start_http_server
                 self._http_server = start_http_server(8080)
             except Exception as e:
-                print(f"[DESKTOP] HTTP server error: {e}")
+                _log.warning(f"[DESKTOP] HTTP server error: {e}")
         webbrowser.open("http://localhost:8080")
 
     def _lock_screen(self):
@@ -614,7 +617,7 @@ class JARVISDesktopApp(ctk.CTk):
                     text=f"{bat.percent:.0f}%{'⚡' if bat.power_plugged else ''}")
                 self.sys_labels["BAT_bar"].set(bat.percent / 100)
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         self.after(3000, self._update_system_stats)
 
     # ═══════════════════════════════════════════════════
@@ -628,10 +631,10 @@ class JARVISDesktopApp(ctk.CTk):
             from jarvis.gui.websocket_server import JARVISWebSocketServer
             self.server = JARVISWebSocketServer()
             self.server.run_in_thread()
-            print("[DESKTOP] WebSocket server started")
+            _log.info("[DESKTOP] WebSocket server started")
         except Exception as e:
             err_msg = str(e)
-            print(f"[DESKTOP] Server error: {err_msg}")
+            _log.warning(f"[DESKTOP] Server error: {err_msg}")
             self.after(0, lambda e_msg=err_msg: self._add_chat_msg(
                 "jarvis", f"Backend startup failed: {e_msg}"))
             return
@@ -657,7 +660,7 @@ class JARVISDesktopApp(ctk.CTk):
                     self.ws_connected = True
                     retry = 0
                     self.after(0, self._set_connected, True)
-                    print("[DESKTOP] WebSocket connected")
+                    _log.info("[DESKTOP] WebSocket connected")
 
                     # Request full state + weather + news on connect
                     try:
@@ -665,14 +668,14 @@ class JARVISDesktopApp(ctk.CTk):
                         await ws.send(json.dumps({"type": "get_weather"}))
                         await ws.send(json.dumps({"type": "get_news"}))
                     except Exception:
-                        pass
+                        _log.debug("Ignored error", exc_info=True)
 
                     async for message in ws:
                         try:
                             data = json.loads(message)
                             self.after(0, self._handle_ws_message, data)
                         except json.JSONDecodeError:
-                            pass
+                            _log.debug("Ignored error", exc_info=True)
 
             except Exception as e:
                 self.ws_connected = False
@@ -759,7 +762,7 @@ class JARVISDesktopApp(ctk.CTk):
                     self.sys_labels["RAM"].configure(text=f"{ram:.0f}%")
                     self.sys_labels["RAM_bar"].set(ram / 100)
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
 
         # ── Weather ──
         elif msg_type == "weather":
@@ -775,7 +778,7 @@ class JARVISDesktopApp(ctk.CTk):
                 self.weather_desc.configure(text=desc_text)
                 self.weather_location.configure(text=f"📍 {city}" if city else "")
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
 
         # ── News ──
         elif msg_type == "news":
@@ -854,7 +857,7 @@ class JARVISDesktopApp(ctk.CTk):
                     if desc:
                         self.weather_desc.configure(text=desc.title())
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
             
             # Update system stats from boot data
             sys_status = briefing.get("system_status", {})
@@ -930,16 +933,16 @@ class JARVISDesktopApp(ctk.CTk):
             self.orb.set_state(jarvis_state)
 
     def on_closing(self):
-        print("[DESKTOP] Shutting down...")
+        _log.info("[DESKTOP] Shutting down...")
         self.destroy()
         sys.exit(0)
 
 
 def main():
-    print("=" * 60)
-    print("     J.A.R.V.I.S. DESKTOP INTERFACE")
-    print("=" * 60)
-    print()
+    _log.info("=" * 60)
+    _log.info("     J.A.R.V.I.S. DESKTOP INTERFACE")
+    _log.info("=" * 60)
+    _log.info("")
 
     app = JARVISDesktopApp()
     app.protocol("WM_DELETE_WINDOW", app.on_closing)

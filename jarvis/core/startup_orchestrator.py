@@ -10,6 +10,9 @@ Runs once after all systems initialize to:
 6. Kick off mood-aware conversation
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import json
 import datetime
 import os
@@ -32,7 +35,7 @@ class StartupOrchestrator:
         # Load last session
         self.last_session = self._load_session()
         
-        print("[BOOT] Startup Orchestrator initialized")
+        _log.info("[BOOT] Startup Orchestrator initialized")
 
     # ─── Session Tracking ───────────────────────────────────────────
 
@@ -43,7 +46,7 @@ class StartupOrchestrator:
                 with open(self.session_file, 'r') as f:
                     return json.load(f)
         except Exception as e:
-            print(f"[BOOT] Session load error: {e}")
+            _log.warning(f"[BOOT] Session load error: {e}")
         return {}
 
     def save_session(self, extra_data: Dict = None):
@@ -60,9 +63,9 @@ class StartupOrchestrator:
         try:
             with open(self.session_file, 'w') as f:
                 json.dump(session, f, indent=2)
-            print(f"[BOOT] Session saved: {session}")
+            _log.info(f"[BOOT] Session saved: {session}")
         except Exception as e:
-            print(f"[BOOT] Session save error: {e}")
+            _log.warning(f"[BOOT] Session save error: {e}")
 
     def _get_last_action(self) -> str:
         """Get the last action from chat history."""
@@ -76,7 +79,7 @@ class StartupOrchestrator:
                         if getattr(msg, "role", None) == "user":
                             return getattr(msg, "content", "")[:100]
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         return "general assistance"
 
     def _count_pending_tasks(self) -> int:
@@ -90,7 +93,7 @@ class StartupOrchestrator:
                     if isinstance(tasks, list):
                         return len([t for t in tasks if isinstance(t, dict) and not t.get("completed", False)])
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         return 0
 
     def _calc_session_duration(self) -> int:
@@ -101,7 +104,7 @@ class StartupOrchestrator:
                 boot = datetime.datetime.fromisoformat(boot_time)
                 return int((datetime.datetime.now() - boot).total_seconds() / 60)
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         return 0
 
     # ─── Boot Sequence ──────────────────────────────────────────────
@@ -160,7 +163,7 @@ class StartupOrchestrator:
                 else:
                     return f"{period}, sir. All systems online and ready."
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
         
         return f"{period}, sir. JARVIS is fully operational. All systems online."
 
@@ -187,7 +190,7 @@ class StartupOrchestrator:
                 
                 return f"When you last closed me {when}, you were working on: {last_action}"
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
         
         return ""
 
@@ -210,7 +213,7 @@ class StartupOrchestrator:
                             more = f" and {count - 3} more" if count > 3 else ""
                             return f"You have {count} pending task{'s' if count > 1 else ''}: {task_list}{more}"
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         return "No pending tasks."
 
     def _generate_reminder_summary(self) -> str:
@@ -234,7 +237,7 @@ class StartupOrchestrator:
                         if active:
                             return f"You have {len(active)} active reminder{'s' if len(active) > 1 else ''}."
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         return ""
 
     def _get_weather_context(self) -> str:
@@ -249,7 +252,7 @@ class StartupOrchestrator:
                     if temp:
                         return f"Current weather: {temp}°C, {desc}"
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         return ""
 
     def _get_calendar_context(self) -> str:
@@ -261,7 +264,7 @@ class StartupOrchestrator:
                 if events:
                     return f"You have {len(events)} event{'s' if len(events) > 1 else ''} today."
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         return ""
 
     def _get_system_status(self) -> Dict:
@@ -300,7 +303,7 @@ class StartupOrchestrator:
             with open(self.session_file, 'w') as f:
                 json.dump(session, f, indent=2)
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
 
     # ─── Build Spoken Briefing ──────────────────────────────────────
 

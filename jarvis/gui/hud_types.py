@@ -1,3 +1,6 @@
+import logging
+_log = logging.getLogger(__name__)
+
 import time
 import queue
 import threading
@@ -115,31 +118,31 @@ class HUDPerception:
         if lines is not None:
             if text not in lines:
                 lines.append(text)
-            print(f"[{self.assistant_name}] (reply) {safe}")
+            _log.info(f"[{self.assistant_name}] (reply) {safe}")
             return
 
         # Prevent duplicate announcements within 2 seconds
         now = time.time()
         if text == self.last_speech and (now - self.last_speech_time) < 2.0:
-            print(f"[{self.assistant_name}] (duplicate skipped) {safe[:60]}")
+            _log.info(f"[{self.assistant_name}] (duplicate skipped) {safe[:60]}")
             return
         self.last_speech = text
         self.last_speech_time = now
-        print(f"[{self.assistant_name}] {safe}")
+        _log.info(f"[{self.assistant_name}] {safe}")
 
         if self.announcer is not None:
             try:
                 self.announcer(text)
                 return
             except Exception as e:
-                print(f"[{self.assistant_name}] Announce error: {e}")
+                _log.warning(f"[{self.assistant_name}] Announce error: {e}")
 
         # No server attached (standalone/tests): queue for display and, unless
         # Gemini Live owns the audio, speak through the single voice engine.
         try:
             self.speech_queue.put_nowait(text)
         except queue.Full:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         if not getattr(self, '_gemini_live_active', False):
             self.voice_out(text)
 
@@ -154,7 +157,7 @@ class HUDPerception:
             engine.say(text)
             return True
         except Exception as e:
-            print(f"[{self.assistant_name}] TTS error: {e}")
+            _log.warning(f"[{self.assistant_name}] TTS error: {e}")
             return False
 
     def stop_speaking(self):

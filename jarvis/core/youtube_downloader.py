@@ -3,6 +3,9 @@ YouTube Downloader - Download videos from YouTube
 Uses yt-dlp (actively maintained) as primary engine, pytube as fallback.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import os
 import re
 from pathlib import Path
@@ -13,7 +16,7 @@ class YouTubeDownloader:
     """Downloads videos and audio from YouTube"""
     
     def __init__(self, perception=None):
-        print("[YOUTUBE] Initializing YouTube Downloader...")
+        _log.info("[YOUTUBE] Initializing YouTube Downloader...")
         self.perception = perception
         
         # Download directory
@@ -25,23 +28,23 @@ class YouTubeDownloader:
         try:
             import yt_dlp
             self.ytdlp_available = True
-            print("[YOUTUBE] yt-dlp available (primary engine)")
+            _log.info("[YOUTUBE] yt-dlp available (primary engine)")
         except ImportError:
-            print("[YOUTUBE] yt-dlp not available - install with: pip install yt-dlp")
+            _log.warning("[YOUTUBE] yt-dlp not available - install with: pip install yt-dlp")
         
         # Check for pytube (fallback)
         self.pytube_available = False
         try:
             from pytube import YouTube
             self.pytube_available = True
-            print("[YOUTUBE] pytube available (fallback)")
+            _log.info("[YOUTUBE] pytube available (fallback)")
         except ImportError:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         
         if not self.ytdlp_available and not self.pytube_available:
-            print("[YOUTUBE] WARNING: No download engine available!")
+            _log.warning("[YOUTUBE] WARNING: No download engine available!")
         
-        print("[YOUTUBE] YouTube Downloader Ready")
+        _log.info("[YOUTUBE] YouTube Downloader Ready")
     
     def _get_title(self) -> str:
         if self.perception:
@@ -52,7 +55,7 @@ class YouTubeDownloader:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[YOUTUBE] {text}")
+            _log.info(f"[YOUTUBE] {text}")
     
     def _sanitize_filename(self, title: str) -> str:
         invalid_chars = '<>:"/\\|?*'
@@ -82,7 +85,7 @@ class YouTubeDownloader:
                 filename = ydl.prepare_filename(info)
                 return Path(filename)
         except Exception as e:
-            print(f"[YOUTUBE] yt-dlp download error: {e}")
+            _log.warning(f"[YOUTUBE] yt-dlp download error: {e}")
             return None
 
     def _ytdlp_download_audio(self, url: str) -> Optional[Path]:
@@ -112,7 +115,7 @@ class YouTubeDownloader:
                     return mp3_path
                 return Path(filename)
         except Exception as e:
-            print(f"[YOUTUBE] yt-dlp audio error: {e}")
+            _log.warning(f"[YOUTUBE] yt-dlp audio error: {e}")
             return None
 
     def _ytdlp_get_info(self, url: str) -> Optional[dict]:
@@ -136,7 +139,7 @@ class YouTubeDownloader:
                     "description": (info.get("description", "") or "")[:200],
                 }
         except Exception as e:
-            print(f"[YOUTUBE] yt-dlp info error: {e}")
+            _log.warning(f"[YOUTUBE] yt-dlp info error: {e}")
             return None
 
     def _ffmpeg_available(self) -> bool:
@@ -161,7 +164,7 @@ class YouTubeDownloader:
             output_path = stream.download(output_path=str(self.download_dir))
             return Path(output_path)
         except Exception as e:
-            print(f"[YOUTUBE] pytube download error: {e}")
+            _log.warning(f"[YOUTUBE] pytube download error: {e}")
             return None
 
     def _pytube_download_audio(self, url: str) -> Optional[Path]:
@@ -177,7 +180,7 @@ class YouTubeDownloader:
             output_path = stream.download(output_path=str(self.download_dir))
             return Path(output_path)
         except Exception as e:
-            print(f"[YOUTUBE] pytube audio error: {e}")
+            _log.warning(f"[YOUTUBE] pytube audio error: {e}")
             return None
 
     # ─── Public API ─────────────────────────────────────────────────
@@ -200,7 +203,7 @@ class YouTubeDownloader:
         
         # Fallback to pytube
         if not result and self.pytube_available:
-            print("[YOUTUBE] yt-dlp failed, falling back to pytube...")
+            _log.warning("[YOUTUBE] yt-dlp failed, falling back to pytube...")
             result = self._pytube_download_video(url, resolution)
         
         if result and result.exists():
@@ -226,7 +229,7 @@ class YouTubeDownloader:
             result = self._ytdlp_download_audio(url)
         
         if not result and self.pytube_available:
-            print("[YOUTUBE] yt-dlp failed, falling back to pytube...")
+            _log.warning("[YOUTUBE] yt-dlp failed, falling back to pytube...")
             result = self._pytube_download_audio(url)
         
         if result and result.exists():
@@ -257,7 +260,7 @@ class YouTubeDownloader:
                     "description": (yt.description or "")[:200],
                 }
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
         
         if info:
             minutes = info["length"] // 60
@@ -316,7 +319,7 @@ class YouTubeDownloader:
                                 webbrowser.open(video_url)
                                 return True
                 except Exception as e:
-                    print(f"[YOUTUBE] yt-dlp search error: {e}")
+                    _log.warning(f"[YOUTUBE] yt-dlp search error: {e}")
             
             # Fallback: scrape YouTube search results
             formatted_query = urllib.parse.quote(query)
@@ -337,7 +340,7 @@ class YouTubeDownloader:
                 return False
                 
         except Exception as e:
-            print(f"[YOUTUBE] Error auto-playing: {e}")
+            _log.warning(f"[YOUTUBE] Error auto-playing: {e}")
             import urllib.parse
             import webbrowser
             webbrowser.open(f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}")
@@ -358,5 +361,5 @@ class YouTubeDownloader:
             self._speak(f"Opening YouTube downloads folder, {title}.")
             return True
         except Exception as e:
-            print(f"[YOUTUBE] Error opening folder: {e}")
+            _log.warning(f"[YOUTUBE] Error opening folder: {e}")
             return False

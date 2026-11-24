@@ -8,6 +8,9 @@ Alarm System - Production Grade
 - Thread-safe operations
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
 import json
 import datetime
@@ -83,7 +86,7 @@ class CrossPlatformAudio:
             else:  # Linux
                 self._play_linux(duration_seconds)
         except Exception as e:
-            print(f"[ALARM] Audio error: {e}")
+            _log.warning(f"[ALARM] Audio error: {e}")
             self._play_fallback()
             
     def _play_windows(self, duration: float):
@@ -111,7 +114,11 @@ class CrossPlatformAudio:
             
     def _play_fallback(self):
         """Fallback: print bell character"""
-        print("\a" * 3)  # Terminal bell
+        # The terminal bell is a sound, not a log message: write it directly
+        import sys
+        if sys.stdout is not None:
+            sys.stdout.write("\a" * 3)
+            sys.stdout.flush()
 
 
 class AlarmScheduler:
@@ -195,7 +202,7 @@ class AlarmScheduler:
                 try:
                     self.on_alarm(next_alarm)
                 except Exception as e:
-                    print(f"[ALARM] Handler error: {e}")
+                    _log.warning(f"[ALARM] Handler error: {e}")
                     
                 # Handle recurring alarms
                 if next_alarm.alarm_type != AlarmType.ONCE:
@@ -242,7 +249,7 @@ class AlarmSystem:
     """
     
     def __init__(self, perception=None):
-        print("[ALARMS] Initializing Alarm System...")
+        _log.info("[ALARMS] Initializing Alarm System...")
         self.perception = perception
         
         # Persistence
@@ -262,7 +269,7 @@ class AlarmSystem:
         self.last_triggered: Optional[Alarm] = None
         self.snooze_minutes = 5
         
-        print("[ALARMS] System Ready")
+        _log.info("[ALARMS] System Ready")
         
     def _speak(self, text: str):
         """Speak via perception or print.
@@ -274,7 +281,7 @@ class AlarmSystem:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[ALARMS] {text}")
+            _log.info(f"[ALARMS] {text}")
     
     def _get_title(self) -> str:
         if self.perception:
@@ -298,7 +305,7 @@ class AlarmSystem:
                     self.scheduler.add(alarm)
                     
         except Exception as e:
-            print(f"[ALARMS] Load error: {e}")
+            _log.warning(f"[ALARMS] Load error: {e}")
             
     def _save_alarms(self):
         """Persist alarms"""
@@ -308,11 +315,11 @@ class AlarmSystem:
             with open(self.alarms_file, 'w') as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            print(f"[ALARMS] Save error: {e}")
+            _log.warning(f"[ALARMS] Save error: {e}")
             
     def _on_alarm_triggered(self, alarm: Alarm):
         """Called when alarm triggers"""
-        print(f"\n[ALARM] RINGING: {alarm.label}")
+        _log.info(f"\n[ALARM] RINGING: {alarm.label}")
         self.last_triggered = alarm
         
         # Play sound

@@ -5,6 +5,9 @@ Detects user emotion and updates state before routing.
 Wrapper around existing emotion detection.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import re
 from typing import Optional
 from .state_manager import StateManager, UserMood
@@ -45,10 +48,10 @@ class EmotionRouter:
     }
     
     def __init__(self, state_manager: StateManager, emotion_detector=None):
-        print("[EMOTION] Initializing Emotion Router...")
+        _log.info("[EMOTION] Initializing Emotion Router...")
         self.state = state_manager
         self.emotion_detector = emotion_detector  # Optional existing detector
-        print("[EMOTION] Emotion Router Ready")
+        _log.info("[EMOTION] Emotion Router Ready")
         
     def update_mood(self, text: str) -> Optional[UserMood]:
         """
@@ -65,7 +68,7 @@ class EmotionRouter:
                 if detected:
                     mood = self._normalize_mood(detected)
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
                 
         # Fallback to text-based detection
         if not mood:

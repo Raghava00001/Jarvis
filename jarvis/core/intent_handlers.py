@@ -3,6 +3,9 @@ JARVIS Intent Handlers
 Dedicated handlers for each command type - extracted from _fallback_process
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
 from jarvis.core.errors import recovered
 from datetime import datetime
@@ -207,7 +210,7 @@ def handle_weather(cmd: str, entities: Dict, context: Any) -> HandlerResult:
                          f"wind {weather.get('wind_speed_kmh', weather.get('wind', 'N/A'))} kilometers per hour."
             )
     except Exception as e:
-        print(f"[HANDLERS] Weather error: {e}")
+        _log.warning(f"[HANDLERS] Weather error: {e}")
     
     return HandlerResult(
         success=False,
@@ -265,7 +268,7 @@ Give a 1-2 sentence take with signature JARVIS dry humor. Use probability framin
                     if opinion_response and len(opinion_response) > 10:
                         opinion = f" My take: {opinion_response}"
                 except Exception:
-                    pass  # Opinion is optional, don't fail on it
+                    _log.debug("Ignored error", exc_info=True)  # Opinion is optional, don't fail on it
             
             return HandlerResult(
                 success=True,
@@ -273,7 +276,7 @@ Give a 1-2 sentence take with signature JARVIS dry humor. Use probability framin
                 data={'type': 'news', 'items': news_data['items']}
             )
     except Exception as e:
-        print(f"[HANDLERS] News error: {e}")
+        _log.warning(f"[HANDLERS] News error: {e}")
     
     return HandlerResult(success=False, response=f"Couldn't fetch {category} news, {title}.")
 
@@ -296,7 +299,7 @@ def handle_search_news(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     try:
         articles = news_handler.search_items(keyword, count=8)
     except Exception as e:
-        print(f"[HANDLERS] News search error: {e}")
+        _log.warning(f"[HANDLERS] News search error: {e}")
         articles = []
 
     panel = [f"{a['title']} ({a['source']}, {a['date']})" if a.get('source') else a['title'] for a in articles]
@@ -384,7 +387,7 @@ def handle_open_app(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             start_app(app)
         return HandlerResult(success=True, response=f"Opening {app}.")
     except Exception as e:
-        print(f"[HANDLERS] Open app error: {e}")
+        _log.warning(f"[HANDLERS] Open app error: {e}")
         return HandlerResult(success=False, response=f"Couldn't open {app}.")
 
 
@@ -402,13 +405,13 @@ def _adjust_level(kind: str, cmd: str, entities: Dict, context: Any) -> HandlerR
             from jarvis.core.system_control import SystemControl
             system_control = shared(SystemControl, lambda: SystemControl(context.get('perception') if context else None))
         except Exception as e:
-            print(f"[HANDLERS] System control unavailable: {e}")
+            _log.warning(f"[HANDLERS] System control unavailable: {e}")
             return HandlerResult(success=False, response=f"I can't control the {kind} on this computer, {title}.")
     text = f"{entities.get('action') or ''} {cmd or ''}"
     try:
         reply = system_control.adjust(kind, text, entities.get('level'))
     except Exception as e:
-        print(f"[HANDLERS] {kind} error: {e}")
+        _log.warning(f"[HANDLERS] {kind} error: {e}")
         return HandlerResult(success=False, response=f"I couldn't change the {kind}, {title}.")
     ok = not reply.startswith(("I couldn't", "I can't", "I tried", "Should I"))
     return HandlerResult(success=ok, response=reply)
@@ -455,7 +458,7 @@ def handle_ai_search(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         webbrowser.open(f"https://www.google.com/search?q={query}")
         return HandlerResult(success=True, response=f"Researching {query}, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] AI search error: {e}")
+        _log.warning(f"[HANDLERS] AI search error: {e}")
         return HandlerResult(success=False, response=f"Search failed, {title}.")
 
 
@@ -488,7 +491,7 @@ def handle_remember(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         
         return HandlerResult(success=True, response=f"Noted, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] Remember error: {e}")
+        _log.warning(f"[HANDLERS] Remember error: {e}")
         return HandlerResult(success=False, response=f"Couldn't save that, {title}.")
 
 
@@ -522,7 +525,7 @@ def handle_recall(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         
         return HandlerResult(success=True, response=f"I don't recall that, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] Recall error: {e}")
+        _log.warning(f"[HANDLERS] Recall error: {e}")
         return HandlerResult(success=True, response=f"Let me think... No, I don't remember that.")
 
 
@@ -540,7 +543,7 @@ def handle_search(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             webbrowser.open(f"https://www.google.com/search?q={quote_plus(query)}")
             return HandlerResult(success=True, response=f"Searching for '{query}', {title}.")
         except Exception as e:
-            print(f"[HANDLERS] Search error: {e}")
+            _log.warning(f"[HANDLERS] Search error: {e}")
     
     return HandlerResult(success=False, response=f"Please specify what to search for, {title}.")
 
@@ -653,7 +656,7 @@ def handle_set_reminder(cmd: str, entities: Dict, context: Any) -> HandlerResult
                     response=f"I couldn't understand the reminder, {title}. Try 'remind me to [task] in [time]' or 'remind me to [task] at [time]'."
                 )
         except Exception as e:
-            print(f"[HANDLERS] Reminder error: {e}")
+            _log.warning(f"[HANDLERS] Reminder error: {e}")
     
     return HandlerResult(
         success=False,
@@ -679,7 +682,7 @@ def handle_list_reminders(cmd: str, entities: Dict, context: Any) -> HandlerResu
             
             return HandlerResult(success=True, response=response)
         except Exception as e:
-            print(f"[HANDLERS] List reminders error: {e}")
+            _log.warning(f"[HANDLERS] List reminders error: {e}")
     
     return HandlerResult(success=False, response=f"Reminder service unavailable, {title}.")
 
@@ -713,7 +716,7 @@ def handle_face_recognition_cmd(cmd: str, entities: Dict, context: Any) -> Handl
             else:
                 return HandlerResult(success=True, response=f"I don't recognize this face, {title}. Would you like to register?")
         except Exception as e:
-            print(f"[HANDLERS] Face recognition error: {e}")
+            _log.warning(f"[HANDLERS] Face recognition error: {e}")
     
     return HandlerResult(
         success=True,
@@ -754,7 +757,7 @@ def _get_entertainment(context):
             knowledge = context.get('knowledge') if context else None
             _entertainment = shared(JARVISEntertainment, lambda: JARVISEntertainment(perception, knowledge))
         except Exception as e:
-            print(f"[HANDLERS] Entertainment init error: {e}")
+            _log.warning(f"[HANDLERS] Entertainment init error: {e}")
             return None
     return _entertainment
 
@@ -837,7 +840,7 @@ def handle_story(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             if story and len(story) > 80:
                 return HandlerResult(success=True, response=story)
         except Exception as e:
-            print(f"[HANDLERS] Story generation error: {e}")
+            _log.warning(f"[HANDLERS] Story generation error: {e}")
 
     # Fallback story
     if genre == "horror":
@@ -873,7 +876,7 @@ def handle_poem(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             if poem:
                 return HandlerResult(success=True, response=poem)
         except Exception as e:
-            print(f"[HANDLERS] Poem generation error: {e}")
+            _log.warning(f"[HANDLERS] Poem generation error: {e}")
     
     # Fallback poem
     return HandlerResult(
@@ -913,7 +916,7 @@ def handle_set_alarm(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         if alarm_system.set_alarm(time_str) is not False:
             return HandlerResult(success=True, response=f"Alarm set for {time_str}, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] Alarm error: {e}")
+        _log.warning(f"[HANDLERS] Alarm error: {e}")
     return HandlerResult(success=False, response=f"I couldn't set that alarm, {title}.")
 
 
@@ -940,7 +943,7 @@ def handle_set_timer(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         if alarm_system.set_alarm(f"in {duration} {unit}", label=f"Timer ({duration} {unit})") is not False:
             return HandlerResult(success=True, response=f"Timer set for {duration} {unit}, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] Timer error: {e}")
+        _log.warning(f"[HANDLERS] Timer error: {e}")
     return HandlerResult(success=False, response=f"I couldn't set that timer, {title}.")
 
 
@@ -963,7 +966,7 @@ def handle_screenshot(cmd: str, entities: Dict, context: Any) -> HandlerResult:
                     data={'type': 'screenshot', 'path': str(path)}
                 )
         except Exception as e:
-            print(f"[HANDLERS] Screenshot error: {e}")
+            _log.warning(f"[HANDLERS] Screenshot error: {e}")
     
     # Fallback: use PIL
     try:
@@ -976,7 +979,7 @@ def handle_screenshot(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         img.save(str(filename))
         return HandlerResult(success=True, response=f"Screenshot saved, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] Screenshot fallback error: {e}")
+        _log.warning(f"[HANDLERS] Screenshot fallback error: {e}")
     
     return HandlerResult(success=False, response=f"Couldn't take a screenshot, {title}.")
 
@@ -1015,7 +1018,7 @@ def handle_conversation(cmd: str, entities: Dict, context: Any) -> HandlerResult
             if text and len(text) > 20:
                 return HandlerResult(success=True, response=text)
         except Exception as e:
-            print(f"[HANDLERS] Explanation error: {e}")
+            _log.warning(f"[HANDLERS] Explanation error: {e}")
 
     if knowledge and hasattr(knowledge, 'answer_question'):
         try:
@@ -1150,7 +1153,7 @@ def handle_ocr(cmd: str, entities: Dict, context: Any) -> HandlerResult:
                 if text:
                     return HandlerResult(success=True, response=text)
             except Exception as e:
-                print(f"[HANDLERS] Vision screen reading error: {e}")
+                _log.warning(f"[HANDLERS] Vision screen reading error: {e}")
             # success=True: as a failure the router fell through to the AI,
             # which made up what was on the screen.
             return HandlerResult(success=True, response=f"I couldn't read the screen just now, {title}. Please try again.")
@@ -1164,7 +1167,7 @@ def handle_ocr(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         else:
             return HandlerResult(success=True, response=f"I couldn't read any text on the screen, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] OCR error: {e}")
+        _log.warning(f"[HANDLERS] OCR error: {e}")
         return HandlerResult(success=False, response=f"Error reading screen, {title}.")
 
 
@@ -1182,7 +1185,7 @@ def handle_screen_question(cmd: str, entities: Dict, context: Any) -> HandlerRes
             from jarvis.core.knowledge import clean_for_speech
             return HandlerResult(success=True, response=clean_for_speech(answer))
     except Exception as e:
-        print(f"[HANDLERS] Screen question error: {e}")
+        _log.warning(f"[HANDLERS] Screen question error: {e}")
     return HandlerResult(success=True, response=f"I couldn't get a look at the screen just now, {title}. Please try again.")
 
 
@@ -1204,7 +1207,7 @@ def handle_screen_control(cmd: str, entities: Dict, context: Any) -> HandlerResu
     except ImportError:
         return HandlerResult(success=False, response=f"Screen control is not available, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] Screen control error: {e}")
+        _log.warning(f"[HANDLERS] Screen control error: {e}")
         return HandlerResult(success=False, response=f"Error executing screen control, {title}.")
 
 
@@ -1235,7 +1238,7 @@ def handle_habit(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     except ImportError:
         return HandlerResult(success=False, response=f"Habit tracking module is not available, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] Habit error: {e}")
+        _log.warning(f"[HANDLERS] Habit error: {e}")
         return HandlerResult(success=False, response=f"Error with habit tracking, {title}.")
 
 
@@ -1260,7 +1263,7 @@ def handle_email(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     except ImportError:
         return HandlerResult(success=False, response=f"Email module is not available, {title}. Configure SMTP credentials in .env to enable it.")
     except Exception as e:
-        print(f"[HANDLERS] Email error: {e}")
+        _log.warning(f"[HANDLERS] Email error: {e}")
         return HandlerResult(success=False, response=f"Error with email, {title}.")
 
 
@@ -1284,7 +1287,7 @@ def handle_calendar(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     except ImportError:
         return HandlerResult(success=False, response=f"Calendar module is not available, {title}. Set up Google Calendar API credentials to enable it.")
     except Exception as e:
-        print(f"[HANDLERS] Calendar error: {e}")
+        _log.warning(f"[HANDLERS] Calendar error: {e}")
         return HandlerResult(success=False, response=f"Error accessing calendar, {title}.")
 
 
@@ -1300,7 +1303,7 @@ def handle_lock_screen(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         if lock_workstation():
             return HandlerResult(success=True, response=f"Locking the screen, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] Lock screen error: {e}")
+        _log.warning(f"[HANDLERS] Lock screen error: {e}")
     return HandlerResult(success=False, response=f"I couldn't lock the screen, {title}.")
 
 
@@ -1315,7 +1318,7 @@ def handle_take_note(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         shared(SmartNotes, lambda: SmartNotes(context.get('perception') if context else None)).add_note(content)
         return HandlerResult(success=True, response=f"Noted, {title}: {content}.")
     except Exception as e:
-        print(f"[HANDLERS] Note error: {e}")
+        _log.warning(f"[HANDLERS] Note error: {e}")
         return HandlerResult(success=False, response=f"I couldn't save that note, {title}.")
 
 
@@ -1326,7 +1329,7 @@ def handle_list_notes(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         from jarvis.core.smart_notes import SmartNotes
         notes = shared(SmartNotes, lambda: SmartNotes(context.get('perception') if context else None)).get_recent_notes(5)
     except Exception as e:
-        print(f"[HANDLERS] Notes error: {e}")
+        _log.warning(f"[HANDLERS] Notes error: {e}")
         return HandlerResult(success=False, response=f"I couldn't open your notes, {title}.")
     if not notes:
         return HandlerResult(success=True, response=f"You have no notes yet, {title}.")

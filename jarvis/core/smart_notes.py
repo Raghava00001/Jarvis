@@ -3,6 +3,9 @@ Smart Notes - Intelligent note-taking and memory system
 JARVIS remembers important information and recalls it when relevant
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import json
 import sqlite3
 from pathlib import Path
@@ -27,7 +30,7 @@ class SmartNotes:
     """Intelligent note-taking and memory recall system"""
     
     def __init__(self, perception=None):
-        print("[NOTES] Initializing Smart Notes...")
+        _log.info("[NOTES] Initializing Smart Notes...")
         self.perception = perception
         
         # Database
@@ -50,7 +53,7 @@ class SmartNotes:
             "health": ["doctor", "medicine", "health", "gym", "workout", "diet"],
         }
         
-        print("[NOTES] Smart Notes Ready")
+        _log.info("[NOTES] Smart Notes Ready")
     
     def _get_title(self) -> str:
         if self.perception:
@@ -61,7 +64,7 @@ class SmartNotes:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[NOTES] {text}")
+            _log.info(f"[NOTES] {text}")
     
     def _init_db(self):
         """Initialize database"""

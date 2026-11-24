@@ -5,6 +5,9 @@ Chain multiple actions from a single voice command.
 Example: "Open Chrome, search for AI, and take a screenshot"
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import time
 import re
 from typing import List, Dict, Any, Callable, Optional
@@ -73,13 +76,13 @@ class WorkflowManager:
     }
     
     def __init__(self, jarvis_core=None, perception=None):
-        print("[WORKFLOW] Initializing Workflow Manager...")
+        _log.info("[WORKFLOW] Initializing Workflow Manager...")
         self.jarvis = jarvis_core
         self.perception = perception
         self.current_workflow: Optional[Workflow] = None
         self.is_running = False
         
-        print("[WORKFLOW] Workflow Manager Ready")
+        _log.info("[WORKFLOW] Workflow Manager Ready")
     
     def _get_title(self) -> str:
         if self.perception and hasattr(self.perception, 'current_title'):
@@ -91,11 +94,11 @@ class WorkflowManager:
         if self.perception:
             _live = getattr(self.perception, '_gemini_live_active', False)
             if _live:
-                print(f"[WORKFLOW] (live mode - suppressed) {text}")
+                _log.info(f"[WORKFLOW] (live mode - suppressed) {text}")
                 return
             self.perception.speak(text)
         else:
-            print(f"[WORKFLOW] {text}")
+            _log.info(f"[WORKFLOW] {text}")
     
     def parse_workflow(self, command: str) -> Optional[Workflow]:
         """
@@ -200,7 +203,7 @@ class WorkflowManager:
                 self._speak("Workflow cancelled.")
                 return False
             
-            print(f"[WORKFLOW] Step {i}/{len(workflow.steps)}: {step.action.value}")
+            _log.info(f"[WORKFLOW] Step {i}/{len(workflow.steps)}: {step.action.value}")
             
             success = self._execute_step(step)
             if not success:
@@ -301,7 +304,7 @@ class WorkflowManager:
             return False
             
         except Exception as e:
-            print(f"[WORKFLOW] Step error: {e}")
+            _log.warning(f"[WORKFLOW] Step error: {e}")
             return False
     
     def stop_workflow(self):

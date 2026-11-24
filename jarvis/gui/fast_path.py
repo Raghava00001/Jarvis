@@ -5,6 +5,9 @@ brightness, screenshot, YouTube, time, date), before the full routing chain.
 Extracted from websocket_server.py (v2.6). `server` is the JARVISWebSocketServer.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import threading
 import time
 from datetime import datetime
@@ -37,7 +40,7 @@ def try_fast_path(server, text: str):
             if not is_safe_app_name(proc):
                 return f"I can't close '{app}', {title}. That isn't a valid app name."
             kill_process(proc)
-            print(f"[FAST] Closed {app}")
+            _log.info(f"[FAST] Closed {app}")
             return f"Closed {app}, {title}."
         except Exception:
             return None  # Fall through to normal pipeline
@@ -50,7 +53,7 @@ def try_fast_path(server, text: str):
             import pyautogui
             pyautogui.press('space')  # Space = play/pause in YouTube
             action = 'Resumed' if 'resume' in cmd or 'play' in cmd else 'Paused'
-            print(f"[FAST] {action} video (space key)")
+            _log.info(f"[FAST] {action} video (space key)")
             return f"{action} the video, {title}."
         except Exception:
             return None
@@ -62,7 +65,7 @@ def try_fast_path(server, text: str):
             ts = datetime.now().strftime('%Y%m%d_%H%M%S')
             path = Path.home() / 'Pictures' / f'jarvis_screenshot_{ts}.png'
             pyautogui.screenshot(str(path))
-            print(f"[FAST] Screenshot saved: {path}")
+            _log.info(f"[FAST] Screenshot saved: {path}")
             return f"Screenshot saved, {title}."
         except Exception:
             return None
@@ -90,7 +93,7 @@ def try_fast_path(server, text: str):
                 time.sleep(0.2)
                 pyautogui.press('enter')
             threading.Thread(target=_auto_play, daemon=True).start()
-            print(f"[FAST] YouTube search: {query}")
+            _log.info(f"[FAST] YouTube search: {query}")
             return f"Playing {query} on YouTube, {title}."
         except Exception:
             return None
@@ -109,7 +112,7 @@ def try_fast_path(server, text: str):
                 if not is_safe_app_name(app):
                     return f"I can't open '{app}', {title}. That isn't a valid app name."
                 start_app(app)
-            print(f"[FAST] Opened {app}")
+            _log.info(f"[FAST] Opened {app}")
             return f"Opening {app}, {title}."
         except Exception:
             return None
@@ -132,7 +135,7 @@ def try_fast_path(server, text: str):
         try:
             import pyautogui
             pyautogui.press('space')
-            print(f"[FAST] Toggled playback")
+            _log.info(f"[FAST] Toggled playback")
             if 'resume' in cmd or 'unpause' in cmd:
                 return f"Resuming playback, {title}."
             return f"Paused, {title}."

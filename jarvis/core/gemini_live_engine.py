@@ -3,6 +3,9 @@ Gemini Live Engine — Full-duplex audio via Gemini Native Audio API.
 Matches Mark-XXX architecture exactly: correct model, 12+ tools, strict prompt.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import asyncio
 import threading
 import json
@@ -594,7 +597,7 @@ class GeminiLiveEngine:
         self._awake_until = 0.0
         self._slept_at = float("inf")   # speech before the next wake word doesn't keep it awake
         self._sleep_after_reply = False
-        print("[WAKE] Asleep (told to sleep)", flush=True)
+        _log.info("[WAKE] Asleep (told to sleep)")
 
     def wake(self, reason: str = "") -> None:
         """Open (or extend) the awake window."""
@@ -602,7 +605,7 @@ class GeminiLiveEngine:
         self._slept_at = 0.0
         self._awake_until = _time.time() + AWAKE_WINDOW_S
         if not was_awake:
-            print(f"[WAKE] Awake ({reason}) for {AWAKE_WINDOW_S:.0f}s", flush=True)
+            _log.info(f"[WAKE] Awake ({reason}) for {AWAKE_WINDOW_S:.0f}s")
 
     def interrupt(self) -> None:
         """Cut off the answer Gemini is speaking (palm gesture, Esc, "stop").
@@ -628,7 +631,7 @@ class GeminiLiveEngine:
                 except Exception:
                     break
             self._speaking_until = 0.0
-            print("[LIVE] Answer interrupted by user", flush=True)
+            _log.info("[LIVE] Answer interrupted by user")
 
         loop.call_soon_threadsafe(_do)
 
@@ -654,7 +657,7 @@ class GeminiLiveEngine:
         - Single authoritative send path
         """
         if turn_id is not None and turn_id != self._current_turn_id:
-            print("[TURN] Dropping stale response")
+            _log.info("[TURN] Dropping stale response")
             return
 
         if not self.server or not text or not text.strip():
@@ -669,7 +672,7 @@ class GeminiLiveEngine:
         if role == last['role'] and (now - last['time']) < 2.5:
             # Only block if text is also similar (not just same role)
             if text.strip().lower() == last['text'].strip().lower():
-                print("[DEDUP] Blocking duplicate message")
+                _log.info("[DEDUP] Blocking duplicate message")
                 return
             
         self._last_push = {'text': text, 'time': now, 'role': role}
@@ -686,7 +689,7 @@ class GeminiLiveEngine:
                 turn_id=turn_id if turn_id is not None else self._current_turn_id
             )
         except Exception as e:
-            print(f"[LIVE] Chat push error: {e}", flush=True)
+            _log.warning(f"[LIVE] Chat push error: {e}")
 
     def _get_app_switcher(self):
         """Get or create an AppSwitcher instance for window management."""
@@ -701,7 +704,7 @@ class GeminiLiveEngine:
                     from jarvis.core.app_switcher import get_app_switcher
                     self._app_switcher = get_app_switcher(self.perception)
                 except Exception as e:
-                    print(f"[LIVE] AppSwitcher init failed: {e}")
+                    _log.warning(f"[LIVE] AppSwitcher init failed: {e}")
         return self._app_switcher
 
     def _read_screen(self, question: str = "Describe what you see on the screen.") -> str:
@@ -750,7 +753,7 @@ class GeminiLiveEngine:
             )
             return response.text.strip() if response.text else "I captured the screen but couldn't analyze it, sir."
         except Exception as e:
-            print(f"[LIVE] Screen read error: {e}", flush=True)
+            _log.warning(f"[LIVE] Screen read error: {e}")
             traceback.print_exc()
             return f"Screen capture failed: {e}"
 
@@ -767,7 +770,7 @@ class GeminiLiveEngine:
                     if self._cached_boot_context:
                         self._cached_boot_context = f"\n\n{self._cached_boot_context}\n\n"
             except Exception as e:
-                print(f"[LIVE] Boot context error: {e}")
+                _log.warning(f"[LIVE] Boot context error: {e}")
         
         boot_context = self._cached_boot_context
         
@@ -894,7 +897,7 @@ class GeminiLiveEngine:
         """Execute a tool call (runs in thread pool to avoid blocking audio)."""
         name = fc.name
         args = dict(fc.args or {})
-        print(f"[LIVE] TOOL: {name}  ARGS: {args}")
+        _log.info(f"[LIVE] TOOL: {name}  ARGS: {args}")
 
         result = "Action completed."
         try:
@@ -969,7 +972,7 @@ class GeminiLiveEngine:
                         result = f"Playing {query} on YouTube."
                         played = True
                     except Exception as e:
-                        print(f"[LIVE] YouTube downloader failed: {e}")
+                        _log.warning(f"[LIVE] YouTube downloader failed: {e}")
                 if not played:
                     # Open YouTube search and auto-click first result
                     import urllib.parse
@@ -1196,7 +1199,7 @@ class GeminiLiveEngine:
                         handled = shared(ScreenControlHandler).handle(action.replace('_', ' '))
                     except Exception as e:
                         handled = None
-                        print(f"[LIVE] screen_action fallback failed: {e}")
+                        _log.warning(f"[LIVE] screen_action fallback failed: {e}")
                     if handled and not str(handled).lower().startswith(("unknown", "i don't", "sorry")):
                         action, result = None, str(handled)
                 if action is None:
@@ -1411,12 +1414,12 @@ class GeminiLiveEngine:
                         try: self.audio_in_queue.get_nowait()
                         except Exception: break
                 result = "Muted. I'll stay silent until you need me."
-                print("[LIVE] JARVIS muted by user request")
+                _log.info("[LIVE] JARVIS muted by user request")
 
             elif name == "unmute_jarvis":
                 self._muted = False
                 result = "Back online, sir. What do you need?"
-                print("[LIVE] JARVIS unmuted by user request")
+                _log.info("[LIVE] JARVIS unmuted by user request")
 
             # ── COORD-FIX: New tool dispatches via HANDLER_MAP ──
             elif name == "read_screen_text":
@@ -1467,14 +1470,14 @@ class GeminiLiveEngine:
                 result = f"Tool {name} is not implemented yet."
 
         except Exception as e:
-            print(f"[LIVE] Tool execution failed: {name} - {e}")
+            _log.warning(f"[LIVE] Tool execution failed: {name} - {e}")
             traceback.print_exc()
             
             # ── ERROR RECOVERY: try fallback via HANDLER_MAP ──
             try:
                 fallback_handler = HANDLER_MAP.get(name)
                 if fallback_handler:
-                    print(f"[LIVE] Attempting fallback via HANDLER_MAP for '{name}'...")
+                    _log.info(f"[LIVE] Attempting fallback via HANDLER_MAP for '{name}'...")
                     raw_cmd = ' '.join(str(v) for v in args.values() if v)
                     fallback_res = fallback_handler(
                         cmd=raw_cmd,
@@ -1483,16 +1486,16 @@ class GeminiLiveEngine:
                     )
                     result = getattr(fallback_res, 'response', None)
                     if result:
-                        print(f"[LIVE] Fallback succeeded: {result[:80]}")
+                        _log.info(f"[LIVE] Fallback succeeded: {result[:80]}")
                     else:
                         result = f"The {name} command encountered an issue, sir. Error: {str(e)[:100]}"
                 else:
                     result = f"The {name} command failed, sir. I'll note this for next time. Error: {str(e)[:100]}"
             except Exception as fallback_err:
-                print(f"[LIVE] Fallback also failed: {fallback_err}")
+                _log.warning(f"[LIVE] Fallback also failed: {fallback_err}")
                 result = f"Both primary and fallback execution failed for {name}, sir. Error: {str(e)[:80]}"
 
-        print(f"[LIVE] RESULT: {result[:100]}")
+        _log.info(f"[LIVE] RESULT: {result[:100]}")
 
         return types.FunctionResponse(
             id=fc.id,
@@ -1511,14 +1514,14 @@ class GeminiLiveEngine:
             rate=SEND_SAMPLE_RATE, input=True,
             frames_per_buffer=CHUNK_SIZE,
         )
-        print(f"[LIVE] Mic started (chunk={CHUNK_SIZE}, rate={SEND_SAMPLE_RATE})")
+        _log.info(f"[LIVE] Mic started (chunk={CHUNK_SIZE}, rate={SEND_SAMPLE_RATE})")
         _mic_count = 0
         try:
             while self._running:
                 data = await asyncio.to_thread(stream.read, CHUNK_SIZE, exception_on_overflow=False)
                 _mic_count += 1
                 if _mic_count == 1:
-                    print(f"[LIVE] First mic chunk captured ({len(data)}B)")
+                    _log.info(f"[LIVE] First mic chunk captured ({len(data)}B)")
                 # M-08: time import moved outside loop
                 if _mic_time.time() < self._speaking_until:
                     continue
@@ -1530,15 +1533,15 @@ class GeminiLiveEngine:
                         self.out_queue.get_nowait()
                         self.out_queue.put_nowait({"data": data, "mime_type": "audio/pcm"})
                     except Exception:
-                        pass
+                        _log.debug("Ignored error", exc_info=True)
         except Exception as e:
             if self._running:
-                print(f"[LIVE] Mic error: {e}")
+                _log.warning(f"[LIVE] Mic error: {e}")
         finally:
             stream.close()
 
     async def _receive_audio(self):
-        print("[LIVE] Receiver started")
+        _log.info("[LIVE] Receiver started")
         # Mo-01: import time once before loop — not inside hot path
         import time as _recv_time
         in_buf = []
@@ -1574,17 +1577,17 @@ class GeminiLiveEngine:
                         if response.data and not self.is_awake():
                             # Reply to speech that wasn't addressed to JARVIS: mute it
                             if not self._turn_suppressed:
-                                print("[WAKE] Asleep - muting reply to speech without the wake word", flush=True)
+                                _log.info("[WAKE] Asleep - muting reply to speech without the wake word")
                             self._turn_suppressed = True
                         elif response.data:
                             if not hasattr(self, '_audio_count'):
                                 self._audio_count = 0
                             if self._audio_count == 0:
-                                print(f"[LIVE] Response audio started", flush=True)
+                                _log.info(f"[LIVE] Response audio started")
                             await self.audio_in_queue.put(response.data)
                             self._audio_count += 1
                             if self._audio_count <= 3 or self._audio_count % 200 == 0:
-                                print(f"[LIVE] Audio chunk #{self._audio_count} ({len(response.data)}B)", flush=True)
+                                _log.info(f"[LIVE] Audio chunk #{self._audio_count} ({len(response.data)}B)")
 
                         # Transcription logging (like Mark-XXX)
                         if response.server_content:
@@ -1618,7 +1621,7 @@ class GeminiLiveEngine:
                                     if in_buf and self._wake_gate and not self._turn_addressed:
                                         # Background speech: keep it out of the HUD chat
                                         safe = (self._raw_in or " ".join(in_buf)).strip().encode('ascii', errors='replace').decode()
-                                        print(f"[WAKE] Heard, not addressed: {safe[:80]}", flush=True)
+                                        _log.info(f"[WAKE] Heard, not addressed: {safe[:80]}")
                                         in_buf = []
                                     if in_buf:
                                         full_in = (self._raw_in or " ".join(in_buf)).strip()
@@ -1628,14 +1631,14 @@ class GeminiLiveEngine:
                                         _last_in_t = getattr(self, '_last_in_time', 0)
                                         if full_in and (full_in != _last_in or (_now - _last_in_t) > 3):
                                             safe = full_in.encode('ascii', errors='replace').decode()
-                                            print(f"[YOU]    {safe}", flush=True)
+                                            _log.info(f"[YOU]    {safe}")
                                             self._push_to_chat(full_in, role='user', turn_id=current_turn)
                                             self._last_in_text = full_in
                                             self._last_in_time = _now
                                         in_buf = []
                                     if out_buf and self._turn_suppressed:
                                         safe = " ".join(out_buf).encode('ascii', errors='replace').decode()
-                                        print(f"[WAKE] Muted reply: {safe[:80]}", flush=True)
+                                        _log.info(f"[WAKE] Muted reply: {safe[:80]}")
                                         out_buf = []
                                     elif out_buf and getattr(self, '_sleep_after_reply', False):
                                         self.sleep()        # "good night" answered: now sleep
@@ -1648,7 +1651,7 @@ class GeminiLiveEngine:
                                         _last_out_t = getattr(self, '_last_out_time', 0)
                                         if full_out and (full_out != _last_out or (_now - _last_out_t) > 3):
                                             safe = full_out.encode('ascii', errors='replace').decode()
-                                            print(f"[JARVIS] {safe}", flush=True)
+                                            _log.info(f"[JARVIS] {safe}")
                                             # C-02: Don't push to chat if muted (but still log)
                                             if not self._muted:
                                                 self._push_to_chat(full_out, role='jarvis', turn_id=current_turn)
@@ -1678,7 +1681,7 @@ class GeminiLiveEngine:
                                 for fc in tool_call.function_calls:
                                     if not self.is_awake():
                                         # Wake-word gate: never act on background speech
-                                        print(f"[WAKE] Blocked tool {fc.name} (not addressed)", flush=True)
+                                        _log.info(f"[WAKE] Blocked tool {fc.name} (not addressed)")
                                         fn_responses.append(types.FunctionResponse(
                                             id=fc.id, name=fc.name,
                                             response={"result": NOT_ADDRESSED_RESULT}))
@@ -1689,7 +1692,7 @@ class GeminiLiveEngine:
                                     fn_responses.append(fr)
 
                                 if turn_id != self._current_turn_id:
-                                    print("[TURN] Dropping stale response")
+                                    _log.info("[TURN] Dropping stale response")
                                     return
 
                                 await session.send_tool_response(function_responses=fn_responses)
@@ -1700,30 +1703,30 @@ class GeminiLiveEngine:
                     _recv_errors = 0  # a full turn arrived: the session is healthy
                 except StopAsyncIteration:
                     # Stream ended — Gemini closed the session, loop will reconnect
-                    print("[LIVE] Receive stream ended, waiting to reconnect...")
+                    _log.info("[LIVE] Receive stream ended, waiting to reconnect...")
                     await asyncio.sleep(1)
                     break
                 except Exception as recv_err:
                     if self._running:
-                        print(f"[LIVE] Receive stream error: {recv_err}")
+                        _log.warning(f"[LIVE] Receive stream error: {recv_err}")
                     # A closed connection raises on every receive(). Retrying it
                     # forever left a dead session that never reconnected (JARVIS
                     # went silent). End this task instead: start_async then
                     # tears the session down and the run loop reconnects.
                     _recv_errors += 1
                     if _recv_errors >= 3 or 'close' in str(recv_err).lower():
-                        print("[LIVE] Session lost, reconnecting...")
+                        _log.info("[LIVE] Session lost, reconnecting...")
                         break
                     await asyncio.sleep(0.5)
 
         except asyncio.CancelledError:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         except Exception as e:
-            print(f"[LIVE] Receiver error: {e}")
+            _log.warning(f"[LIVE] Receiver error: {e}")
             traceback.print_exc()
 
     async def _play_audio(self):
-        print("[LIVE] Playback started")
+        _log.info("[LIVE] Playback started")
         try:
             _pya = _get_pya()
             stream = await asyncio.to_thread(
@@ -1731,9 +1734,9 @@ class GeminiLiveEngine:
                 format=FORMAT, channels=CHANNELS,
                 rate=RECEIVE_SAMPLE_RATE, output=True,
             )
-            print(f"[LIVE] Speaker stream opened: {CHANNELS}ch @ {RECEIVE_SAMPLE_RATE}Hz")
+            _log.info(f"[LIVE] Speaker stream opened: {CHANNELS}ch @ {RECEIVE_SAMPLE_RATE}Hz")
         except Exception as e:
-            print(f"[LIVE] FAILED to open speaker: {e}")
+            _log.warning(f"[LIVE] FAILED to open speaker: {e}")
             return
         play_count = 0
         try:
@@ -1746,17 +1749,17 @@ class GeminiLiveEngine:
                         play_count += 1
                         continue
                     if play_count == 0:
-                        print(f"[LIVE] Playback audio started", flush=True)
+                        _log.info(f"[LIVE] Playback audio started")
                     await asyncio.to_thread(stream.write, chunk)
                     self._speaking_until = _pt.time() + 0.8   # C-04: increased from 0.4 to 0.8
                     play_count += 1
                     if play_count <= 3 or play_count % 100 == 0:
-                        print(f"[LIVE] Played chunk #{play_count} ({len(chunk)}B)")
+                        _log.info(f"[LIVE] Played chunk #{play_count} ({len(chunk)}B)")
         except asyncio.CancelledError:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         except Exception as e:
             if self._running:
-                print(f"[LIVE] Playback error: {e}")
+                _log.warning(f"[LIVE] Playback error: {e}")
                 traceback.print_exc()
         finally:
             stream.close()
@@ -1769,13 +1772,13 @@ class GeminiLiveEngine:
                     await self.session.send_realtime_input(media=msg)
                 except (ConnectionError, ConnectionResetError, OSError) as e:
                     if self._running:
-                        print(f"[LIVE] Send error (will reconnect): {e}")
+                        _log.warning(f"[LIVE] Send error (will reconnect): {e}")
                     break
         except asyncio.CancelledError:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         except Exception as e:
             if self._running:
-                print(f"[LIVE] Send loop error: {e}")
+                _log.warning(f"[LIVE] Send loop error: {e}")
 
     # ── Lifecycle ─────────────────────────────────────────────────
 
@@ -1788,7 +1791,7 @@ class GeminiLiveEngine:
                 try:
                     await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
                 except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
             setattr(self, task_name, None)
         await asyncio.sleep(0.2)  # Let PyAudio streams fully release
 
@@ -1802,7 +1805,7 @@ class GeminiLiveEngine:
                 try: self.out_queue.get_nowait()
                 except Exception: break
 
-        print("[LIVE] Connecting to Gemini Live API...")
+        _log.info("[LIVE] Connecting to Gemini Live API...")
         client = genai.Client(api_key=self.api_key)
 
         self.audio_in_queue = asyncio.Queue(maxsize=100)   # ~4s buffer — never drop speech audio
@@ -1818,7 +1821,7 @@ class GeminiLiveEngine:
             config=self._build_config()
         ) as session:
             self.session = session
-            print(f"[LIVE] Connected to {LIVE_MODEL}")
+            _log.info(f"[LIVE] Connected to {LIVE_MODEL}")
 
             self._listen_task = asyncio.create_task(self._listen_audio())
             self._receive_task = asyncio.create_task(self._receive_audio())
@@ -1842,9 +1845,9 @@ class GeminiLiveEngine:
                         turns=[{"role": "user", "parts": [{"text": greeting_prompt}]}],
                         turn_complete=True
                     )
-                    print("[LIVE] Startup greeting triggered")
+                    _log.info("[LIVE] Startup greeting triggered")
                 except Exception as e:
-                    print(f"[LIVE] Greeting trigger error: {e}")
+                    _log.warning(f"[LIVE] Greeting trigger error: {e}")
 
             tasks = [self._listen_task, self._receive_task, self._play_task, self._send_task]
             try:
@@ -1858,7 +1861,7 @@ class GeminiLiveEngine:
                 await asyncio.gather(*pending, return_exceptions=True)
                 if self._running:
                     ended = [t.get_name() for t in done]
-                    print(f"[LIVE] Session ended ({', '.join(ended)}); reconnecting", flush=True)
+                    _log.info(f"[LIVE] Session ended ({', '.join(ended)}); reconnecting")
             except asyncio.CancelledError:
                 self._running = False
             finally:
@@ -1867,11 +1870,11 @@ class GeminiLiveEngine:
     def start(self):
         # Thread-safe double-start guard
         if not self._start_lock.acquire(blocking=False):
-            print("[LIVE] Start already in progress → skipping")
+            _log.info("[LIVE] Start already in progress → skipping")
             return
         try:
             if getattr(self, "_running", False):
-                print("[LIVE] Already running → skipping restart")
+                _log.info("[LIVE] Already running → skipping restart")
                 return
             self._running = True
         finally:
@@ -1885,10 +1888,10 @@ class GeminiLiveEngine:
                 try:
                     self._loop.run_until_complete(self.start_async())
                 except Exception as e:
-                    print(f"[LIVE] Engine crashed: {e}", flush=True)
+                    _log.warning(f"[LIVE] Engine crashed: {e}")
                     traceback.print_exc()
                 if self._running:
-                    print("[LIVE] Reconnecting in 3 seconds...", flush=True)
+                    _log.info("[LIVE] Reconnecting in 3 seconds...")
                     import time
                     time.sleep(3)
             self._loop.close()

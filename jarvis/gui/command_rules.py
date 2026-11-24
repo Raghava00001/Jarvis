@@ -6,6 +6,9 @@ Extracted from websocket_server.py (v2.6) so these safety-critical rules live
 in one small, testable module instead of a 3,000-line file.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import re
 
 # Browser origins allowed to open the WebSocket (the Web HUD served on :8080).
@@ -50,7 +53,7 @@ def check_ws_token(connection, request):
     from jarvis.gui.session_token import get_ws_token
     supplied = parse_qs(urlsplit(request.path).query).get("token", [""])[0]
     if not hmac.compare_digest(supplied.encode(), get_ws_token().encode()):
-        print("[WebSocket] Rejected connection without a valid token")
+        _log.info("[WebSocket] Rejected connection without a valid token")
         return connection.respond(HTTPStatus.FORBIDDEN, "Missing or invalid token\n")
     return None
 

@@ -7,6 +7,9 @@ Calendar Manager - Event and Schedule Management
 - Integration with system calendar (optional)
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
 import sqlite3
 import threading
@@ -37,7 +40,7 @@ class CalendarManager:
     """
     
     def __init__(self, perception=None):
-        print("[CALENDAR] Initializing Calendar Manager...")
+        _log.info("[CALENDAR] Initializing Calendar Manager...")
         self.perception = perception
         
         # Database
@@ -45,7 +48,7 @@ class CalendarManager:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
         
-        print("[CALENDAR] Calendar Manager Ready")
+        _log.info("[CALENDAR] Calendar Manager Ready")
     
     def _get_title(self) -> str:
         if self.perception:
@@ -56,7 +59,7 @@ class CalendarManager:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[CALENDAR] {text}")
+            _log.info(f"[CALENDAR] {text}")
     
     def _init_db(self):
         """Initialize database"""

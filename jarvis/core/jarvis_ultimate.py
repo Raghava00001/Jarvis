@@ -4,6 +4,9 @@ Integrates all layers into a unified system
 Enhanced with emotion detection, wellness monitoring, entertainment, and more
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
 import sys
 import time
@@ -56,7 +59,7 @@ try:
     GESTURE_AVAILABLE = True
 except ImportError:
     GESTURE_AVAILABLE = False
-    print("[JARVIS] Gesture controller not available (install mediapipe opencv-python)")
+    _log.warning("[JARVIS] Gesture controller not available (install mediapipe opencv-python)")
 
 # GUI components (optional)
 try:
@@ -64,7 +67,7 @@ try:
     GUI_AVAILABLE = True
 except ImportError:
     GUI_AVAILABLE = False
-    print("[JARVIS] GUI interface not available")
+    _log.warning("[JARVIS] GUI interface not available")
 
 from jarvis.utils.config import Config
 
@@ -77,17 +80,17 @@ class JARVISUltimate:
         passes its HUDPerception so speech reaches the HUD; standalone (main.py)
         uses the local PerceptionLayer. Subsystems come from core/services.py, so
         anything the server already built is reused, not duplicated."""
-        print("\n" + "="*60)
-        print("          JARVIS - ALL SYSTEMS INITIALIZING")
-        print("="*60 + "\n")
+        _log.info("\n" + "="*60)
+        _log.info("          JARVIS - ALL SYSTEMS INITIALIZING")
+        _log.info("="*60 + "\n")
 
         # Validate configuration
         if not Config.validate():
-            print("ERROR: Configuration validation failed")
+            _log.warning("ERROR: Configuration validation failed")
             sys.exit(1)
 
         # Initialize all layers
-        print("Initializing Core Layers...")
+        _log.info("Initializing Core Layers...")
         self.perception = shared(PerceptionLayer)
         self._svc_perception = service_perception or self.perception
         self.understanding = UnderstandingLayer()
@@ -95,7 +98,7 @@ class JARVISUltimate:
         self.action = ActionLayer(self.perception)
         self.knowledge = shared(KnowledgeLayer, lambda: KnowledgeLayer(self._svc_perception))
 
-        print("Initializing Advanced Layers...")
+        _log.info("Initializing Advanced Layers...")
         self.task_manager = shared(TaskManager, lambda: TaskManager(self._svc_perception))
         self.news_handler = shared(NewsHandler, lambda: NewsHandler(self._svc_perception))
         self.system_control = shared(SystemControl, lambda: SystemControl(self._svc_perception))
@@ -113,12 +116,12 @@ class JARVISUltimate:
         self.user_title = "sir"
         
         # Context memory for multi-turn conversations
-        print("Initializing Intelligence Layers...")
+        _log.info("Initializing Intelligence Layers...")
         self._context_memory = None
         self._proactive = None
 
         # Initialize Enhanced Modules (Deferred to properties)
-        print("Initializing Enhanced Modules (Lazy Loading)...")
+        _log.info("Initializing Enhanced Modules (Lazy Loading)...")
         self._emotion_detector = None
         self._wellness = None
         self._entertainment = None
@@ -159,16 +162,16 @@ class JARVISUltimate:
         # Start background tasks
         self.start_background_tasks()
 
-        print("\n" + "="*60)
-        print(f"        ALL SYSTEMS ONLINE - {self.perception.assistant_name} READY")
-        print("="*60 + "\n")
+        _log.info("\n" + "="*60)
+        _log.info(f"        ALL SYSTEMS ONLINE - {self.perception.assistant_name} READY")
+        _log.info("="*60 + "\n")
 
     # ================= LAZY PROPERTIES =================
 
     @property
     def context_memory(self):
         if getattr(self, '_context_memory', None) is None:
-            print("[JARVIS] Lazy loading ContextMemory...")
+            _log.info("[JARVIS] Lazy loading ContextMemory...")
             self._context_memory = shared(ContextMemory)
         return self._context_memory
 
@@ -181,7 +184,7 @@ class JARVISUltimate:
     @property
     def emotion_detector(self):
         if getattr(self, '_emotion_detector', None) is None:
-            print("[JARVIS] Lazy loading EmotionDetector...")
+            _log.info("[JARVIS] Lazy loading EmotionDetector...")
             self._emotion_detector = shared(EmotionDetector)
         return self._emotion_detector
 
@@ -200,38 +203,38 @@ class JARVISUltimate:
     @property
     def chat_history(self):
         if getattr(self, '_chat_history', None) is None:
-            print("[JARVIS] Lazy loading ChatHistory...")
+            _log.info("[JARVIS] Lazy loading ChatHistory...")
             self._chat_history = shared(ChatHistory, lambda: ChatHistory(self._svc_perception))
         return self._chat_history
 
     @property
     def youtube(self):
         if getattr(self, '_youtube', None) is None:
-            print("[JARVIS] Lazy loading YouTubeDownloader...")
+            _log.info("[JARVIS] Lazy loading YouTubeDownloader...")
             self._youtube = shared(YouTubeDownloader, lambda: YouTubeDownloader(self._svc_perception))
         return self._youtube
 
     @property
     def ocr(self):
         if getattr(self, '_ocr', None) is None:
-            print("[JARVIS] Lazy loading OCRHandler...")
+            _log.info("[JARVIS] Lazy loading OCRHandler...")
             self._ocr = shared(OCRHandler, lambda: OCRHandler(self._svc_perception))
         return self._ocr
 
     @property
     def pdf(self):
         if getattr(self, '_pdf', None) is None:
-            print("[JARVIS] Lazy loading PDFHandler...")
+            _log.info("[JARVIS] Lazy loading PDFHandler...")
             self._pdf = shared(PDFHandler, lambda: PDFHandler(self._svc_perception, self.knowledge))
         return self._pdf
 
     @property
     def face_auth(self):
         if getattr(self, '_face_auth', None) is None:
-            print("[JARVIS] Lazy loading FaceRecognition...")
+            _log.info("[JARVIS] Lazy loading FaceRecognition...")
             self._face_auth = shared(FaceRecognition, lambda: FaceRecognition(self._svc_perception))
             if self._face_auth.is_available():
-                print("[JARVIS] Face recognition available")
+                _log.info("[JARVIS] Face recognition available")
         return self._face_auth
 
     @property
@@ -243,7 +246,7 @@ class JARVISUltimate:
     @property
     def clipboard(self):
         if getattr(self, '_clipboard', None) is None:
-            print("[JARVIS] Lazy loading ClipboardMemory...")
+            _log.info("[JARVIS] Lazy loading ClipboardMemory...")
             self._clipboard = shared(ClipboardMemory, lambda: ClipboardMemory(self._svc_perception))
         return self._clipboard
 
@@ -252,11 +255,11 @@ class JARVISUltimate:
         if getattr(self, '_gesture', None) is None:
             if GESTURE_AVAILABLE:
                 try:
-                    print("[JARVIS] Lazy loading GestureController...")
+                    _log.info("[JARVIS] Lazy loading GestureController...")
                     self._gesture = shared(GestureController, lambda: GestureController(self._svc_perception))
-                    print("[JARVIS] Gesture control available")
+                    _log.info("[JARVIS] Gesture control available")
                 except Exception as e:
-                    print(f"[JARVIS] Gesture init error: {e}")
+                    _log.warning(f"[JARVIS] Gesture init error: {e}")
         return self._gesture
 
     def start_background_tasks(self):
@@ -268,7 +271,7 @@ class JARVISUltimate:
                     self.habit_tracker.check_reminders()
                     time.sleep(60)  # Check every minute
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
 
         habit_thread = threading.Thread(target=habit_checker, daemon=True)
         habit_thread.start()
@@ -318,9 +321,9 @@ class JARVISUltimate:
         commands = split_commands(command)
         
         if len(commands) > 1:
-            print(f"  [MULTI] Split into {len(commands)} commands: {commands}")
+            _log.info(f"  [MULTI] Split into {len(commands)} commands: {commands}")
             for i, cmd in enumerate(commands):
-                print(f"  [MULTI] Executing command {i+1}/{len(commands)}: {cmd}")
+                _log.info(f"  [MULTI] Executing command {i+1}/{len(commands)}: {cmd}")
                 result = self._process_single_command(cmd)
                 if not result:
                     return False  # Exit if any command says to stop
@@ -348,7 +351,7 @@ class JARVISUltimate:
         # Resolve pronouns like "it", "that" to actual entities
         resolved_command = self.context_memory.resolve_pronoun(command)
         if resolved_command != command:
-            print(f"  [CONTEXT] Resolved: '{command}' -> '{resolved_command}'")
+            _log.info(f"  [CONTEXT] Resolved: '{command}' -> '{resolved_command}'")
             command = resolved_command
         
         command_lower = command.lower()
@@ -367,7 +370,7 @@ class JARVISUltimate:
                 try:
                     self.perception.engine.stop()
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
             self.perception.speak("Okay, stopping.")
             return True
 
@@ -438,7 +441,7 @@ class JARVISUltimate:
                 self.perception.speak("Tab closed, sir.")
                 return True
         except ImportError:
-            pass
+            _log.debug("Ignored error", exc_info=True)
 
         # ========== SCREEN CONTROL (scroll, click, switch, minimize) ==========
         screen_control_keywords = ["scroll up", "scroll down", "click", "double click", "right click", 
@@ -472,7 +475,7 @@ class JARVISUltimate:
                     self.perception.speak("Previous track.")
                     return True
         except ImportError:
-            pass
+            _log.debug("Ignored error", exc_info=True)
 
         # ========== APP SWITCHING (switch to, switch back, list windows) ==========
         switch_keywords = ["switch to", "switch back", "go back", "focus", "list windows", "what's open", "running apps"]
@@ -518,7 +521,7 @@ class JARVISUltimate:
                     self.app_switcher.close_app(app_name)
                     return True
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
 
         # Classify intent
         intent, confidence = self.understanding.classify(command)
@@ -543,7 +546,7 @@ class JARVISUltimate:
                         # Override intent to open_app
                         intent = "open_app"
                         entities["apps"] = [app_name]
-                        print(f"  [OVERRIDE] Detected app open command: {app_name}")
+                        _log.info(f"  [OVERRIDE] Detected app open command: {app_name}")
                         break
 
         # ========== BASIC ACTIONS ==========
@@ -842,7 +845,7 @@ class JARVISUltimate:
                     self.perception.speak(f"No PDF is currently open, {self.perception.user_title}. Please open a PDF first.")
                     success = True
             except Exception as e:
-                print(f"[PDF] Error detecting active PDF: {e}")
+                _log.warning(f"[PDF] Error detecting active PDF: {e}")
                 # Fallback: summarize most recent PDF
                 recent_pdfs = self.pdf.find_pdfs()
                 if recent_pdfs:
@@ -969,12 +972,12 @@ class JARVISUltimate:
         title = self.perception.user_title
         self.perception.speak(f"Hello {title}. {name} is now online and ready.")
 
-        print("\n" + "="*50)
-        print(f"       {name.upper()} IS NOW LISTENING")
-        print("="*50)
-        print("  Speak clearly into your microphone.")
-        print("  Say 'exit' or 'goodbye' to quit.")
-        print("="*50 + "\n")
+        _log.info("\n" + "="*50)
+        _log.info(f"       {name.upper()} IS NOW LISTENING")
+        _log.info("="*50)
+        _log.info("  Speak clearly into your microphone.")
+        _log.info("  Say 'exit' or 'goodbye' to quit.")
+        _log.info("="*50 + "\n")
 
         while True:
             try:
@@ -984,7 +987,7 @@ class JARVISUltimate:
                     if proactive_msg:
                         self.perception.speak(proactive_msg)
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
                 
                 # Check for wellness reminders
                 try:
@@ -992,13 +995,13 @@ class JARVISUltimate:
                     if wellness_msg:
                         self.perception.speak(wellness_msg)
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
                 
                 # Check for reminders in background
                 try:
                     self.task_manager.check_reminders()
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
                 
                 # Listen for command
                 command = self.perception.listen(timeout=15)
@@ -1011,10 +1014,10 @@ class JARVISUltimate:
                     if not self.process_command(command):
                         break  # Exit requested
             except KeyboardInterrupt:
-                print("\n\nKeyboard interrupt - Shutting down")
+                _log.info("\n\nKeyboard interrupt - Shutting down")
                 break
             except Exception as e:
-                print(f"ERROR in main loop: {e}")
+                _log.warning(f"ERROR in main loop: {e}")
                 continue
 
         # Cleanup

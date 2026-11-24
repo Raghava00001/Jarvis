@@ -6,6 +6,9 @@ Context Memory - Unified Memory System
 - Entity resolution and pronoun handling
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
 import sqlite3
 import json
@@ -26,7 +29,7 @@ try:
     import numpy as np
     EMBEDDINGS_AVAILABLE = importlib.util.find_spec("sentence_transformers") is not None
 except ImportError:
-    pass
+    _log.debug("Ignored error", exc_info=True)
 
 
 @dataclass
@@ -208,7 +211,7 @@ class LongTermMemory:
     """
     
     def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
-        print("[MEMORY] Initializing Long-Term Memory...")
+        _log.info("[MEMORY] Initializing Long-Term Memory...")
         
         # Data path
         self.db_path = Path(__file__).parent.parent / "data" / "long_term_memory.db"
@@ -221,9 +224,9 @@ class LongTermMemory:
                 from jarvis.core.shared_embeddings import get_shared_embedding_model
                 self.model = get_shared_embedding_model(model_name)
                 if self.model:
-                    print("[MEMORY] Embeddings enabled")
+                    _log.info("[MEMORY] Embeddings enabled")
             except Exception as e:
-                print(f"[MEMORY] Embedding model load failed: {e}")
+                _log.warning(f"[MEMORY] Embedding model load failed: {e}")
                 
         # Initialize database
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
@@ -234,7 +237,7 @@ class LongTermMemory:
         self._lock = threading.Lock()
         self._load_cache()
         
-        print(f"[MEMORY] {len(self._cache)} facts loaded")
+        _log.info(f"[MEMORY] {len(self._cache)} facts loaded")
         
     def _init_db(self):
         """Initialize SQLite database"""
@@ -266,7 +269,7 @@ class LongTermMemory:
                 try:
                     embedding = np.frombuffer(emb_blob, dtype=np.float32)
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
                     
             self._cache.append(MemoryFact(
                 fact=fact,
@@ -312,7 +315,7 @@ class LongTermMemory:
             return True
             
         except Exception as e:
-            print(f"[MEMORY] Remember error: {e}")
+            _log.warning(f"[MEMORY] Remember error: {e}")
             return False
             
     def recall(self, query: str, top_k: int = 5, 
@@ -404,7 +407,7 @@ class ContextMemory:
     """
     
     def __init__(self, perception=None):
-        print("[CONTEXT] Initializing Context Memory...")
+        _log.info("[CONTEXT] Initializing Context Memory...")
         self.perception = perception
         
         self.working = WorkingMemory()
@@ -414,7 +417,7 @@ class ContextMemory:
         self.preferences: Dict[str, float] = {}
         self._load_preferences()
         
-        print("[CONTEXT] Context Memory Ready")
+        _log.info("[CONTEXT] Context Memory Ready")
         
     def _load_preferences(self):
         """Load user preferences"""
@@ -424,7 +427,7 @@ class ContextMemory:
                 with open(pref_path, 'r') as f:
                     self.preferences = json.load(f)
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
             
     def _save_preferences(self):
         """Save user preferences"""
@@ -434,7 +437,7 @@ class ContextMemory:
             with open(pref_path, 'w') as f:
                 json.dump(self.preferences, f, indent=2)
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
             
     # Working memory shortcuts
     def add_exchange(self, user_input: str, jarvis_response: str,

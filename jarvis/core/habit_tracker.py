@@ -3,6 +3,9 @@ Habit Tracker - Daily Habits
 Tracks and reminds daily habits
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import json
 import datetime
 import uuid
@@ -14,7 +17,7 @@ class HabitTracker:
     """Tracks daily habits and provides reminders"""
 
     def __init__(self, perception):
-        print("[HABITS] Initializing Habit Tracker...")
+        _log.info("[HABITS] Initializing Habit Tracker...")
         self.perception = perception
         
         self.data_dir = Path(__file__).parent.parent.parent / "jarvis_data"
@@ -26,7 +29,7 @@ class HabitTracker:
         # Skip first reminder check on boot to prevent startup spam
         self._boot_grace = True
         
-        print("[HABITS] Tracker Ready")
+        _log.info("[HABITS] Tracker Ready")
 
     def _load_habits(self):
         """Load habits from file"""
@@ -45,7 +48,7 @@ class HabitTracker:
             with open(self.habits_file, 'w') as f:
                 json.dump(self.habits, f, indent=2)
         except Exception as e:
-            print(f"ERROR: Save error: {e}")
+            _log.warning(f"ERROR: Save error: {e}")
 
     def create_habit(self, description: str, interval: str):
         """Create a new habit"""
@@ -86,7 +89,7 @@ class HabitTracker:
                    datetime.datetime.fromisoformat(habit["last_reminder"]).date() < now.date():
                     habit["last_reminder"] = now.isoformat()
             self._save_habits()
-            print("[HABITS] Boot grace: silently updated timestamps (no spam)")
+            _log.info("[HABITS] Boot grace: silently updated timestamps (no spam)")
             return []
         
         due_reminders = []
@@ -130,7 +133,7 @@ class HabitTracker:
                 if not _live:
                     self.perception.speak(f"Reminder: {habit['description']}, sir.")
                 else:
-                    print(f"[HABITS] (live mode - suppressed) Reminder: {habit['description']}")
+                    _log.info(f"[HABITS] (live mode - suppressed) Reminder: {habit['description']}")
         
         return due_reminders
 

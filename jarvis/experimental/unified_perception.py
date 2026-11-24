@@ -9,6 +9,9 @@ Combines all input modalities:
 This is the sensory layer for JARVIS.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 # C-04: Lazy import — cv2 is only needed for camera-based features.
 # Failing to import should NOT block the entire JARVIS core.
 try:
@@ -16,7 +19,7 @@ try:
     _CV2_AVAILABLE = True
 except ImportError:
     _CV2_AVAILABLE = False
-    print("[PERCEPTION] OpenCV not installed — vision features disabled")
+    _log.info("[PERCEPTION] OpenCV not installed — vision features disabled")
 import threading
 import queue
 from typing import Optional, Dict, Any, Callable
@@ -58,7 +61,7 @@ class UnifiedPerception:
     """
     
     def __init__(self, callback: Callable[[PerceptionEvent], None] = None):
-        print("[PERCEPTION] Initializing Unified Perception...")
+        _log.info("[PERCEPTION] Initializing Unified Perception...")
         
         # Event callback
         self.on_event = callback
@@ -83,7 +86,7 @@ class UnifiedPerception:
         self.last_gesture = None
         self.last_emotion = "neutral"
         
-        print("[PERCEPTION] Unified Perception Ready")
+        _log.info("[PERCEPTION] Unified Perception Ready")
         
     def start_camera(self, camera_id: int = 0) -> bool:
         """Start camera for visual perception"""
@@ -94,7 +97,7 @@ class UnifiedPerception:
             from .shared_camera import get_shared_camera
             self.camera = get_shared_camera()
             if not self.camera.isOpened():
-                print("[PERCEPTION] Failed to open camera")
+                _log.warning("[PERCEPTION] Failed to open camera")
                 return False
                 
             self.camera_active = True
@@ -104,11 +107,11 @@ class UnifiedPerception:
             self.camera_thread = threading.Thread(target=self._camera_loop, daemon=True)
             self.camera_thread.start()
             
-            print("[PERCEPTION] Camera started")
+            _log.info("[PERCEPTION] Camera started")
             return True
             
         except Exception as e:
-            print(f"[PERCEPTION] Camera error: {e}")
+            _log.warning(f"[PERCEPTION] Camera error: {e}")
             return False
             
     def stop_camera(self):
@@ -122,7 +125,7 @@ class UnifiedPerception:
                 self.camera.unregister('unified_perception')
             self.camera = None
             
-        print("[PERCEPTION] Camera stopped")
+        _log.info("[PERCEPTION] Camera stopped")
         
     def _camera_loop(self):
         """Background camera processing loop"""
@@ -172,7 +175,7 @@ class UnifiedPerception:
                             confidence=0.7
                         ))
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
                     
     def _emit_event(self, event: PerceptionEvent):
         """Emit event to callback or queue"""
@@ -191,12 +194,12 @@ class UnifiedPerception:
     def enable_gestures(self):
         """Enable gesture control mode"""
         self.gesture_mode = True
-        print("[PERCEPTION] Gesture control enabled")
+        _log.info("[PERCEPTION] Gesture control enabled")
         
     def disable_gestures(self):
         """Disable gesture control mode"""
         self.gesture_mode = False
-        print("[PERCEPTION] Gesture control disabled")
+        _log.info("[PERCEPTION] Gesture control disabled")
         
     def register_face(self, name: str) -> tuple:
         """Register current camera face to name"""

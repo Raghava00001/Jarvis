@@ -7,6 +7,9 @@ Features:
 - Get page count and metadata
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import os
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -16,7 +19,7 @@ class PDFHandler:
     """Handles PDF operations including text extraction and summarization"""
     
     def __init__(self, perception=None, decision_engine=None):
-        print("[PDF] Initializing PDF Handler...")
+        _log.info("[PDF] Initializing PDF Handler...")
         self.perception = perception
         self.decision_engine = decision_engine
         
@@ -25,20 +28,20 @@ class PDFHandler:
         try:
             import PyPDF2
             self.pypdf_available = True
-            print("[PDF] PyPDF2 available")
+            _log.info("[PDF] PyPDF2 available")
         except ImportError:
-            print("[PDF] PyPDF2 not available - install with: pip install PyPDF2")
+            _log.warning("[PDF] PyPDF2 not available - install with: pip install PyPDF2")
         
         # Check for pdfplumber (better text extraction)
         self.pdfplumber_available = False
         try:
             import pdfplumber
             self.pdfplumber_available = True
-            print("[PDF] pdfplumber available")
+            _log.info("[PDF] pdfplumber available")
         except ImportError:
-            print("[PDF] pdfplumber not available")
+            _log.warning("[PDF] pdfplumber not available")
         
-        print("[PDF] PDF Handler Ready")
+        _log.info("[PDF] PDF Handler Ready")
     
     def _get_title(self) -> str:
         if self.perception:
@@ -49,7 +52,7 @@ class PDFHandler:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[PDF] {text}")
+            _log.info(f"[PDF] {text}")
     
     def extract_text(self, file_path: str, max_pages: int = None) -> str:
         """
@@ -106,7 +109,7 @@ class PDFHandler:
             return text.strip()
             
         except Exception as e:
-            print(f"[PDF] Error extracting text: {e}")
+            _log.warning(f"[PDF] Error extracting text: {e}")
             self._speak(f"Failed to read PDF, {title}.")
             return ""
     
@@ -139,7 +142,7 @@ class PDFHandler:
             return info
             
         except Exception as e:
-            print(f"[PDF] Error getting info: {e}")
+            _log.warning(f"[PDF] Error getting info: {e}")
             return {}
     
     def summarize(self, file_path: str, max_pages: int = 10) -> str:
@@ -173,7 +176,7 @@ class PDFHandler:
                 summary = self.decision_engine.summarize(text)
                 return summary
             except Exception as e:
-                print(f"[PDF] AI summarization error: {e}")
+                _log.warning(f"[PDF] AI summarization error: {e}")
         
         # Fallback: Simple extractive summary (first and last paragraphs)
         paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
@@ -207,5 +210,5 @@ class PDFHandler:
             )
             return pdfs[:recent]
         except Exception as e:
-            print(f"[PDF] Error finding PDFs: {e}")
+            _log.warning(f"[PDF] Error finding PDFs: {e}")
             return []

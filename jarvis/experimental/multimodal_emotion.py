@@ -9,6 +9,9 @@ Fuses emotion from 3 sources:
 Returns unified mood for JARVIS personality adaptation.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from typing import Dict, Optional, List
 from dataclasses import dataclass
 import numpy as np
@@ -22,19 +25,19 @@ try:
     from deepface import DeepFace
     DEEPFACE_AVAILABLE = True
 except ImportError:
-    pass
+    _log.debug("Ignored error", exc_info=True)
 
 try:
     import librosa
     LIBROSA_AVAILABLE = True
 except ImportError:
-    pass
+    _log.debug("Ignored error", exc_info=True)
 
 try:
     from transformers import pipeline
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
-    pass
+    _log.debug("Ignored error", exc_info=True)
 
 
 @dataclass
@@ -51,9 +54,9 @@ class FaceEmotionDetector:
     def __init__(self):
         self.available = DEEPFACE_AVAILABLE
         if self.available:
-            print("[EMOTION] Face emotion detector ready")
+            _log.info("[EMOTION] Face emotion detector ready")
         else:
-            print("[EMOTION] DeepFace not available")
+            _log.warning("[EMOTION] DeepFace not available")
             
     def detect(self, frame) -> Optional[EmotionSignal]:
         """Detect emotion from camera frame"""
@@ -102,9 +105,9 @@ class VoiceEmotionDetector:
     def __init__(self):
         self.available = LIBROSA_AVAILABLE
         if self.available:
-            print("[EMOTION] Voice emotion detector ready")
+            _log.info("[EMOTION] Voice emotion detector ready")
         else:
-            print("[EMOTION] librosa not available")
+            _log.warning("[EMOTION] librosa not available")
             
     def detect(self, audio_path: str) -> Optional[EmotionSignal]:
         """Detect emotion from audio file"""
@@ -170,7 +173,7 @@ class TextEmotionDetector:
         self.available = TRANSFORMERS_AVAILABLE
         
         if self.available:
-            print("[EMOTION] Text emotion detector loading...")
+            _log.info("[EMOTION] Text emotion detector loading...")
             try:
                 # Lazy load - will load on first use
                 self._model_name = "bhadresh-savani/distilbert-base-uncased-emotion"
@@ -186,7 +189,7 @@ class TextEmotionDetector:
                     model=self._model_name,
                     top_k=None
                 )
-                print("[EMOTION] Text emotion model loaded")
+                _log.info("[EMOTION] Text emotion model loaded")
             except Exception:
                 self.available = False
                 
@@ -265,12 +268,12 @@ class MultimodalEmotionFusion:
                 "frustrated", "excited", "fearful"]
     
     def __init__(self):
-        print("[EMOTION] Initializing Multimodal Emotion Fusion...")
+        _log.info("[EMOTION] Initializing Multimodal Emotion Fusion...")
         self.face_detector = FaceEmotionDetector()
         self.voice_detector = VoiceEmotionDetector()
         self.text_detector = TextEmotionDetector()
         self.history: List[str] = []  # recent dominant emotions
-        print("[EMOTION] Multimodal Emotion Fusion Ready")
+        _log.info("[EMOTION] Multimodal Emotion Fusion Ready")
         
     def fuse(self, 
              face_signal: Optional[EmotionSignal] = None,

@@ -8,6 +8,9 @@ Sound Effects Library - Production Grade
 - Configurable genre presets
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import os
 import threading
 import time
@@ -121,11 +124,11 @@ class PygameBackend(AudioBackend):
                 pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
             self.pygame = pygame
             self.available = True
-            print("[SOUND] pygame backend initialized")
+            _log.info("[SOUND] pygame backend initialized")
         except ImportError:
-            print("[SOUND] pygame not installed: pip install pygame")
+            _log.info("[SOUND] pygame not installed: pip install pygame")
         except Exception as e:
-            print(f"[SOUND] pygame init error: {e}")
+            _log.warning(f"[SOUND] pygame init error: {e}")
             
     def play_sound(self, path: str, volume: float = 1.0) -> bool:
         if not self.available:
@@ -140,7 +143,7 @@ class PygameBackend(AudioBackend):
             sound.play()
             return True
         except Exception as e:
-            print(f"[SOUND] play error: {e}")
+            _log.warning(f"[SOUND] play error: {e}")
             return False
             
     def play_music(self, path: str, volume: float = 0.3, loop: bool = True) -> bool:
@@ -154,7 +157,7 @@ class PygameBackend(AudioBackend):
             self.pygame.mixer.music.play(loops)
             return True
         except Exception as e:
-            print(f"[SOUND] music play error: {e}")
+            _log.warning(f"[SOUND] music play error: {e}")
             return False
             
     def stop_music(self, fade_ms: int = 0) -> bool:
@@ -168,7 +171,7 @@ class PygameBackend(AudioBackend):
                 self.pygame.mixer.music.stop()
             return True
         except Exception as e:
-            print(f"[SOUND] stop error: {e}")
+            _log.warning(f"[SOUND] stop error: {e}")
             return False
             
     def set_music_volume(self, volume: float) -> bool:
@@ -187,7 +190,7 @@ class PygameBackend(AudioBackend):
                 self.pygame.mixer.music.stop()
                 self.pygame.mixer.quit()
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
 
 
 class FallbackBackend(AudioBackend):
@@ -196,7 +199,7 @@ class FallbackBackend(AudioBackend):
     def __init__(self):
         import platform
         self.platform = platform.system()
-        print(f"[SOUND] Using fallback backend ({self.platform})")
+        _log.info(f"[SOUND] Using fallback backend ({self.platform})")
         
     def play_sound(self, path: str, volume: float = 1.0) -> bool:
         try:
@@ -211,7 +214,7 @@ class FallbackBackend(AudioBackend):
                 os.system(f'paplay "{path}" &')
                 return True
         except Exception:
-            print(f"[SOUND] Fallback play failed: {path}")
+            _log.warning(f"[SOUND] Fallback play failed: {path}")
             return False
             
     def play_music(self, path: str, volume: float = 0.3, loop: bool = True) -> bool:
@@ -245,7 +248,7 @@ class AssetManager:
         if self._load_cache():
             return
             
-        print("[SOUND] Scanning for audio assets...")
+        _log.info("[SOUND] Scanning for audio assets...")
         
         for ext in self.SUPPORTED_FORMATS:
             for path in self.assets_dir.rglob(f"*{ext}"):
@@ -271,7 +274,7 @@ class AssetManager:
                 )
                 
         self._save_cache()
-        print(f"[SOUND] Found {len(self.assets)} sound assets")
+        _log.info(f"[SOUND] Found {len(self.assets)} sound assets")
         
     def _load_cache(self) -> bool:
         """Load asset cache"""
@@ -301,7 +304,7 @@ class AssetManager:
             return len(self.assets) > 0
             
         except Exception as e:
-            print(f"[SOUND] Cache load error: {e}")
+            _log.warning(f"[SOUND] Cache load error: {e}")
             return False
             
     def _save_cache(self):
@@ -317,7 +320,7 @@ class AssetManager:
             with open(self.cache_path, 'w') as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            print(f"[SOUND] Cache save error: {e}")
+            _log.warning(f"[SOUND] Cache save error: {e}")
             
     def get(self, name: str) -> Optional[SoundAsset]:
         """Get asset by name"""
@@ -335,7 +338,7 @@ class SoundEffectsLibrary:
     """
     
     def __init__(self):
-        print("[SOUND] Initializing Sound Effects Library...")
+        _log.info("[SOUND] Initializing Sound Effects Library...")
         
         # Assets directory
         self.assets_dir = Path(__file__).parent.parent / "gui" / "assets" / "sounds"
@@ -356,7 +359,7 @@ class SoundEffectsLibrary:
         # Thread lock for thread safety
         self.lock = threading.Lock()
         
-        print("[SOUND] Sound Effects Library Ready")
+        _log.info("[SOUND] Sound Effects Library Ready")
         
     def play_background(self, sound_name: str, volume: float = 0.3) -> bool:
         """Start playing background music"""
@@ -371,7 +374,7 @@ class SoundEffectsLibrary:
                     return True
                 return False
             else:
-                print(f"[SOUND] Background not found: {sound_name}")
+                _log.info(f"[SOUND] Background not found: {sound_name}")
                 return False
                 
     def stop_background(self, fade_ms: int = 1000):
@@ -395,7 +398,7 @@ class SoundEffectsLibrary:
         if asset:
             return self.backend.play_sound(str(asset.path), volume)
         else:
-            print(f"[SOUND] Effect not found: {effect_name}")
+            _log.info(f"[SOUND] Effect not found: {effect_name}")
             return False
             
     def play_sequence(self, effects: List[str], delays: List[float] = None):
@@ -453,11 +456,11 @@ class ImmersiveStoryteller:
     """Tells stories with immersive sound effects"""
     
     def __init__(self, perception=None, knowledge=None):
-        print("[STORYTELLER] Initializing...")
+        _log.info("[STORYTELLER] Initializing...")
         self.perception = perception
         self.knowledge = knowledge
         self.sound_effects = SoundEffectsLibrary()
-        print("[STORYTELLER] Ready")
+        _log.info("[STORYTELLER] Ready")
         
     def tell_story(self, theme: str, genre: str) -> bool:
         """Tell a story with sound effects"""
@@ -508,7 +511,7 @@ class ImmersiveStoryteller:
 Keep it 2-3 minutes. Use [PAUSE] for pauses and [EFFECT] for sound effect moments."""
                 return self.knowledge.answer_question(prompt)
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
                 
         return f"Once upon a time, there was a tale about {theme}. [PAUSE] The end."
         
@@ -548,7 +551,7 @@ Keep it 2-3 minutes. Use [PAUSE] for pauses and [EFFECT] for sound effect moment
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[STORY] {text}")
+            _log.info(f"[STORY] {text}")
     
     def set_genre(self, genre: str):
         """Set up sounds for a genre"""

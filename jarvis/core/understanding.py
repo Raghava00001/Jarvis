@@ -3,6 +3,9 @@ Understanding Layer - Intent Classification with Confidence
 Extended intents for JARVIS
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import re
 import numpy as np
 
@@ -12,7 +15,7 @@ import numpy as np
 import importlib.util
 SENTENCE_TRANSFORMERS_AVAILABLE = importlib.util.find_spec("sentence_transformers") is not None
 if not SENTENCE_TRANSFORMERS_AVAILABLE:
-    print("[UNDERSTANDING] sentence-transformers not installed — install with: pip install sentence-transformers")
+    _log.info("[UNDERSTANDING] sentence-transformers not installed — install with: pip install sentence-transformers")
 
 
 class UnderstandingLayer:
@@ -22,12 +25,12 @@ class UnderstandingLayer:
     MARGIN_THRESHOLD = 0.05  # difference between top 2 intents
 
     def __init__(self):
-        print("[UNDERSTANDING] Loading Understanding Layer...")
+        _log.info("[UNDERSTANDING] Loading Understanding Layer...")
         if not SENTENCE_TRANSFORMERS_AVAILABLE:
-            print("[UNDERSTANDING] WARNING: Running without ML model — classification disabled")
+            _log.warning("[UNDERSTANDING] WARNING: Running without ML model — classification disabled")
             self.model = None
             self.intent_embeddings = {}
-            print("[UNDERSTANDING] Layer Ready (degraded)")
+            _log.info("[UNDERSTANDING] Layer Ready (degraded)")
             return
             
         from jarvis.core.shared_embeddings import get_shared_embedding_model
@@ -160,7 +163,7 @@ class UnderstandingLayer:
             vectors = self.model.encode(examples, normalize_embeddings=True)
             self.intent_embeddings[intent] = np.mean(vectors, axis=0)
 
-        print("[UNDERSTANDING] Layer Ready")
+        _log.info("[UNDERSTANDING] Layer Ready")
 
     def classify(self, command: str):
         """Return (intent, confidence)"""
@@ -180,16 +183,16 @@ class UnderstandingLayer:
         best_intent, best_score = scores[0]
         second_score = scores[1][1] if len(scores) > 1 else 0.0
 
-        print(f"  Intent: {best_intent} ({best_score:.3f})")
+        _log.info(f"  Intent: {best_intent} ({best_score:.3f})")
 
         # Reject low confidence
         if best_score < self.CONFIDENCE_THRESHOLD:
-            print("  WARNING: Confidence below threshold")
+            _log.warning("  WARNING: Confidence below threshold")
             return "uncertain", best_score
 
         # Reject ambiguous matches
         if (best_score - second_score) < self.MARGIN_THRESHOLD:
-            print("  WARNING: Ambiguous intent match")
+            _log.warning("  WARNING: Ambiguous intent match")
             return "uncertain", best_score
 
         return best_intent, best_score

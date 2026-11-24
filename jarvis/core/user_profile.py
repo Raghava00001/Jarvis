@@ -7,6 +7,9 @@ Values come from (highest priority first):
   3. the defaults below
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import json
 import os
 from functools import lru_cache
@@ -35,7 +38,7 @@ def get_profile() -> dict:
             data = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
             profile.update({k: str(v) for k, v in data.items() if k in DEFAULTS and v is not None})
         except (OSError, ValueError) as e:
-            print(f"[PROFILE] Could not read {PROFILE_PATH.name}: {e}")
+            _log.warning(f"[PROFILE] Could not read {PROFILE_PATH.name}: {e}")
     for key, env_var in _ENV.items():
         if os.getenv(env_var):
             profile[key] = os.environ[env_var]

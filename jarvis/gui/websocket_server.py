@@ -13,6 +13,9 @@ Connects Web HUD to JARVISUltimate with ALL features:
 - All JARVIS commands
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import asyncio
 import websockets
 import json
@@ -128,16 +131,16 @@ _project_root = Path(__file__).parent.parent.parent.resolve()
 _jarvis_root = Path(__file__).parent.parent.resolve()
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
-print(f"[WebSocket] Project root: {_project_root}")
+_log.info(f"[WebSocket] Project root: {_project_root}")
 
 # Load .env file for API keys
 try:
     from dotenv import load_dotenv
     env_path = Path(__file__).parent.parent.parent / '.env'
     load_dotenv(env_path)
-    print(f"[WebSocket] Loaded .env from {env_path}")
+    _log.info(f"[WebSocket] Loaded .env from {env_path}")
 except ImportError:
-    print("[WebSocket] python-dotenv not installed, using system env vars")
+    _log.info("[WebSocket] python-dotenv not installed, using system env vars")
 
 
 # Wake/exit/power phrase rules and WebSocket access checks live in command_rules.py
@@ -183,9 +186,9 @@ SCREEN_CONTROL_AVAILABLE = False
 try:
     from jarvis.core.jarvis_ultimate import JARVISUltimate
     JARVIS_AVAILABLE = True
-    print("[WebSocket] JARVISUltimate available - FULL INTEGRATION")
+    _log.info("[WebSocket] JARVISUltimate available - FULL INTEGRATION")
 except ImportError as e:
-    print(f"[WebSocket] JARVISUltimate not available: {e}")
+    _log.warning(f"[WebSocket] JARVISUltimate not available: {e}")
     JARVIS_AVAILABLE = False
 
 # Optional features: an import that fails switches the feature off. That used
@@ -196,7 +199,7 @@ MISSING_IMPORTS = []
 
 def _optional_missing(err):
     MISSING_IMPORTS.append(str(err))
-    print(f"[WebSocket] Optional feature unavailable: {err}")
+    _log.warning(f"[WebSocket] Optional feature unavailable: {err}")
 
 
 # Import individual components as fallbacks
@@ -209,14 +212,14 @@ except ImportError as _e:
 try:
     from jarvis.core.gesture_controller import GestureController  # (also asked for a non-existent GestureType, so this always failed)
     GESTURE_AVAILABLE = True
-    print("[WebSocket] Gesture controller available")
+    _log.info("[WebSocket] Gesture controller available")
 except ImportError as _e:
     _optional_missing(_e)
 
 try:
     from jarvis.core.face_recognition_auth import FaceRecognition, UserType
     FACE_AVAILABLE = True
-    print("[WebSocket] Face recognition available")
+    _log.info("[WebSocket] Face recognition available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -225,7 +228,7 @@ try:
     # detector's EmotionState here used to silently replace it
     from jarvis.core.emotion_detector import EmotionDetector
     EMOTION_AVAILABLE = True
-    print("[WebSocket] Emotion detector available")
+    _log.info("[WebSocket] Emotion detector available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -251,49 +254,49 @@ except ImportError:
 try:
     from jarvis.core.screenshot_handler import ScreenshotHandler
     SCREENSHOT_AVAILABLE = True
-    print("[WebSocket] Screenshot handler available")
+    _log.info("[WebSocket] Screenshot handler available")
 except ImportError as _e:
     _optional_missing(_e)
 
 try:
     from jarvis.core.ocr_handler import OCRHandler
     OCR_AVAILABLE = True
-    print("[WebSocket] OCR handler available")
+    _log.info("[WebSocket] OCR handler available")
 except ImportError as _e:
     _optional_missing(_e)
 
 try:
     from jarvis.core.dictionary_handler import DictionaryHandler
     DICTIONARY_AVAILABLE = True
-    print("[WebSocket] Dictionary handler available")
+    _log.info("[WebSocket] Dictionary handler available")
 except ImportError as _e:
     _optional_missing(_e)
 
 try:
     from jarvis.core.email_handler import EmailHandler
     EMAIL_AVAILABLE = True
-    print("[WebSocket] Email handler available")
+    _log.info("[WebSocket] Email handler available")
 except ImportError as _e:
     _optional_missing(_e)
 
 try:
     from jarvis.core.entertainment import JARVISEntertainment
     ENTERTAINMENT_AVAILABLE = True
-    print("[WebSocket] Entertainment module available")
+    _log.info("[WebSocket] Entertainment module available")
 except ImportError as _e:
     _optional_missing(_e)
 
 try:
     from jarvis.core.smart_notes import SmartNotes
     NOTES_AVAILABLE = True
-    print("[WebSocket] Smart notes available")
+    _log.info("[WebSocket] Smart notes available")
 except ImportError as _e:
     _optional_missing(_e)
 
 try:
     from jarvis.core.alarm_system import AlarmSystem
     ALARM_AVAILABLE = True
-    print("[WebSocket] Alarm system available")
+    _log.info("[WebSocket] Alarm system available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -302,14 +305,14 @@ REMINDER_AVAILABLE = False
 try:
     from jarvis.core.reminder_manager import ReminderManager
     REMINDER_AVAILABLE = True
-    print("[WebSocket] Reminder manager available")
+    _log.info("[WebSocket] Reminder manager available")
 except ImportError as _e:
     _optional_missing(_e)
 
 try:
     from jarvis.core.system_control import SystemControl
     SYSTEM_CONTROL_AVAILABLE = True
-    print("[WebSocket] System control available")
+    _log.info("[WebSocket] System control available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -318,7 +321,7 @@ KNOWLEDGE_AVAILABLE = False
 try:
     from jarvis.core.knowledge import KnowledgeLayer
     KNOWLEDGE_AVAILABLE = True
-    print("[WebSocket] Knowledge layer (Gemini AI) available")
+    _log.info("[WebSocket] Knowledge layer (Gemini AI) available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -329,15 +332,15 @@ try:
     from jarvis.core.intent_classifier import classify_intent
     from jarvis.core.intent_handlers import HANDLER_MAP
     ROUTER_AVAILABLE = True
-    print("[WebSocket] IntentRouter and handlers available")
+    _log.info("[WebSocket] IntentRouter and handlers available")
 except ImportError as e:
-    print(f"[WebSocket] IntentRouter not available: {e}")
+    _log.warning(f"[WebSocket] IntentRouter not available: {e}")
 
 # Context Memory for improved conversational abilities
 try:
     from jarvis.core.context_memory import ContextMemory, WorkingMemory
     CONTEXT_MEMORY_AVAILABLE = True
-    print("[WebSocket] ContextMemory available - enhanced conversations")
+    _log.info("[WebSocket] ContextMemory available - enhanced conversations")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -345,7 +348,7 @@ except ImportError as _e:
 try:
     from jarvis.core.screen_control import ScreenControlHandler
     SCREEN_CONTROL_AVAILABLE = True
-    print("[WebSocket] Screen control available")
+    _log.info("[WebSocket] Screen control available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -356,16 +359,16 @@ try:
     import os
     if os.getenv("JARVIS_USE_GEMINI_LIVE", "0") == "1" and os.getenv("GEMINI_API_KEY"):
         GEMINI_LIVE_AVAILABLE = True
-        print("[WebSocket] Gemini Live Engine available and enabled by .env")
+        _log.info("[WebSocket] Gemini Live Engine available and enabled by .env")
 except ImportError as e:
-    print(f"[WebSocket] Gemini Live Engine not available: {e}")
+    _log.warning(f"[WebSocket] Gemini Live Engine not available: {e}")
 
 # PDF Handler
 PDF_AVAILABLE = False
 try:
     from jarvis.core.pdf_handler import PDFHandler
     PDF_AVAILABLE = True
-    print("[WebSocket] PDF handler available")
+    _log.info("[WebSocket] PDF handler available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -374,16 +377,16 @@ BRAIN_AVAILABLE = False
 try:
     from jarvis.core.brain_adapter import BrainAdapter, get_brain_adapter
     BRAIN_AVAILABLE = True
-    print("[WebSocket] Brain Adapter available")
+    _log.info("[WebSocket] Brain Adapter available")
 except ImportError as e:
-    print(f"[WebSocket] Brain Adapter not available: {e}")
+    _log.warning(f"[WebSocket] Brain Adapter not available: {e}")
 
 # WhatsApp Handler
 WHATSAPP_AVAILABLE = False
 try:
     from jarvis.core.whatsapp_handler import WhatsAppHandler
     WHATSAPP_AVAILABLE = True
-    print("[WebSocket] WhatsApp handler available")
+    _log.info("[WebSocket] WhatsApp handler available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -392,7 +395,7 @@ CALENDAR_AVAILABLE = False
 try:
     from jarvis.core.calendar_integration import CalendarIntegration
     CALENDAR_AVAILABLE = True
-    print("[WebSocket] Calendar integration available")
+    _log.info("[WebSocket] Calendar integration available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -403,7 +406,7 @@ PROACTIVE_AVAILABLE = False
 try:
     from jarvis.core.proactive_assistant import ProactiveAssistant
     PROACTIVE_AVAILABLE = True
-    print("[WebSocket] Proactive assistant available")
+    _log.info("[WebSocket] Proactive assistant available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -415,7 +418,7 @@ YOUTUBE_AVAILABLE = False
 try:
     from jarvis.core.youtube_downloader import YouTubeDownloader
     YOUTUBE_AVAILABLE = True
-    print("[WebSocket] YouTube downloader available")
+    _log.info("[WebSocket] YouTube downloader available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -424,7 +427,7 @@ HOTKEY_AVAILABLE = False
 try:
     from jarvis.core.hotkey_system import HotkeySystem
     HOTKEY_AVAILABLE = True
-    print("[WebSocket] Hotkey system available")
+    _log.info("[WebSocket] Hotkey system available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -433,7 +436,7 @@ CHAT_HISTORY_AVAILABLE = False
 try:
     from jarvis.core.chat_history import ChatHistory
     CHAT_HISTORY_AVAILABLE = True
-    print("[WebSocket] Chat history available")
+    _log.info("[WebSocket] Chat history available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -442,7 +445,7 @@ HABIT_TRACKER_AVAILABLE = False
 try:
     from jarvis.core.habit_tracker import HabitTracker
     HABIT_TRACKER_AVAILABLE = True
-    print("[WebSocket] Habit tracker available")
+    _log.info("[WebSocket] Habit tracker available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -451,7 +454,7 @@ TASK_MANAGER_AVAILABLE = False
 try:
     from jarvis.core.task_manager import TaskManager
     TASK_MANAGER_AVAILABLE = True
-    print("[WebSocket] Task manager available")
+    _log.info("[WebSocket] Task manager available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -460,7 +463,7 @@ WELLNESS_AVAILABLE = False
 try:
     from jarvis.core.wellness_monitor import WellnessMonitor
     WELLNESS_AVAILABLE = True
-    print("[WebSocket] Wellness monitor available")
+    _log.info("[WebSocket] Wellness monitor available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -469,7 +472,7 @@ CLIPBOARD_AVAILABLE = False
 try:
     from jarvis.core.clipboard_intelligence import ClipboardIntelligence
     CLIPBOARD_AVAILABLE = True
-    print("[WebSocket] Clipboard Intelligence available")
+    _log.info("[WebSocket] Clipboard Intelligence available")
 except ImportError as _e:
     _optional_missing(_e)
 
@@ -686,11 +689,11 @@ class JARVISWebSocketServer:
     def emotion_detector(self):
         if getattr(self, 'jarvis', None):
             try: return self.jarvis.emotion_detector
-            except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.emotion_detector: {e}")
+            except Exception as e: _log.warning(f"[LAZY LOAD ERROR] jarvis.emotion_detector: {e}")
         if getattr(self, '_emotion_detector', None) is None and EMOTION_AVAILABLE:
             try: self._emotion_detector = shared(EmotionDetector)
             except Exception as e:
-                print(f"[LAZY LOAD ERROR] emotion_detector: {e}")
+                _log.warning(f"[LAZY LOAD ERROR] emotion_detector: {e}")
                 return None
         return getattr(self, '_emotion_detector', None)
 
@@ -698,11 +701,11 @@ class JARVISWebSocketServer:
     def face_recognition(self):
         if getattr(self, 'jarvis', None) and hasattr(self.jarvis, 'face_auth'):
             try: return self.jarvis.face_auth
-            except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.face_auth: {e}")
+            except Exception as e: _log.warning(f"[LAZY LOAD ERROR] jarvis.face_auth: {e}")
         if getattr(self, '_face_recognition', None) is None and FACE_AVAILABLE:
             try: self._face_recognition = shared(FaceRecognition, lambda: FaceRecognition(self.hud_perception))
             except Exception as e:
-                print(f"[LAZY LOAD ERROR] face_recognition: {e}")
+                _log.warning(f"[LAZY LOAD ERROR] face_recognition: {e}")
                 return None
         return getattr(self, '_face_recognition', None)
 
@@ -710,11 +713,11 @@ class JARVISWebSocketServer:
     def gesture_controller(self):
         if getattr(self, 'jarvis', None) and hasattr(self.jarvis, 'gesture'):
             try: return self.jarvis.gesture
-            except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.gesture: {e}")
+            except Exception as e: _log.warning(f"[LAZY LOAD ERROR] jarvis.gesture: {e}")
         if getattr(self, '_gesture_controller', None) is None and GESTURE_AVAILABLE:
             try: self._gesture_controller = shared(GestureController, lambda: GestureController(self.hud_perception))
             except Exception as e:
-                print(f"[LAZY LOAD ERROR] gesture_controller: {e}")
+                _log.warning(f"[LAZY LOAD ERROR] gesture_controller: {e}")
                 return None
         return getattr(self, '_gesture_controller', None)
 
@@ -722,11 +725,11 @@ class JARVISWebSocketServer:
     def chat_history(self):
         if getattr(self, 'jarvis', None):
             try: return self.jarvis.chat_history
-            except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.chat_history: {e}")
+            except Exception as e: _log.warning(f"[LAZY LOAD ERROR] jarvis.chat_history: {e}")
         if getattr(self, '_chat_history', None) is None and CHAT_HISTORY_AVAILABLE:
             try: self._chat_history = shared(ChatHistory, lambda: ChatHistory(self.hud_perception))
             except Exception as e:
-                print(f"[LAZY LOAD ERROR] chat_history: {e}")
+                _log.warning(f"[LAZY LOAD ERROR] chat_history: {e}")
                 return None
         return getattr(self, '_chat_history', None)
 
@@ -734,11 +737,11 @@ class JARVISWebSocketServer:
     def context_memory(self):
         if getattr(self, 'jarvis', None):
             try: return self.jarvis.context_memory
-            except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.context_memory: {e}")
+            except Exception as e: _log.warning(f"[LAZY LOAD ERROR] jarvis.context_memory: {e}")
         if getattr(self, '_context_memory', None) is None and CONTEXT_MEMORY_AVAILABLE:
             try: self._context_memory = shared(ContextMemory)
             except Exception as e:
-                print(f"[LAZY LOAD ERROR] context_memory: {e}")
+                _log.warning(f"[LAZY LOAD ERROR] context_memory: {e}")
                 return None
         return getattr(self, '_context_memory', None)
 
@@ -746,11 +749,11 @@ class JARVISWebSocketServer:
     def knowledge(self):
         if getattr(self, 'jarvis', None):
             try: return self.jarvis.knowledge
-            except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.knowledge: {e}")
+            except Exception as e: _log.warning(f"[LAZY LOAD ERROR] jarvis.knowledge: {e}")
         if getattr(self, '_knowledge', None) is None and KNOWLEDGE_AVAILABLE:
             try: self._knowledge = shared(KnowledgeLayer, lambda: KnowledgeLayer(self.hud_perception))
             except Exception as e:
-                print(f"[LAZY LOAD ERROR] knowledge: {e}")
+                _log.warning(f"[LAZY LOAD ERROR] knowledge: {e}")
                 return None
         return getattr(self, '_knowledge', None)
 
@@ -758,11 +761,11 @@ class JARVISWebSocketServer:
     def ocr_handler(self):
         if getattr(self, 'jarvis', None):
             try: return self.jarvis.ocr
-            except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.ocr: {e}")
+            except Exception as e: _log.warning(f"[LAZY LOAD ERROR] jarvis.ocr: {e}")
         if getattr(self, '_ocr_handler', None) is None and OCR_AVAILABLE:
             try: self._ocr_handler = shared(OCRHandler, lambda: OCRHandler(self.hud_perception))
             except Exception as e:
-                print(f"[LAZY LOAD ERROR] ocr_handler: {e}")
+                _log.warning(f"[LAZY LOAD ERROR] ocr_handler: {e}")
                 return None
         return getattr(self, '_ocr_handler', None)
 
@@ -770,11 +773,11 @@ class JARVISWebSocketServer:
     def pdf_handler(self):
         if getattr(self, 'jarvis', None):
             try: return self.jarvis.pdf
-            except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.pdf: {e}")
+            except Exception as e: _log.warning(f"[LAZY LOAD ERROR] jarvis.pdf: {e}")
         if getattr(self, '_pdf_handler', None) is None and PDF_AVAILABLE:
             try: self._pdf_handler = shared(PDFHandler, lambda: PDFHandler(self.hud_perception, self.knowledge))
             except Exception as e:
-                print(f"[LAZY LOAD ERROR] pdf_handler: {e}")
+                _log.warning(f"[LAZY LOAD ERROR] pdf_handler: {e}")
                 return None
         return getattr(self, '_pdf_handler', None)
 
@@ -782,11 +785,11 @@ class JARVISWebSocketServer:
     def youtube_downloader(self):
         if getattr(self, 'jarvis', None):
             try: return self.jarvis.youtube
-            except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.youtube: {e}")
+            except Exception as e: _log.warning(f"[LAZY LOAD ERROR] jarvis.youtube: {e}")
         if getattr(self, '_youtube_downloader', None) is None and YOUTUBE_AVAILABLE:
             try: self._youtube_downloader = shared(YouTubeDownloader, lambda: YouTubeDownloader(self.hud_perception))
             except Exception as e:
-                print(f"[LAZY LOAD ERROR] youtube_downloader: {e}")
+                _log.warning(f"[LAZY LOAD ERROR] youtube_downloader: {e}")
                 return None
         return getattr(self, '_youtube_downloader', None)
 
@@ -794,19 +797,19 @@ class JARVISWebSocketServer:
     def clipboard_intelligence(self):
         if getattr(self, 'jarvis', None):
             try: return self.jarvis.clipboard
-            except Exception as e: print(f"[LAZY LOAD ERROR] jarvis.clipboard: {e}")
+            except Exception as e: _log.warning(f"[LAZY LOAD ERROR] jarvis.clipboard: {e}")
         if getattr(self, '_clipboard_intelligence', None) is None and CLIPBOARD_AVAILABLE:
             try: self._init_clipboard()
             except Exception as e:
-                print(f"[LAZY LOAD ERROR] clipboard_intelligence: {e}")
+                _log.warning(f"[LAZY LOAD ERROR] clipboard_intelligence: {e}")
                 return None
         return getattr(self, '_clipboard_intelligence', None)
         
     def _init_jarvis(self):
         """Initialize JARVISUltimate and all handlers"""
-        print("\n" + "="*60)
-        print("     JARVIS WebSocket Server - Full Integration")
-        print("="*60 + "\n")
+        _log.info("\n" + "="*60)
+        _log.info("     JARVIS WebSocket Server - Full Integration")
+        _log.info("="*60 + "\n")
         
         # Try to initialize full JARVIS
         if JARVIS_AVAILABLE:
@@ -831,13 +834,13 @@ class JARVISWebSocketServer:
             }
             # Boot orchestrator - pass None for jarvis, it will handle it
             self.startup_orchestrator = StartupOrchestrator(None, boot_context)
-            print("[BOOT] Startup Orchestrator ready")
+            _log.info("[BOOT] Startup Orchestrator ready")
         except Exception as e:
-            print(f"[BOOT] Startup Orchestrator error: {e}")
+            _log.warning(f"[BOOT] Startup Orchestrator error: {e}")
 
-        print("\n" + "="*60)
-        print("     Server Ready - All Features Initialized")
-        print("="*60 + "\n")
+        _log.info("\n" + "="*60)
+        _log.info("     Server Ready - All Features Initialized")
+        _log.info("="*60 + "\n")
     
     # ═══════════════════════════════════════════════════════════════
     # VOICE LISTENING THREAD
@@ -849,11 +852,11 @@ class JARVISWebSocketServer:
         # When Gemini Live Engine is active, it owns the microphone exclusively.
         # Do NOT start the old STT pipeline — it would fight for the mic.
         if getattr(self, 'live_engine', None):
-            print("[VOICE] Gemini Live Engine active -- old voice listener SKIPPED")
+            _log.info("[VOICE] Gemini Live Engine active -- old voice listener SKIPPED")
             return
 
         if not self.perception:
-            print("[VOICE] No perception layer - voice input disabled")
+            _log.info("[VOICE] No perception layer - voice input disabled")
             return
         
         self._voice_thread = threading.Thread(
@@ -862,7 +865,7 @@ class JARVISWebSocketServer:
             name="JARVISVoiceThread"
         )
         self._voice_thread.start()
-        print("[VOICE] Background voice listening thread started")
+        _log.info("[VOICE] Background voice listening thread started")
     
     def _voice_listen_loop(self):
         """Background voice listening loop.
@@ -874,7 +877,7 @@ class JARVISWebSocketServer:
         1. Flag-based: Skip listening while JARVIS is speaking (mic_muted)
         2. Content-based: Filter out text that matches recent JARVIS responses
         """
-        print("[VOICE] Voice listening active - speak into microphone")
+        _log.info("[VOICE] Voice listening active - speak into microphone")
         
         # Store recent JARVIS responses for echo comparison
         if not hasattr(self, '_recent_responses'):
@@ -909,7 +912,7 @@ class JARVISWebSocketServer:
                             if self.perception:
                                 self.perception.mic_muted = False
                                 self.perception.is_speaking = False
-                            print("[VOICE] Quiet mode OFF - wake word detected")
+                            _log.info("[VOICE] Quiet mode OFF - wake word detected")
                             # Process the command after the wake word
                             if self._voice_loop and self.clients:
                                 asyncio.run_coroutine_threadsafe(
@@ -917,7 +920,7 @@ class JARVISWebSocketServer:
                                     self._voice_loop
                                 )
                     except Exception:
-                        pass # Silently drop everything else in quiet mode
+                        _log.debug("Ignored error", exc_info=True) # Silently drop everything else in quiet mode
                     
                     time.sleep(0.5)
                     continue
@@ -939,18 +942,18 @@ class JARVISWebSocketServer:
                         # Check word overlap — if >50% of input words appear in response
                         overlap = len(text_words & resp_words)
                         if len(text_words) > 0 and overlap / len(text_words) > 0.5:
-                            print(f"[VOICE] Echo filtered: \"{text[:50]}...\" (matched recent response)")
+                            _log.info(f"[VOICE] Echo filtered: \"{text[:50]}...\" (matched recent response)")
                             is_echo = True
                             break
                     
                     if is_echo:
                         continue
                     
-                    print(f"[VOICE] Recognized: \"{text}\"")
+                    _log.info(f"[VOICE] Recognized: \"{text}\"")
                     
                     # ━━━ INTERRUPT: Stop JARVIS if speaking when user talks ━━━
                     if self.perception.is_speaking:
-                        print("[VOICE] User spoke while JARVIS speaking - interrupting")
+                        _log.info("[VOICE] User spoke while JARVIS speaking - interrupting")
                         self._stop_speaking()
                         time.sleep(0.3)
                     
@@ -961,13 +964,13 @@ class JARVISWebSocketServer:
                             self._voice_loop
                         )
                     elif not self.clients:
-                        print("[VOICE] No clients connected, skipping")
+                        _log.info("[VOICE] No clients connected, skipping")
                         
             except Exception as e:
                 err_str = str(e)
                 # Don't spam on timeouts
                 if 'listening timed out' not in err_str.lower() and 'WaitTimeoutError' not in err_str:
-                    print(f"[VOICE] Listen error: {e}")
+                    _log.warning(f"[VOICE] Listen error: {e}")
                 time.sleep(0.5)
     
     async def _handle_voice_input(self, text: str):
@@ -981,19 +984,19 @@ class JARVISWebSocketServer:
                 await self.process_message(ws, data)
                 break  # Only process once via first client
             except Exception as e:
-                print(f"[VOICE] Pipeline error: {e}")
+                _log.warning(f"[VOICE] Pipeline error: {e}")
     
     def _init_fallback(self):
         """Initialize with individual components"""
-        print("[WebSocket] Using fallback initialization...")
+        _log.info("[WebSocket] Using fallback initialization...")
         
         if PERCEPTION_AVAILABLE:
             try:
                 self.perception = shared(PerceptionLayer)
                 self.hud_perception.attach(self.perception)
-                print("[WebSocket] Perception layer initialized")
+                _log.info("[WebSocket] Perception layer initialized")
             except Exception as e:
-                print(f"[WebSocket] Perception error: {e}")
+                _log.warning(f"[WebSocket] Perception error: {e}")
     
     # ═══════════════════════════════════════════════════════════════
     # GESTURES
@@ -1043,7 +1046,7 @@ class JARVISWebSocketServer:
             self.GESTURE_PREFS.parent.mkdir(parents=True, exist_ok=True)
             self.GESTURE_PREFS.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
         except Exception as e:
-            print(f"[GESTURE] Could not save preference: {e}")
+            _log.warning(f"[GESTURE] Could not save preference: {e}")
         if self.gesture_enabled:
             return (f"Gesture control on{maybe_title(title)}. Open palm stops me, thumbs up means yes, "
                     f"thumbs down means no, a peace sign wakes me, and swipes control your app.")
@@ -1052,12 +1055,12 @@ class JARVISWebSocketServer:
     def _start_gesture_thread(self):
         """Start the gesture thread. It idles (camera closed) while gestures are off."""
         if not GESTURE_AVAILABLE:
-            print("[GESTURE] MediaPipe not installed - gestures unavailable")
+            _log.warning("[GESTURE] MediaPipe not installed - gestures unavailable")
             return
         self._gesture_thread = threading.Thread(
             target=self._gesture_process_loop, daemon=True, name="JARVISGestureThread")
         self._gesture_thread.start()
-        print("[GESTURE] Gesture thread started (camera opens only while gestures are on)")
+        _log.info("[GESTURE] Gesture thread started (camera opens only while gestures are on)")
 
     def _gesture_process_loop(self):
         from jarvis.core.gesture_controller import (
@@ -1108,10 +1111,10 @@ class JARVISWebSocketServer:
                 app = app_context(window)
                 action = get_gesture_action(gesture, app)
                 done = execute_gesture_action(action) if action else False
-                print(f"[GESTURE] {gesture} -> {action or 'nothing'} (app: {app})")
+                _log.info(f"[GESTURE] {gesture} -> {action or 'nothing'} (app: {app})")
                 self._gesture_feedback(gesture, action if done else None, app)
             except Exception as e:
-                print(f"[GESTURE] Processing error: {e}")
+                _log.warning(f"[GESTURE] Processing error: {e}")
                 time.sleep(1)
         if registered:
             cam.unregister("gesture")
@@ -1190,7 +1193,7 @@ class JARVISWebSocketServer:
         # ══════════════════════════════════════════════════════════════
         # PHASE 1: CRITICAL MODULES (sync — must be ready before server accepts clients)
         # ══════════════════════════════════════════════════════════════
-        print("[BOOT] Phase 1: Loading critical modules...")
+        _log.info("[BOOT] Phase 1: Loading critical modules...")
         
         # Fast / Lightweight handlers
         if not getattr(self, 'news_handler', None) and NEWS_AVAILABLE:
@@ -1230,33 +1233,33 @@ class JARVISWebSocketServer:
                     self.hud_perception,
                     jarvis_callback=self._on_hotkey_action
                 ))
-            except Exception: pass
+            except Exception: _log.debug("Ignored error", exc_info=True)
         
         # Reminders & Tasks 
         if REMINDER_AVAILABLE:
             try:
                 self.reminder_manager = shared(ReminderManager, lambda: ReminderManager(self.hud_perception))
                 self.reminder_manager.start()
-            except Exception: pass
+            except Exception: _log.debug("Ignored error", exc_info=True)
         
         if TASK_MANAGER_AVAILABLE:
             try:
                 self.task_manager_obj = shared(TaskManager, lambda: TaskManager(self.hud_perception))
-            except Exception: pass
+            except Exception: _log.debug("Ignored error", exc_info=True)
         
         # System control (needed for voice commands)
         if SYSTEM_CONTROL_AVAILABLE:
             try:
                 self.system_control = shared(SystemControl, lambda: SystemControl(self.hud_perception))
             except Exception as e:
-                print(f"[WebSocket] System control init error: {e}")
+                _log.warning(f"[WebSocket] System control init error: {e}")
         
         # Screenshot (needed for read_screen tool)
         if SCREENSHOT_AVAILABLE:
             try:
                 self.screenshot_handler = shared(ScreenshotHandler, lambda: ScreenshotHandler(self.hud_perception))
             except Exception as e:
-                print(f"[WebSocket] Screenshot init error: {e}")
+                _log.warning(f"[WebSocket] Screenshot init error: {e}")
         
         # Gemini Live Engine (core AI voice — must start immediately)
         self.live_engine = None
@@ -1270,15 +1273,15 @@ class JARVISWebSocketServer:
                 self.live_engine.start()
                 if self.hud_perception:
                     self.hud_perception._gemini_live_active = True
-                print("[WebSocket] Gemini Live Engine Initialized & Started")
+                _log.info("[WebSocket] Gemini Live Engine Initialized & Started")
             except Exception as e:
-                print(f"[WebSocket] Gemini Live Engine error: {e}")
+                _log.warning(f"[WebSocket] Gemini Live Engine error: {e}")
 
         if ROUTER_AVAILABLE:
-            print(f"[WebSocket] Intent routing ready (classify_intent + HANDLER_MAP with {len(HANDLER_MAP)} handlers)")
+            _log.info(f"[WebSocket] Intent routing ready (classify_intent + HANDLER_MAP with {len(HANDLER_MAP)} handlers)")
         
         critical_time = _time.time() - start
-        print(f"[BOOT] Phase 1 complete in {critical_time:.1f}s — server accepting connections")
+        _log.info(f"[BOOT] Phase 1 complete in {critical_time:.1f}s — server accepting connections")
         
         # ══════════════════════════════════════════════════════════════
         # PHASE 2: DEFERRED MODULES (background ThreadPoolExecutor)
@@ -1309,17 +1312,17 @@ class JARVISWebSocketServer:
                                 _name = _jl.load(_f).get("assistant", "jarvis")
                             self.hud_perception.assistant_name = _name.upper()
                             self.hud_perception.is_friday = (_name.lower() == "friday")
-                            print(f"[BG LOAD] Forced identity: {_name.upper()}")
+                            _log.info(f"[BG LOAD] Forced identity: {_name.upper()}")
                     except Exception as _e:
-                        print(f"[BG LOAD] Identity force failed (non-critical): {_e}")
+                        _log.warning(f"[BG LOAD] Identity force failed (non-critical): {_e}")
                     
-                    print("[BG LOAD] JARVIS core prewarmed")
+                    _log.info("[BG LOAD] JARVIS core prewarmed")
                 except Exception as e:
-                    print(f"[BG LOAD ERROR] JARVIS core prewarming failed: {e}")
+                    _log.warning(f"[BG LOAD ERROR] JARVIS core prewarming failed: {e}")
 
         def _load_deferred():
             defer_start = _time.time()
-            print("[BOOT] Phase 2: Loading deferred modules in background...")
+            _log.info("[BOOT] Phase 2: Loading deferred modules in background...")
             
             import concurrent.futures
             
@@ -1333,12 +1336,12 @@ class JARVISWebSocketServer:
                     # COORD-FIX: Bridge brain state to UI state controller
                     if hasattr(self, 'state_manager') and self.state_manager:
                         self._brain.ui_state_controller = self.state_manager
-                    print("[BG LOAD] Brain Adapter initialized")
+                    _log.info("[BG LOAD] Brain Adapter initialized")
                     if hasattr(self, 'perception') and self.perception:
                         self._brain.start_perception_consumer(self.perception)
-                        print("[BG LOAD] Brain Perception Consumer started")
+                        _log.info("[BG LOAD] Brain Perception Consumer started")
                 except Exception as e:
-                    print(f"[BG LOAD ERROR] Brain Adapter: {e}")
+                    _log.warning(f"[BG LOAD ERROR] Brain Adapter: {e}")
                     self._brain = None
             else:
                 self._brain = None
@@ -1372,10 +1375,10 @@ class JARVISWebSocketServer:
                 if available and getattr(self, attr_name, None) is None:
                     try:
                         setattr(self, attr_name, factory())
-                        print(f"[BG LOAD] {label} loaded")
+                        _log.info(f"[BG LOAD] {label} loaded")
                         return True
                     except Exception as e:
-                        print(f"[BG LOAD ERROR] {label}: {e}")
+                        _log.warning(f"[BG LOAD ERROR] {label}: {e}")
                 return False
 
             loaded = 0
@@ -1384,7 +1387,7 @@ class JARVISWebSocketServer:
                 loaded = sum(1 for r in results if r)
             
             defer_time = _time.time() - defer_start
-            print(f"[BOOT] Phase 2 complete: deferred batch finished. {loaded} modules loaded in {defer_time:.1f}s")
+            _log.info(f"[BOOT] Phase 2 complete: deferred batch finished. {loaded} modules loaded in {defer_time:.1f}s")
         
         # Launch deferred loading in background thread
         self._deferred_thread = threading.Thread(
@@ -1406,7 +1409,7 @@ class JARVISWebSocketServer:
                     'content_type': suggestion.get('type', ''),
                 })
             except Exception as e:
-                print(f"[CLIPBOARD] Suggestion push error: {e}")
+                _log.warning(f"[CLIPBOARD] Suggestion push error: {e}")
 
         clip = ClipboardIntelligence(
             perception=self.hud_perception,
@@ -1479,7 +1482,7 @@ class JARVISWebSocketServer:
         # Per-client queue for backpressure (maxsize=50)
         self._client_queues[websocket] = asyncio.Queue(maxsize=50)
         client_id = id(websocket)
-        print(f"[WebSocket] Client connected: {client_id}")
+        _log.info(f"[WebSocket] Client connected: {client_id}")
         
         # Start per-client sender loop (drains queue → ws.send)
         sender_task = asyncio.create_task(self._client_sender(websocket))
@@ -1498,7 +1501,7 @@ class JARVISWebSocketServer:
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
-                    print(f"[WebSocket] Command error: {e}")
+                    _log.warning(f"[WebSocket] Command error: {e}")
 
         worker_task = asyncio.create_task(_command_worker())
 
@@ -1512,9 +1515,9 @@ class JARVISWebSocketServer:
                 try:
                     boot_briefing = await self._run_blocking(
                         self.startup_orchestrator.generate_boot_briefing)
-                    print(f"[BOOT] Briefing generated: {boot_briefing.get('greeting', '')[:60]}")
+                    _log.info(f"[BOOT] Briefing generated: {boot_briefing.get('greeting', '')[:60]}")
                 except Exception as e:
-                    print(f"[BOOT] Briefing error: {e}")
+                    _log.warning(f"[BOOT] Briefing error: {e}")
 
             # Build greeting for HUD chat panel (always shown — Gemini Live handles audio separately)
             greeting_text = None
@@ -1581,12 +1584,12 @@ class JARVISWebSocketServer:
                             'type': 'error',
                             'message': 'Still working on your earlier commands. Try again in a moment.'})
                 except json.JSONDecodeError:
-                    print(f"[WebSocket] Invalid JSON")
+                    _log.warning(f"[WebSocket] Invalid JSON")
                 except Exception as e:
-                    print(f"[WebSocket] Error: {e}")
+                    _log.warning(f"[WebSocket] Error: {e}")
 
         except websockets.exceptions.ConnectionClosed:
-            print(f"[WebSocket] Client disconnected: {client_id}")
+            _log.info(f"[WebSocket] Client disconnected: {client_id}")
         finally:
             # Cancel this client's tasks however the connection ended. The stats
             # task used to be cancelled only on a clean close, so every dropped
@@ -1603,9 +1606,9 @@ class JARVISWebSocketServer:
             if self.startup_orchestrator:
                 try:
                     self.startup_orchestrator.save_session()
-                    print("[BOOT] Session state saved on disconnect")
+                    _log.info("[BOOT] Session state saved on disconnect")
                 except Exception as e:
-                    print(f"[BOOT] Session save error: {e}")
+                    _log.warning(f"[BOOT] Session save error: {e}")
     
     async def send_periodic_updates(self, websocket):
         """Send updates periodically with delta compression"""
@@ -1636,7 +1639,7 @@ class JARVISWebSocketServer:
             except Exception as e:
                 # One failed refresh (network blip) used to end this client's
                 # updates for good: the bare except broke out of the loop.
-                print(f"[WebSocket] Periodic update error: {e}")
+                _log.warning(f"[WebSocket] Periodic update error: {e}")
     
     async def apply_action(self, websocket, action: Action):
         """Single point for all WebSocket responses - PREVENTS LOOPS"""
@@ -1647,7 +1650,7 @@ class JARVISWebSocketServer:
             
             # CRITICAL: Duplicate response check
             if self.state_manager.is_duplicate_response(text):
-                print(f"[WebSocket] Skipping duplicate response")
+                _log.info(f"[WebSocket] Skipping duplicate response")
                 return
             
             _should_speak = action.payload.get("speak", True) and not self._live_ready()
@@ -1672,7 +1675,7 @@ class JARVISWebSocketServer:
         """Handle hotkey actions from HotkeySystem"""
         if action == "shutdown":
             import signal
-            print("[HOTKEY] Shutdown requested via hotkey")
+            _log.info("[HOTKEY] Shutdown requested via hotkey")
             self.running = False
             os.kill(os.getpid(), signal.SIGTERM)
         elif action == "activate":
@@ -1756,7 +1759,7 @@ class JARVISWebSocketServer:
                 if jlog:
                     jlog.warn(f'voice_input suppressed (Gemini Live active): "{text[:60]}"')
                 else:
-                    print(f"[WebSocket] voice_input suppressed (Gemini Live owns mic): {text[:60]}")
+                    _log.info(f"[WebSocket] voice_input suppressed (Gemini Live owns mic): {text[:60]}")
                 return
             
             # C-01: When Gemini Live is active, route text/command/chat INTO the live session
@@ -1783,7 +1786,7 @@ class JARVISWebSocketServer:
                     # Push user text into the Gemini Live session as a text turn
                     self._push_live_text(text)
                 except Exception as _live_err:
-                    print(f"[WebSocket] Live text injection failed, falling through: {_live_err}")
+                    _log.warning(f"[WebSocket] Live text injection failed, falling through: {_live_err}")
                     # Fall through to legacy pipeline as safety net
                 else:
                     # Gemini owns this turn now. Never fall through after a
@@ -1793,7 +1796,7 @@ class JARVISWebSocketServer:
                         if jlog:
                             jlog.info(f'Routed to Gemini Live: "{text[:60]}"')
                         else:
-                            print(f"[WebSocket] Routed text to Gemini Live: {text[:60]}")
+                            _log.info(f"[WebSocket] Routed text to Gemini Live: {text[:60]}")
                     except Exception as _err:
                         recovered("WebSocket", _err)
                     return
@@ -1801,7 +1804,7 @@ class JARVISWebSocketServer:
                 return
             
             if jlog: jlog.input(msg_type, text)
-            else: print(f"[WebSocket] Input ({msg_type}): {text}")
+            else: _log.info(f"[WebSocket] Input ({msg_type}): {text}")
             
             # Deduplication: only for speech, where the mic can deliver the same
             # sentence twice. A typed or clicked command is always deliberate;
@@ -1853,7 +1856,7 @@ class JARVISWebSocketServer:
                     # Process each sub-command and combine responses
                     responses = []
                     for i, sub_cmd in enumerate(sub_commands):
-                        print(f"[WebSocket] Processing sub-command {i+1}/{len(sub_commands)}: {sub_cmd}")
+                        _log.info(f"[WebSocket] Processing sub-command {i+1}/{len(sub_commands)}: {sub_cmd}")
                         sub_response = await self._run_turn(sub_cmd.strip(), websocket)
                         if sub_response:
                             responses.append(sub_response)
@@ -1862,7 +1865,7 @@ class JARVISWebSocketServer:
                     response = await self._run_turn(text, websocket)
             except Exception as e:
                 if jlog: jlog.error('Command processing failed', e)
-                else: print(f"[WebSocket] CRITICAL: process_command failed: {e}")
+                else: _log.warning(f"[WebSocket] CRITICAL: process_command failed: {e}")
                 self.state_manager.force_state("idle")
                 response = f"I encountered an error processing that command. Please try again."
                 await self._send_to(websocket, json.dumps({
@@ -1971,7 +1974,7 @@ class JARVISWebSocketServer:
                     self.chat_history.add_message('assistant', response)
                 except Exception as e:
                     if jlog: jlog.error('Chat history save failed', e)
-                    else: print(f"[WebSocket] Chat history error: {e}")
+                    else: _log.warning(f"[WebSocket] Chat history error: {e}")
             
             # Record action for proactive pattern learning
             if self.proactive_assistant:
@@ -2031,7 +2034,7 @@ class JARVISWebSocketServer:
                 'type': 'state',
                 'state': full_state
             }))
-            print(f"[WebSocket] Sent full state: gesture={full_state.get('gesture_enabled')}, face={full_state.get('face_enabled')}, mood={full_state.get('emotion_enabled')}")
+            _log.info(f"[WebSocket] Sent full state: gesture={full_state.get('gesture_enabled')}, face={full_state.get('face_enabled')}, mood={full_state.get('emotion_enabled')}")
         
         elif msg_type == 'get_weather':
             city = data.get('city')
@@ -2090,7 +2093,7 @@ class JARVISWebSocketServer:
         previous = getattr(self, 'current_emotion', None) or 'neutral'
         self.current_emotion = mood
         if mood != previous:
-            print(f"[MOOD] {previous} -> {mood}")
+            _log.info(f"[MOOD] {previous} -> {mood}")
             sm = getattr(self, 'state_manager', None)
             if sm is not None:
                 sm.update_mood(mood, 0.7)
@@ -2101,7 +2104,7 @@ class JARVISWebSocketServer:
             kl = peek(KnowledgeLayer)
             targets.append(getattr(kl, 'perception', None) if kl else None)
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         for p in targets:
             if p is not None:
                 p.current_mood = None if mood == 'neutral' else mood
@@ -2198,7 +2201,7 @@ class JARVISWebSocketServer:
                 self.state_manager._active_app_time = time.time()
                 return f"Switched to {target}{maybe_title(title)}."
         except Exception as e:
-            print(f"[WebSocket] App switch error: {e}")
+            _log.warning(f"[WebSocket] App switch error: {e}")
         return f"Couldn't switch to {target}, {title}."
 
     def _is_jarvis_talking(self) -> bool:
@@ -2247,7 +2250,7 @@ class JARVISWebSocketServer:
                     f"briefly and in your own words: {text}]", wake=False)
                 return
             except Exception as e:
-                print(f"[ANNOUNCE] Live announce failed, using local voice: {e}")
+                _log.warning(f"[ANNOUNCE] Live announce failed, using local voice: {e}")
         self.hud_perception.voice_out(text)
 
     def _run_on_loop(self, coro):
@@ -2308,11 +2311,11 @@ class JARVISWebSocketServer:
             self._stop_speaking()
             self.quiet_mode = True        # pause voice listening until the wake word
             self._silent_response = True  # don't speak the reply
-            print("[VOICE] Quiet mode ON - mic paused until wake word")
+            _log.info("[VOICE] Quiet mode ON - mic paused until wake word")
             return f"Understood{maybe_title(title)}. Say my name when you need me."
         if any(r in cmd for r in RESUME_PHRASES):
             self.quiet_mode = False
-            print("[VOICE] Quiet mode OFF - JARVIS back online")
+            _log.info("[VOICE] Quiet mode OFF - JARVIS back online")
             return f"I'm back online{maybe_title(title)}. What do you need?"
         return None
 
@@ -2621,7 +2624,7 @@ class JARVISWebSocketServer:
             try:
                 reply = await asyncio.wait_for(self._run_blocking(ask_gemini, command), timeout=10.0)
             except asyncio.TimeoutError:
-                print("[WebSocket] Gemini API timed out (10s)")
+                _log.warning("[WebSocket] Gemini API timed out (10s)")
                 reply = None
             if reply:
                 return reply
@@ -2651,7 +2654,7 @@ class JARVISWebSocketServer:
                 try:
                     brain_result = self._brain.process(command, source="voice")
                 except Exception as be:
-                    print(f"[WebSocket] Brain error (non-fatal): {be}")
+                    _log.warning(f"[WebSocket] Brain error (non-fatal): {be}")
 
             if brain_result and brain_result.is_valid:
                 # Brain produced a confident result — use it
@@ -2684,7 +2687,7 @@ class JARVISWebSocketServer:
                     else:
                         entities = {**kw_entities, **entities}
                 if jlog: jlog.intent(f"BRAIN:{intent_name}", entities=entities)
-                else: print(f"[WebSocket] BRAIN Intent: {intent_name}, Entities: {entities}, Conf: {brain_result.confidence:.2f}")
+                else: _log.info(f"[WebSocket] BRAIN Intent: {intent_name}, Entities: {entities}, Conf: {brain_result.confidence:.2f}")
 
                 if brain_result.decision_type == 'refuse' and brain_result.decision_message:
                     return brain_result.decision_message
@@ -2709,7 +2712,7 @@ class JARVISWebSocketServer:
                 # Fallback to keyword-based classifier
                 intent_name, entities = classify_intent(command)
                 if jlog: jlog.intent(intent_name, entities=entities)
-                else: print(f"[WebSocket] Intent: {intent_name}, Entities: {entities}")
+                else: _log.info(f"[WebSocket] Intent: {intent_name}, Entities: {entities}")
             
             # ══════════════════════════════════════════════════════════════
             # CONTEXT RESOLUTION: Disambiguate based on active_app
@@ -2819,7 +2822,7 @@ class JARVISWebSocketServer:
                             return f"Couldn't find {app_name}, {title}. Try the full name."
                     except Exception as e:
                         if jlog: jlog.error(f'App open failed: {app_name}', e)
-                        else: print(f"[WebSocket] App open error: {e}")
+                        else: _log.warning(f"[WebSocket] App open error: {e}")
                         return f"Had trouble opening {app_name}, {title}."
             
             # --- TOGGLE FEATURES (gesture, face, emotion) ---
@@ -2855,7 +2858,7 @@ class JARVISWebSocketServer:
                     if result:
                         return result
                 except Exception as e:
-                    print(f"[WebSocket] MusicHandler error: {e}")
+                    _log.warning(f"[WebSocket] MusicHandler error: {e}")
                 # Fallback: use media keys via ctypes
                 try:
                     from jarvis.core.music_handler import MediaKeyController
@@ -2873,7 +2876,7 @@ class JARVISWebSocketServer:
                         mk.previous_track()
                         return f"Previous track, {title}."
                 except Exception as e:
-                    print(f"[WebSocket] MediaKey error: {e}")
+                    _log.warning(f"[WebSocket] MediaKey error: {e}")
             
             # --- OCR / READ SCREEN ---
             # OCR: handled by HANDLER_MAP['ocr'] (handle_ocr). This inline copy
@@ -2920,7 +2923,7 @@ class JARVISWebSocketServer:
                     }
                     
                     if jlog: jlog.route('HANDLER_MAP', intent_name)
-                    else: print(f"[WebSocket] HANDLER_MAP dispatch: {intent_name}")
+                    else: _log.info(f"[WebSocket] HANDLER_MAP dispatch: {intent_name}")
                     
                     result = handler(command, entities, handler_context)
 
@@ -2957,7 +2960,7 @@ class JARVISWebSocketServer:
                         return result.response
                 except Exception as e:
                     if jlog: jlog.error(f'Handler dispatch failed: {intent_name}', e)
-                    else: print(f"[WebSocket] Handler error for {intent_name}: {e}")
+                    else: _log.warning(f"[WebSocket] Handler error for {intent_name}: {e}")
             
             # No handler found - fall through
             return None
@@ -2965,7 +2968,7 @@ class JARVISWebSocketServer:
         except Exception as e:
             if jlog: jlog.error('Router pipeline failed', e)
             else:
-                print(f"[WebSocket] Router error: {e}")
+                _log.warning(f"[WebSocket] Router error: {e}")
                 import traceback
                 traceback.print_exc()
             return None
@@ -2986,7 +2989,7 @@ class JARVISWebSocketServer:
             try:
                 le.interrupt()
             except Exception as e:
-                print(f"[WebSocket] Live interrupt error: {e}")
+                _log.warning(f"[WebSocket] Live interrupt error: {e}")
 
         if self.perception and hasattr(self.perception, 'stop_speaking'):
             self.perception.stop_speaking()
@@ -3013,7 +3016,7 @@ class JARVISWebSocketServer:
             self._run_on_loop(self.dispatch('command', {'type': 'stop_speaking'}))
         
         self.state_manager.force_state("idle")
-        print("[WebSocket] Speech interrupted (server + browser)")
+        _log.info("[WebSocket] Speech interrupted (server + browser)")
     
     async def _fallback_process(self, command: str, websocket) -> str:
         """Fallback command processing delegated to fallback_processor module"""
@@ -3072,11 +3075,11 @@ class JARVISWebSocketServer:
                     try:
                         q.get_nowait()
                     except asyncio.QueueEmpty:
-                        pass
+                        _log.debug("Ignored error", exc_info=True)
                     try:
                         q.put_nowait(msg_str)
                     except asyncio.QueueFull:
-                        pass
+                        _log.debug("Ignored error", exc_info=True)
                 # else: silently drop low-priority message (stats/sensors spam)
     
     async def _send_to(self, websocket, message):
@@ -3100,11 +3103,11 @@ class JARVISWebSocketServer:
             try:
                 q.get_nowait()
             except asyncio.QueueEmpty:
-                pass
+                _log.debug("Ignored error", exc_info=True)
             try:
                 q.put_nowait(msg_str)
             except asyncio.QueueFull:
-                pass
+                _log.debug("Ignored error", exc_info=True)
     
     def _dispatch_from_thread(self, channel, message):
         """Thread-safe bridge: background threads call this instead of sending to a socket.
@@ -3133,9 +3136,9 @@ class JARVISWebSocketServer:
                 except websockets.exceptions.ConnectionClosed:
                     break
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
         except asyncio.CancelledError:
-            pass
+            _log.debug("Ignored error", exc_info=True)
     
     def push_live_transcription(self, text: str, role: str = 'jarvis', source: str = None, stream: str = None, kind: str = None, turn_id: int = None):
         """Central gateway for Gemini Live transcription messages.
@@ -3149,7 +3152,7 @@ class JARVISWebSocketServer:
         text = text.strip()
         
         safe_text = text[:60].encode('ascii', errors='replace').decode()
-        print(f"[TRANSCRIPT] src={source} stream={stream} kind={kind} turn={turn_id} | {safe_text}")
+        _log.info(f"[TRANSCRIPT] src={source} stream={stream} kind={kind} turn={turn_id} | {safe_text}")
         
         if getattr(self, "live_engine", None):
             if source != "gemini_live" or stream != "live" or kind != "transcript":
@@ -3188,17 +3191,17 @@ class JARVISWebSocketServer:
             f.write(f"[{datetime.now()}] Entering start()\n")
             
         self.running = True
-        print(f"\n{'='*55}")
-        print(f"  {self.hud_perception.assistant_name} WebSocket Server")
-        print(f"{'='*55}")
-        print(f"  Address: ws://{self.host}:{self.port}")
-        print(f"  Status:  Online")
-        print(f"  Voice:   {self.hud_perception.assistant_name}")
-        print(f"  Full JARVIS: {'Yes' if self.jarvis else 'Fallback Mode'}")
-        print(f"  Gesture: {'Available' if self.gesture_controller else 'Not Available'}")
-        print(f"  Face:    {'Available' if self.face_recognition else 'Not Available'}")
-        print(f"  Emotion: {'Available' if self.emotion_detector else 'Not Available'}")
-        print(f"{'='*55}\n")
+        _log.info(f"\n{'='*55}")
+        _log.info(f"  {self.hud_perception.assistant_name} WebSocket Server")
+        _log.info(f"{'='*55}")
+        _log.info(f"  Address: ws://{self.host}:{self.port}")
+        _log.info(f"  Status:  Online")
+        _log.info(f"  Voice:   {self.hud_perception.assistant_name}")
+        _log.info(f"  Full JARVIS: {'Yes' if self.jarvis else 'Fallback Mode'}")
+        _log.info(f"  Gesture: {'Available' if self.gesture_controller else 'Not Available'}")
+        _log.info(f"  Face:    {'Available' if self.face_recognition else 'Not Available'}")
+        _log.info(f"  Emotion: {'Available' if self.emotion_detector else 'Not Available'}")
+        _log.info(f"{'='*55}\n")
         
         try:
             with open(self.log_file, "a") as f:
@@ -3228,7 +3231,7 @@ class JARVISWebSocketServer:
         except Exception as e:
             with open(self.log_file, "a") as f:
                 f.write(f"[{datetime.now()}] Error in start(): {e}\n")
-            print(f"[WebSocket] Error in start: {e}")
+            _log.warning(f"[WebSocket] Error in start: {e}")
             import traceback
             traceback.print_exc()
 
@@ -3259,4 +3262,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(server.start())
     except KeyboardInterrupt:
-        print("\n[WebSocket] Server stopped")
+        _log.info("\n[WebSocket] Server stopped")

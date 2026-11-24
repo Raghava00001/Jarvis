@@ -15,6 +15,9 @@ Two kinds of gesture (see hand_poses.py for how they're recognised):
 Updated for the MediaPipe Tasks API (0.10.x+).
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import os
 import re
 import time
@@ -61,10 +64,10 @@ def _load_mediapipe() -> bool:
         HandLandmarker = mp_vision.HandLandmarker
         HandLandmarkerOptions = mp_vision.HandLandmarkerOptions
         MP_AVAILABLE = True
-        print("[GESTURE] MediaPipe Tasks API available")
+        _log.info("[GESTURE] MediaPipe Tasks API available")
     except Exception as e:
         MP_AVAILABLE = False
-        print(f"[GESTURE] MediaPipe Tasks not available: {e}")
+        _log.warning(f"[GESTURE] MediaPipe Tasks not available: {e}")
     return MP_AVAILABLE
 
 
@@ -75,7 +78,7 @@ class GestureController:
     MODEL_NAME = "hand_landmarker.task"
 
     def __init__(self, perception=None):
-        print("[GESTURE] Initializing Gesture Controller...")
+        _log.info("[GESTURE] Initializing Gesture Controller...")
         self.perception = perception
         self.landmarker = None
         self.active = False
@@ -84,7 +87,7 @@ class GestureController:
         if _load_mediapipe():
             self._initialize_landmarker()
         else:
-            print("[GESTURE] Gesture Controller Disabled (MediaPipe Tasks not available)")
+            _log.warning("[GESTURE] Gesture Controller Disabled (MediaPipe Tasks not available)")
 
     def _get_model_path(self) -> Optional[str]:
         """Get or download the hand landmarker model"""
@@ -92,20 +95,20 @@ class GestureController:
         model_dir.mkdir(parents=True, exist_ok=True)
         model_path = model_dir / self.MODEL_NAME
         if not model_path.exists():
-            print("[GESTURE] Downloading hand landmarker model...")
+            _log.info("[GESTURE] Downloading hand landmarker model...")
             try:
                 import urllib.request
                 urllib.request.urlretrieve(self.MODEL_URL, str(model_path))
-                print(f"[GESTURE] Model downloaded to {model_path}")
+                _log.info(f"[GESTURE] Model downloaded to {model_path}")
             except Exception as e:
-                print(f"[GESTURE] Failed to download model: {e}")
+                _log.warning(f"[GESTURE] Failed to download model: {e}")
                 return None
         return str(model_path)
 
     def _initialize_landmarker(self):
         model_path = self._get_model_path()
         if not model_path or not os.path.exists(model_path):
-            print("[GESTURE] Model not available")
+            _log.warning("[GESTURE] Model not available")
             return
         try:
             options = HandLandmarkerOptions(
@@ -118,9 +121,9 @@ class GestureController:
             )
             self.landmarker = HandLandmarker.create_from_options(options)
             self.active = True
-            print("[GESTURE] Gesture Controller Ready (Tasks API)")
+            _log.info("[GESTURE] Gesture Controller Ready (Tasks API)")
         except Exception as e:
-            print(f"[GESTURE] Landmarker init error: {e}")
+            _log.warning(f"[GESTURE] Landmarker init error: {e}")
             self.active = False
 
     # Kept for callers that toggle "tracking"; detection no longer depends on it
@@ -155,7 +158,7 @@ class GestureController:
                 return "tracking", {"confidence": 0.0}
             return event.name, {"confidence": event.confidence, "kind": event.kind}
         except Exception as e:
-            print(f"[GESTURE] Detection error: {e}")
+            _log.warning(f"[GESTURE] Detection error: {e}")
             return "error", {"error": str(e)}
 
     def close(self):
@@ -226,7 +229,7 @@ def execute_gesture_action(action: str) -> bool:
     try:
         import pyautogui
     except ImportError:
-        print("[GESTURE] pyautogui not available for gesture actions")
+        _log.warning("[GESTURE] pyautogui not available for gesture actions")
         return False
 
     # (needs your app focused?, what to do)
@@ -249,7 +252,7 @@ def execute_gesture_action(action: str) -> bool:
     }
     entry = actions.get(action)
     if entry is None:
-        print(f"[GESTURE] Unknown action: {action}")
+        _log.info(f"[GESTURE] Unknown action: {action}")
         return False
     needs_focus, run = entry
     try:
@@ -257,10 +260,10 @@ def execute_gesture_action(action: str) -> bool:
             from jarvis.core.screen_control import focus_away_from_jarvis
             focus_away_from_jarvis()
         run()
-        print(f"[GESTURE] Executed action: {action}")
+        _log.info(f"[GESTURE] Executed action: {action}")
         return True
     except Exception as e:
-        print(f"[GESTURE] Action execution error: {e}")
+        _log.warning(f"[GESTURE] Action execution error: {e}")
         return False
 
 

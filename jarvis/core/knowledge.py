@@ -6,6 +6,9 @@ NO Google/Gemini dependency
 
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import os
 import re
 import requests
@@ -68,7 +71,7 @@ class KnowledgeLayer:
     """Handles knowledge-based queries using Groq/OpenRouter AI - JARVIS with personality"""
 
     def __init__(self, perception):
-        print("[KNOWLEDGE] Initializing Knowledge Layer...")
+        _log.info("[KNOWLEDGE] Initializing Knowledge Layer...")
         self.perception = perception
         self.enabled = False
         self.api_type = None  # "groq" or "openrouter"
@@ -90,22 +93,22 @@ class KnowledgeLayer:
         if self.groq_key:
             self.enabled = True
             self.api_type = "groq"
-            print(f"[KNOWLEDGE] Layer Ready (Groq - {GROQ_MODELS[0]})")
+            _log.info(f"[KNOWLEDGE] Layer Ready (Groq - {GROQ_MODELS[0]})")
         else:
             # Try OpenRouter as backup
             self.openrouter_key = os.getenv("OPENROUTER_API_KEY")
             if self.openrouter_key:
                 self.enabled = True
                 self.api_type = "openrouter"
-                print(f"[KNOWLEDGE] Layer Ready (OpenRouter - {OPENROUTER_MODELS[0]})")
+                _log.info(f"[KNOWLEDGE] Layer Ready (OpenRouter - {OPENROUTER_MODELS[0]})")
             elif self.gemini_key:
                 self.enabled = True
                 self.api_type = "gemini"
-                print("[KNOWLEDGE] Layer Ready (Gemini)")
+                _log.info("[KNOWLEDGE] Layer Ready (Gemini)")
             else:
-                print("[KNOWLEDGE] WARNING: No API keys found!")
-                print("[KNOWLEDGE] Set GROQ_API_KEY or OPENROUTER_API_KEY")
-                print("[KNOWLEDGE] Get free Groq key at: https://console.groq.com")
+                _log.warning("[KNOWLEDGE] WARNING: No API keys found!")
+                _log.info("[KNOWLEDGE] Set GROQ_API_KEY or OPENROUTER_API_KEY")
+                _log.info("[KNOWLEDGE] Get free Groq key at: https://console.groq.com")
     
     def _get_title(self) -> str:
         return getattr(self.perception, 'user_title', 'sir')
@@ -144,7 +147,7 @@ class KnowledgeLayer:
             try:
                 response = requests.post(url, headers=headers, json=data, timeout=timeout)
             except requests.exceptions.RequestException as e:
-                print(f"[KNOWLEDGE] {provider} {model}: {type(e).__name__}, trying the next model")
+                _log.info(f"[KNOWLEDGE] {provider} {model}: {type(e).__name__}, trying the next model")
                 continue
             status = response.status_code
             if status == 200:
@@ -154,7 +157,7 @@ class KnowledgeLayer:
                     content = None
                 if content and content.strip():
                     return content
-                print(f"[KNOWLEDGE] {provider} {model}: empty reply, trying the next model")
+                _log.info(f"[KNOWLEDGE] {provider} {model}: empty reply, trying the next model")
                 continue
             if status in (401, 403):
                 self._disable_provider(provider, status)
@@ -162,9 +165,9 @@ class KnowledgeLayer:
             body = response.text[:300].lower()
             if status == 404 or "model_not_found" in body or "does not exist" in body:
                 _retired_models.add(model)
-                print(f"[KNOWLEDGE] {provider} model {model} is no longer available; skipping it this session")
+                _log.info(f"[KNOWLEDGE] {provider} model {model} is no longer available; skipping it this session")
                 continue
-            print(f"[KNOWLEDGE] {provider} {model}: HTTP {status}, trying the next model")
+            _log.info(f"[KNOWLEDGE] {provider} {model}: HTTP {status}, trying the next model")
         return None
 
     def _call_groq(self, messages: list, max_tokens: int = 300) -> Optional[str]:
@@ -181,11 +184,11 @@ class KnowledgeLayer:
         """
         if name == "groq" and self.groq_key:
             self.groq_key = None
-            print(f"[KNOWLEDGE] Groq rejected the API key ({status}); skipping Groq this session. "
+            _log.info(f"[KNOWLEDGE] Groq rejected the API key ({status}); skipping Groq this session. "
                   f"Update GROQ_API_KEY in .env.")
         elif name == "openrouter" and getattr(self, "openrouter_key", None):
             self.openrouter_key = None
-            print(f"[KNOWLEDGE] OpenRouter rejected the API key ({status}); skipping it this session. "
+            _log.info(f"[KNOWLEDGE] OpenRouter rejected the API key ({status}); skipping it this session. "
                   f"Update OPENROUTER_API_KEY in .env.")
 
     def _generate_response(self, system_prompt: str, user_prompt: str,
@@ -229,7 +232,7 @@ class KnowledgeLayer:
         try:
             text = self._generate_response(system, prompt, max_tokens=max_tokens)
         except Exception as e:
-            print(f"[KNOWLEDGE] Create error: {str(e)[:100]}")
+            _log.warning(f"[KNOWLEDGE] Create error: {str(e)[:100]}")
             return None
         return clean_for_speech(text) if text else None
 
@@ -302,7 +305,7 @@ CHARACTER (Iron Man's JARVIS — Paul Bettany's portrayal):
                     context_lines.append(f"{role}: {msg.content}")
                 user_prompt += f"\nRECENT CONVERSATION:\n" + "\n".join(context_lines) + "\n"
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         
         user_prompt += f"\nQuestion: {question}"
 
@@ -315,7 +318,7 @@ CHARACTER (Iron Man's JARVIS — Paul Bettany's portrayal):
             return trim_spoken(clean_for_speech(answer), limit=600)
 
         except Exception as e:
-            print(f"[KNOWLEDGE] Error: {str(e)[:100]}")
+            _log.warning(f"[KNOWLEDGE] Error: {str(e)[:100]}")
             return f"I encountered an issue accessing my knowledge base, {title}."
     
     def get_creator_info(self) -> dict:

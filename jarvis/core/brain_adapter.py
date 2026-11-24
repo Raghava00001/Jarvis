@@ -8,6 +8,9 @@ Falls back gracefully if any module is unavailable.
 Does NOT replace the keyword engine - augments it.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import time
 import threading
 from dataclasses import dataclass, field
@@ -41,10 +44,10 @@ def _safe_import(label, factory):
     """Import a module safely; return None on failure."""
     try:
         obj = factory()
-        print(f"[BRAIN] {label} loaded")
+        _log.info(f"[BRAIN] {label} loaded")
         return obj
     except Exception as e:
-        print(f"[BRAIN] {label} unavailable: {e}")
+        _log.warning(f"[BRAIN] {label} unavailable: {e}")
         return None
 
 
@@ -62,7 +65,7 @@ class BrainAdapter:
     """
 
     def __init__(self):
-        print("[BRAIN] Initializing Brain Adapter...")
+        _log.info("[BRAIN] Initializing Brain Adapter...")
         self._lock = threading.Lock()
 
         # ── Lazy-load advanced modules ──
@@ -95,7 +98,7 @@ class BrainAdapter:
         self._stats = {"brain_hits": 0, "fallbacks": 0, "errors": 0}
         # COORD-FIX: Bridge to UI state controller (set by websocket_server)
         self.ui_state_controller = None
-        print("[BRAIN] Brain Adapter Ready")
+        _log.info("[BRAIN] Brain Adapter Ready")
 
     # ── Main entry point ───────────────────────────────────────
     def process(self, text: str, source: str = "voice", context: Dict[str, Any] = None) -> BrainResult:
@@ -206,7 +209,7 @@ class BrainAdapter:
                     raise
                 # Model failed to load: degrade to keywords, but say so loudly.
                 if not getattr(self, "_warned_intent_degraded", False):
-                    print(f"[BRAIN] ERROR: intent model unavailable ({e}); using keyword fallback")
+                    _log.warning(f"[BRAIN] ERROR: intent model unavailable ({e}); using keyword fallback")
                     self._warned_intent_degraded = True
                 result.pipeline_log.append(f"classify: DEGRADED keyword fallback ({e})")
                 intent, confidence = self.intent_model.classify_keyword(text)
@@ -292,7 +295,7 @@ class BrainAdapter:
                 if result.mood:
                     self.state_manager.set_mood(result.mood)
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
 
         # COORD-FIX: Also update UI state controller so UI reflects brain state
         if self.ui_state_controller:
@@ -302,7 +305,7 @@ class BrainAdapter:
                 if result.mood:
                     self.ui_state_controller.update_mood(result.mood, result.confidence)
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
 
     # ── Perception Bridge ──────────────────────────────────────
     def consume_perception_event(self, event):
@@ -321,22 +324,22 @@ class BrainAdapter:
                 gesture = event.data.get("gesture", "")
                 meta = event.data.get("meta", {})
                 self.state_manager.update_gesture(gesture, meta)
-                print(f"[BRAIN] Perception -> gesture: {gesture}")
+                _log.info(f"[BRAIN] Perception -> gesture: {gesture}")
 
             elif event.event_type == "recognition" and event.data:
                 user = event.data.get("user", "")
                 if user:
                     self.state_manager.update_recognized_user(user)
-                    print(f"[BRAIN] Perception -> user: {user}")
+                    _log.info(f"[BRAIN] Perception -> user: {user}")
 
             elif event.event_type == "emotion" and event.data:
                 emotion = event.data.get("emotion", "")
                 if emotion:
                     self.state_manager.update_emotion(emotion)
-                    print(f"[BRAIN] Perception -> emotion: {emotion}")
+                    _log.info(f"[BRAIN] Perception -> emotion: {emotion}")
 
         except Exception as e:
-            print(f"[BRAIN] Perception event error: {e}")
+            _log.warning(f"[BRAIN] Perception event error: {e}")
 
     # ── Perception Background Consumer ─────────────────────────
     def start_perception_consumer(self, perception):
@@ -348,20 +351,20 @@ class BrainAdapter:
             perception: UnifiedPerception instance with get_next_event()
         """
         if not perception or not hasattr(perception, 'get_next_event'):
-            print("[BRAIN] No UnifiedPerception available for background consumer")
+            _log.info("[BRAIN] No UnifiedPerception available for background consumer")
             return
 
         self._perception_running = True
 
         def _consumer_loop():
-            print("[BRAIN] Perception consumer started")
+            _log.info("[BRAIN] Perception consumer started")
             while self._perception_running:
                 try:
                     event = perception.get_next_event(timeout=0.5)
                     if event:
                         self.consume_perception_event(event)
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
 
         t = threading.Thread(target=_consumer_loop, daemon=True, name="brain-perception")
         t.start()
@@ -382,7 +385,7 @@ class BrainAdapter:
             lines.append(f"[BRAIN]   {step}")
         if result.action:
             lines.append(f"[BRAIN]   -> action={result.action} conf={result.confidence:.2f}")
-        print("\n".join(lines))
+        _log.info("\n".join(lines))
 
     # ── Stats ──────────────────────────────────────────────────
     def get_stats(self) -> Dict[str, int]:

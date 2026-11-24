@@ -7,6 +7,9 @@ Clipboard Memory - Smart Clipboard History
 - Search clipboard history
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
 import threading
 import time
@@ -22,7 +25,7 @@ try:
     WIN32_AVAILABLE = True
 except ImportError:
     WIN32_AVAILABLE = False
-    print("[CLIPBOARD] win32clipboard not available - install pywin32")
+    _log.warning("[CLIPBOARD] win32clipboard not available - install pywin32")
 
 try:
     import pyperclip
@@ -46,7 +49,7 @@ class ClipboardMemory:
     """
     
     def __init__(self, perception=None, max_history: int = 20):
-        print("[CLIPBOARD] Initializing Clipboard Memory...")
+        _log.info("[CLIPBOARD] Initializing Clipboard Memory...")
         self.perception = perception
         self.max_history = max_history
         
@@ -66,7 +69,7 @@ class ClipboardMemory:
         if WIN32_AVAILABLE or PYPERCLIP_AVAILABLE:
             self._start_monitor()
         
-        print("[CLIPBOARD] Clipboard Memory Ready")
+        _log.info("[CLIPBOARD] Clipboard Memory Ready")
     
     def _get_title(self) -> str:
         if self.perception:
@@ -77,7 +80,7 @@ class ClipboardMemory:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[CLIPBOARD] {text}")
+            _log.info(f"[CLIPBOARD] {text}")
     
     def _get_clipboard_content(self) -> Optional[str]:
         """Get current clipboard text content with timeout protection"""
@@ -113,7 +116,7 @@ class ClipboardMemory:
         except Exception as e:
             self._clipboard_errors += 1
             if self._clipboard_errors % 20 == 1:
-                print(f"[CLIPBOARD] Read error (x{self._clipboard_errors}): {e}")
+                _log.warning(f"[CLIPBOARD] Read error (x{self._clipboard_errors}): {e}")
         return None
     
     def _set_clipboard_content(self, text: str) -> bool:
@@ -131,7 +134,7 @@ class ClipboardMemory:
                 pyperclip.copy(text)
                 return True
         except Exception as e:
-            print(f"[CLIPBOARD] Error setting clipboard: {e}")
+            _log.warning(f"[CLIPBOARD] Error setting clipboard: {e}")
         return False
     
     def _monitor_loop(self):
@@ -148,7 +151,7 @@ class ClipboardMemory:
                         timestamp=datetime.now()
                     )
                     self.history.append(item)
-                    print(f"[CLIPBOARD] Captured: {content[:50]}...")
+                    _log.info(f"[CLIPBOARD] Captured: {content[:50]}...")
                     consecutive_errors = 0
                 elif content is None:
                     consecutive_errors += 1
@@ -167,7 +170,7 @@ class ClipboardMemory:
             self._running = True
             self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
             self._monitor_thread.start()
-            print("[CLIPBOARD] Monitoring started")
+            _log.info("[CLIPBOARD] Monitoring started")
     
     def stop(self):
         """Stop monitoring"""

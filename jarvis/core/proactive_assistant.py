@@ -5,6 +5,9 @@ Learns user patterns and makes intelligent suggestions.
 Not just time-based, but behavior-based.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -54,7 +57,7 @@ class PatternLearner:
                     self.sequence_patterns = defaultdict(list, data.get("sequence", {}))
                     self.app_patterns = defaultdict(list, data.get("app", {}))
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
             
     def _save(self):
         """Save patterns to disk"""
@@ -67,7 +70,7 @@ class PatternLearner:
             with open(self.data_path, 'w') as f:
                 json.dump(data, f, indent=2)
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
             
     def record_action(self, action: str, entities: Dict = None):
         """Record a user action to learn from"""
@@ -146,7 +149,7 @@ class ProactiveAssistant:
     """
     
     def __init__(self, perception=None, context_memory=None, state_manager=None):
-        print("[PROACTIVE] Initializing Pattern-Based Assistant...")
+        _log.info("[PROACTIVE] Initializing Pattern-Based Assistant...")
         self.perception = perception
         self.context = context_memory
         self.state = state_manager
@@ -163,7 +166,7 @@ class ProactiveAssistant:
         # Cooldown per suggestion type
         self.suggestion_cooldowns: Dict[str, datetime] = {}
         
-        print("[PROACTIVE] Pattern-Based Assistant Ready")
+        _log.info("[PROACTIVE] Pattern-Based Assistant Ready")
         
     def _get_title(self) -> str:
         if self.perception and hasattr(self.perception, 'user_title'):
@@ -314,7 +317,7 @@ class ProactiveAssistant:
                     return f"Is there something I can help simplify, {title}?"
                     
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
             
         return None
         
@@ -445,7 +448,7 @@ class ProactiveAssistant:
                         self._mark_suggested("tactical_insight")
                         return f"Noted. I'll keep the morning briefing short given the limited sleep window."
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
         
         return None
 

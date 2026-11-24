@@ -1,3 +1,6 @@
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
 from jarvis.core.errors import recovered
 import json
@@ -162,7 +165,7 @@ class FallbackProcessor:
                     if joke and len(joke) > 10:
                         return joke
                 except Exception as e:
-                    print(f"[WebSocket] Joke generation error: {e}")
+                    _log.warning(f"[WebSocket] Joke generation error: {e}")
             # Fallback
             jokes = [
                 "Why do programmers prefer dark mode? Because light attracts bugs.",
@@ -428,7 +431,7 @@ class FallbackProcessor:
                         webbrowser.open(search_url)
                     return f"Opening {browser.capitalize()} and searching for '{query}', {title}."
                 except Exception as e:
-                    print(f"[WebSocket] Browser search error: {e}")
+                    _log.warning(f"[WebSocket] Browser search error: {e}")
                     webbrowser.open(f'https://www.google.com/search?q={encoded_query}')
                     return f"Searching for '{query}', {title}."
                     
@@ -509,7 +512,7 @@ class FallbackProcessor:
                         if result:
                             return f"Opening {app}, {title}."
                     except Exception as e:
-                        print(f"[WebSocket] app_finder error: {e}")
+                        _log.warning(f"[WebSocket] app_finder error: {e}")
                 
                 if app_lower in app_paths:
                     target = app_paths[app_lower]
@@ -543,7 +546,7 @@ class FallbackProcessor:
                     os.startfile(app)
                 return f"Opening {app}, {title}."
             except Exception as e:
-                print(f"[WebSocket] Open app error: {e}")
+                _log.warning(f"[WebSocket] Open app error: {e}")
                 # Web fallback for unknown apps
                 webbrowser.open(f'https://www.google.com/search?q={app}+download')
                 return f"{title}, I couldn't find {app} installed. Let me search for it online."
@@ -713,7 +716,7 @@ class FallbackProcessor:
                     if poem and len(poem) > 20:
                         return poem
                 except Exception as e:
-                    print(f"[WebSocket] Poem generation error: {e}")
+                    _log.warning(f"[WebSocket] Poem generation error: {e}")
             return f"Roses are red, violets are blue, I'm an AI here to help you."
         
         # ENTERTAINMENT - RIDDLE
@@ -781,7 +784,7 @@ class FallbackProcessor:
                 if response and not any(ep in (response or '') for ep in _err):
                     return response
             except Exception as e:
-                print(f"[WebSocket] Knowledge error: {e}")
+                _log.warning(f"[WebSocket] Knowledge error: {e}")
         
         # Gemini Flash fallback for general conversation
         from jarvis.core.llm import ask_gemini

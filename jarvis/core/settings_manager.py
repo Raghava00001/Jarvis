@@ -3,6 +3,9 @@ Settings Manager - JARVIS Configuration and Preferences
 Handles all user settings and preferences
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import json
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -60,7 +63,7 @@ class SettingsManager:
     """Manages JARVIS settings and preferences"""
     
     def __init__(self, perception=None):
-        print("[SETTINGS] Initializing Settings Manager...")
+        _log.info("[SETTINGS] Initializing Settings Manager...")
         self.perception = perception
         
         # Settings file path
@@ -70,7 +73,7 @@ class SettingsManager:
         # Load or create settings
         self.settings = self._load_settings()
         
-        print("[SETTINGS] Settings Manager Ready")
+        _log.info("[SETTINGS] Settings Manager Ready")
     
     def _get_title(self) -> str:
         """Get user title from perception layer"""
@@ -83,7 +86,7 @@ class SettingsManager:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[SETTINGS] {text}")
+            _log.info(f"[SETTINGS] {text}")
     
     def _load_settings(self) -> JARVISSettings:
         """Load settings from file"""
@@ -93,7 +96,7 @@ class SettingsManager:
                     data = json.load(f)
                     return JARVISSettings(**data)
         except Exception as e:
-            print(f"[SETTINGS] Could not load settings: {e}")
+            _log.warning(f"[SETTINGS] Could not load settings: {e}")
         
         return JARVISSettings()
     
@@ -103,9 +106,9 @@ class SettingsManager:
             data = asdict(self.settings)
             with open(self.settings_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
-            print("[SETTINGS] Settings saved")
+            _log.info("[SETTINGS] Settings saved")
         except Exception as e:
-            print(f"[SETTINGS] Could not save settings: {e}")
+            _log.warning(f"[SETTINGS] Could not save settings: {e}")
     
     def get(self, key: str) -> Any:
         """Get a setting value"""
@@ -253,7 +256,7 @@ class HelpSystem:
     """JARVIS help and troubleshooting system"""
     
     def __init__(self, perception=None):
-        print("[HELP] Initializing Help System...")
+        _log.info("[HELP] Initializing Help System...")
         self.perception = perception
         
         # Help categories
@@ -267,7 +270,7 @@ class HelpSystem:
             "troubleshooting": self._help_troubleshooting,
         }
         
-        print("[HELP] Help System Ready")
+        _log.info("[HELP] Help System Ready")
     
     def _get_title(self) -> str:
         if self.perception:
@@ -278,7 +281,7 @@ class HelpSystem:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[HELP] {text}")
+            _log.info(f"[HELP] {text}")
     
     def get_help(self, topic: str = None):
         """Get help on a topic"""

@@ -4,6 +4,9 @@ Simple keyword-based intent classification
 With multi-command support and context-aware disambiguation
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from typing import Tuple, Dict, Any, List, Optional
 from dataclasses import dataclass, field
 try:
@@ -749,4 +752,4 @@ if __name__ == "__main__":
     
     for cmd in test_commands:
         intent, entities = classify_intent(cmd)
-        print(f"'{cmd}' -> {intent} {entities if entities else ''}")
+        _log.info(f"'{cmd}' -> {intent} {entities if entities else ''}")

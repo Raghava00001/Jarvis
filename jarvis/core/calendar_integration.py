@@ -7,6 +7,9 @@ Google Calendar Integration - Production Grade
 - Simplified setup
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
 import os
 import datetime
@@ -25,8 +28,8 @@ try:
     from googleapiclient.errors import HttpError
     CALENDAR_AVAILABLE = True
 except ImportError:
-    print("[CALENDAR] Google Calendar libraries not installed.")
-    print("           Install: pip install google-auth google-auth-oauthlib google-api-python-client")
+    _log.info("[CALENDAR] Google Calendar libraries not installed.")
+    _log.info("           Install: pip install google-auth google-auth-oauthlib google-api-python-client")
 
 
 @dataclass
@@ -53,7 +56,7 @@ class CalendarIntegration:
     ]
     
     def __init__(self, perception=None):
-        print("[CALENDAR] Initializing Calendar Integration...")
+        _log.info("[CALENDAR] Initializing Calendar Integration...")
         self.perception = perception
         self.service = None
         self.available = CALENDAR_AVAILABLE
@@ -70,9 +73,9 @@ class CalendarIntegration:
         if self.available:
             self._authenticate()
         else:
-            print("[CALENDAR] Calendar features disabled - libraries not installed")
+            _log.info("[CALENDAR] Calendar features disabled - libraries not installed")
             
-        print(f"[CALENDAR] Integration Ready (TZ: {self.timezone})")
+        _log.info(f"[CALENDAR] Integration Ready (TZ: {self.timezone})")
         
     def _get_title(self) -> str:
         if self.perception:
@@ -83,7 +86,7 @@ class CalendarIntegration:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[CALENDAR] {text}")
+            _log.info(f"[CALENDAR] {text}")
             
     def _detect_timezone(self) -> str:
         """Detect system timezone"""
@@ -121,7 +124,7 @@ class CalendarIntegration:
             try:
                 creds = Credentials.from_authorized_user_file(str(self.token_path), self.SCOPES)
             except Exception as e:
-                print(f"[CALENDAR] Token load error: {e}")
+                _log.warning(f"[CALENDAR] Token load error: {e}")
                 
         # Refresh or get new credentials
         if not creds or not creds.valid:
@@ -129,7 +132,7 @@ class CalendarIntegration:
                 try:
                     creds.refresh(Request())
                 except Exception as e:
-                    print(f"[CALENDAR] Token refresh error: {e}")
+                    _log.warning(f"[CALENDAR] Token refresh error: {e}")
                     creds = None
                     
             if not creds:
@@ -141,12 +144,12 @@ class CalendarIntegration:
                         # port=0: any free port (8080 is the JARVIS HUD)
                         creds = flow.run_local_server(port=0)
                     except Exception as e:
-                        print(f"[CALENDAR] Auth error: {e}")
+                        _log.warning(f"[CALENDAR] Auth error: {e}")
                         self.available = False
                         return
                 else:
-                    print(f"[CALENDAR] No credentials file found at: {self.credentials_path}")
-                    print("           Download from Google Cloud Console")
+                    _log.info(f"[CALENDAR] No credentials file found at: {self.credentials_path}")
+                    _log.info("           Download from Google Cloud Console")
                     self.available = False
                     return
                     
@@ -154,14 +157,14 @@ class CalendarIntegration:
             try:
                 self.token_path.write_text(creds.to_json(), encoding="utf-8")
             except Exception as e:
-                print(f"[CALENDAR] Token save error: {e}")
+                _log.warning(f"[CALENDAR] Token save error: {e}")
                 
         # Build service
         try:
             self.service = build('calendar', 'v3', credentials=creds)
-            print("[CALENDAR] Authenticated successfully")
+            _log.info("[CALENDAR] Authenticated successfully")
         except Exception as e:
-            print(f"[CALENDAR] Service build error: {e}")
+            _log.warning(f"[CALENDAR] Service build error: {e}")
             self.available = False
             
     def _to_local_time(self, event_time: str) -> datetime.datetime:
@@ -177,7 +180,7 @@ class CalendarIntegration:
                 # All-day event (just date)
                 return datetime.datetime.strptime(event_time, "%Y-%m-%d")
         except Exception as e:
-            print(f"[CALENDAR] Time parse error: {e}")
+            _log.warning(f"[CALENDAR] Time parse error: {e}")
             return datetime.datetime.now()
             
     def _format_time(self, dt: datetime.datetime, all_day: bool = False) -> str:
@@ -246,11 +249,11 @@ class CalendarIntegration:
             return result
             
         except HttpError as e:
-            print(f"[CALENDAR] API error: {e}")
+            _log.warning(f"[CALENDAR] API error: {e}")
             self._speak(f"Calendar API error, {title}. Please try again.")
             return []
         except Exception as e:
-            print(f"[CALENDAR] Error: {e}")
+            _log.warning(f"[CALENDAR] Error: {e}")
             self._speak(f"Error reading calendar, {title}.")
             return []
             
@@ -301,7 +304,7 @@ class CalendarIntegration:
             return result
             
         except Exception as e:
-            print(f"[CALENDAR] Error: {e}")
+            _log.warning(f"[CALENDAR] Error: {e}")
             self._speak(f"Error reading today's events, {title}.")
             return []
             
@@ -360,7 +363,7 @@ class CalendarIntegration:
             return event_id
             
         except Exception as e:
-            print(f"[CALENDAR] Create event error: {e}")
+            _log.warning(f"[CALENDAR] Create event error: {e}")
             self._speak(f"Failed to create event, {title}.")
             return None
             
@@ -382,7 +385,7 @@ class CalendarIntegration:
             return True
             
         except Exception as e:
-            print(f"[CALENDAR] Delete event error: {e}")
+            _log.warning(f"[CALENDAR] Delete event error: {e}")
             self._speak(f"Failed to delete event, {title}.")
             return False
             
@@ -410,7 +413,7 @@ class CalendarIntegration:
             return result.get('id')
             
         except Exception as e:
-            print(f"[CALENDAR] Quick add error: {e}")
+            _log.warning(f"[CALENDAR] Quick add error: {e}")
             self._speak(f"Failed to add event, {title}.")
             return None
             

@@ -3,6 +3,9 @@ JARVIS Ultimate - Main Entry Point
 Run this file to start JARVIS
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import sys
 from pathlib import Path
 
@@ -18,9 +21,9 @@ def main():
         jarvis = JARVISUltimate()
         jarvis.run()
     except KeyboardInterrupt:
-        print("\n\nKeyboard interrupt - Shutting down")
+        _log.info("\n\nKeyboard interrupt - Shutting down")
     except Exception as e:
-        print(f"FATAL ERROR: {e}")
+        _log.warning(f"FATAL ERROR: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

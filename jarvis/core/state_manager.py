@@ -6,6 +6,9 @@ All modules read/write through this.
 Includes session management for multi-user handling.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Any, List
 from datetime import datetime
@@ -140,13 +143,13 @@ class StateManager:
     """
     
     def __init__(self):
-        print("[STATE] Initializing State Manager...")
+        _log.info("[STATE] Initializing State Manager...")
         import threading
         self._lock = threading.RLock()
         self.state = JARVISState()
         self.session = Session()  # Multi-user session management
         self._observers: List[callable] = []
-        print("[STATE] State Manager Ready")
+        _log.info("[STATE] State Manager Ready")
         
     def get(self) -> JARVISState:
         """Get current state (read-only view)"""
@@ -189,7 +192,7 @@ class StateManager:
                 user_confidence=confidence
             )
             self.state.recognized_user = user
-            print(f"[SESSION] Switched from {old_session_id} to {self.session.session_id} (user: {user})")
+            _log.info(f"[SESSION] Switched from {old_session_id} to {self.session.session_id} (user: {user})")
             self._notify_observers("user_switched")
         else:
             # Same user, just update confidence
@@ -308,7 +311,7 @@ class StateManager:
             try:
                 observer(event, self.state)
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
                 
     # Vision state updates (called by background worker only)
     def update_gesture(self, gesture: str, meta: Dict = None):

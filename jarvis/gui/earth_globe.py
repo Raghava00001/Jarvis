@@ -3,6 +3,9 @@ JARVIS Holographic Globe Interface
 A futuristic HUD-style 3D Earth globe that represents JARVIS
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import pygame
 import math
 import time
@@ -72,7 +75,7 @@ class HolographicGlobe:
     """The main holographic JARVIS globe interface"""
     
     def __init__(self, width: int = 600, height: int = 600):
-        print("[GLOBE] Initializing Holographic Globe Interface...")
+        _log.info("[GLOBE] Initializing Holographic Globe Interface...")
         
         # Window settings
         self.width = width
@@ -112,7 +115,7 @@ class HolographicGlobe:
         # Callbacks
         self.on_click_callback: Optional[Callable] = None
         
-        print("[GLOBE] Globe Interface Initialized")
+        _log.info("[GLOBE] Globe Interface Initialized")
     
     def _init_pygame(self):
         """Initialize pygame with transparent window"""
@@ -132,7 +135,7 @@ class HolographicGlobe:
             hwnd = pygame.display.get_wm_info()["window"]
             ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 3)
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
     
     def set_state(self, state: JARVISState):
         """Set the current visual state"""
@@ -462,12 +465,12 @@ class HolographicGlobe:
         """Start the globe interface in a background thread"""
         self.render_thread = threading.Thread(target=self.run_loop, daemon=True)
         self.render_thread.start()
-        print("[GLOBE] Interface started in background")
+        _log.info("[GLOBE] Interface started in background")
     
     def stop(self):
         """Stop the globe interface"""
         self.running = False
-        print("[GLOBE] Interface stopped")
+        _log.info("[GLOBE] Interface stopped")
     
     def set_click_callback(self, callback: Callable):
         """Set callback for when globe is clicked"""

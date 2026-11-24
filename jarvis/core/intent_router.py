@@ -5,6 +5,9 @@ Routes intents to handlers with confidence checking.
 Uses dependency injection, respects state.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
 from typing import Dict, Any, Optional, Callable
 from dataclasses import dataclass
@@ -67,12 +70,12 @@ class IntentRouter:
             personality: Personality layer
             speak_func: Function to speak responses
         """
-        print("[ROUTER] Initializing Intent Router...")
+        _log.info("[ROUTER] Initializing Intent Router...")
         self.state = state_manager
         self.handlers = handlers
         self.personality = personality
         self.speak = speak_func or print
-        print("[ROUTER] Intent Router Ready")
+        _log.info("[ROUTER] Intent Router Ready")
         
     def route(self, intent: str, entities: Dict[str, Any]) -> str:
         """
@@ -116,7 +119,7 @@ class IntentRouter:
             fallbacks = self.FALLBACK_STRATEGIES.get(intent, [])
             for fallback_intent in fallbacks:
                 try:
-                    print(f"[ROUTER] Primary '{intent}' failed, trying fallback '{fallback_intent}'")
+                    _log.warning(f"[ROUTER] Primary '{intent}' failed, trying fallback '{fallback_intent}'")
                     return self._dispatch(fallback_intent, entities)
                 except Exception:
                     continue
@@ -226,9 +229,9 @@ class IntentRouter:
             try:
                 self.speak(text)
             except Exception:
-                print(f"[JARVIS] {text}")
+                _log.info(f"[JARVIS] {text}")
         else:
-            print(f"[JARVIS] {text}")
+            _log.info(f"[JARVIS] {text}")
             
     # Handler implementations
     def _handle_music_play(self, entities: Dict) -> str:

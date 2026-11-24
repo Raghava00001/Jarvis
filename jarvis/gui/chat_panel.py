@@ -3,6 +3,9 @@ Chat Panel - Expandable chat history panel for JARVIS
 Slides out from the globe to show conversation history
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import pygame
 import threading
 import time
@@ -37,7 +40,7 @@ class ChatPanel:
     """Expandable chat panel that shows conversation history"""
     
     def __init__(self, screen_width: int, screen_height: int):
-        print("[CHAT PANEL] Initializing Chat Panel...")
+        _log.info("[CHAT PANEL] Initializing Chat Panel...")
         
         self.screen_width = screen_width
         self.screen_height = screen_height
@@ -65,7 +68,7 @@ class ChatPanel:
         self.font = None
         self.small_font = None
         
-        print("[CHAT PANEL] Chat Panel Ready")
+        _log.info("[CHAT PANEL] Chat Panel Ready")
     
     def toggle(self):
         """Toggle panel open/closed"""
@@ -254,7 +257,7 @@ class ChatPanelWithInput(ChatPanel):
         # Callbacks
         self.on_submit = None  # Called when user presses Enter
         
-        print("[CHAT PANEL] Text input enabled")
+        _log.info("[CHAT PANEL] Text input enabled")
     
     def set_submit_callback(self, callback):
         """Set callback for when text is submitted"""

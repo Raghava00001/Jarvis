@@ -3,6 +3,9 @@ Hotkey System - Wake Word & Global Hotkeys
 Handles wake word detection and global hotkeys including Ctrl+R+S for shutdown
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import threading
 import speech_recognition as sr
 import os
@@ -14,14 +17,14 @@ try:
     import keyboard
     KEYBOARD_AVAILABLE = True
 except ImportError:
-    print("[HOTKEYS] keyboard not installed. Run: pip install keyboard")
+    _log.info("[HOTKEYS] keyboard not installed. Run: pip install keyboard")
 
 
 class HotkeySystem:
     """Handles wake word and hotkey detection"""
 
     def __init__(self, perception, jarvis_callback=None):
-        print("[HOTKEYS] Initializing Hotkey System...")
+        _log.info("[HOTKEYS] Initializing Hotkey System...")
         self.perception = perception
         self.jarvis_callback = jarvis_callback
         self.listening = False
@@ -33,9 +36,9 @@ class HotkeySystem:
         if KEYBOARD_AVAILABLE:
             self.setup_hotkeys()
         else:
-            print("[HOTKEYS] Global hotkeys disabled (install keyboard package)")
+            _log.info("[HOTKEYS] Global hotkeys disabled (install keyboard package)")
         
-        print("[HOTKEYS] System Ready")
+        _log.info("[HOTKEYS] System Ready")
 
     def setup_hotkeys(self):
         """Setup global hotkeys"""
@@ -45,23 +48,23 @@ class HotkeySystem:
         try:
             # Ctrl+Alt+J = Activate JARVIS (start listening)
             keyboard.add_hotkey('ctrl+alt+j', self._on_activate_jarvis)
-            print("[HOTKEYS] Registered: Ctrl+Alt+J = Activate JARVIS")
+            _log.info("[HOTKEYS] Registered: Ctrl+Alt+J = Activate JARVIS")
             
             # Ctrl+Alt+S = Stop/Shutdown JARVIS
             keyboard.add_hotkey('ctrl+alt+s', self._on_shutdown_jarvis)
-            print("[HOTKEYS] Registered: Ctrl+Alt+S = Shutdown JARVIS")
+            _log.info("[HOTKEYS] Registered: Ctrl+Alt+S = Shutdown JARVIS")
             
             # Ctrl+Alt+M = Mute/Unmute
             keyboard.add_hotkey('ctrl+alt+m', self._on_mute_toggle)
-            print("[HOTKEYS] Registered: Ctrl+Alt+M = Mute toggle")
+            _log.info("[HOTKEYS] Registered: Ctrl+Alt+M = Mute toggle")
             
         except Exception as e:
-            print(f"[HOTKEYS] Error setting up hotkeys: {e}")
-            print("[HOTKEYS] Note: Global hotkeys may require admin privileges on Windows")
+            _log.warning(f"[HOTKEYS] Error setting up hotkeys: {e}")
+            _log.info("[HOTKEYS] Note: Global hotkeys may require admin privileges on Windows")
 
     def _on_activate_jarvis(self):
         """Called when Ctrl+Alt+J is pressed"""
-        print("\n[HOTKEY] Ctrl+Alt+J pressed - Activating JARVIS")
+        _log.info("\n[HOTKEY] Ctrl+Alt+J pressed - Activating JARVIS")
         if self.jarvis_callback:
             self.jarvis_callback("activate")
         else:
@@ -69,7 +72,7 @@ class HotkeySystem:
 
     def _on_shutdown_jarvis(self):
         """Called when Ctrl+Alt+S is pressed — M-02: respects Gemini Live gate"""
-        print("\n[HOTKEY] Ctrl+Alt+S pressed - Shutting down JARVIS")
+        _log.info("\n[HOTKEY] Ctrl+Alt+S pressed - Shutting down JARVIS")
         # Only speak via legacy TTS if Gemini Live is NOT active
         _live = getattr(self.perception, '_gemini_live_active', False) if self.perception else False
         if not _live and self.perception:
@@ -80,7 +83,7 @@ class HotkeySystem:
 
     def _on_mute_toggle(self):
         """Called when Ctrl+Alt+M is pressed"""
-        print("\n[HOTKEY] Ctrl+Alt+M pressed - Mute toggle")
+        _log.info("\n[HOTKEY] Ctrl+Alt+M pressed - Mute toggle")
         # Toggle mute using system control
         try:
             import subprocess
@@ -91,7 +94,7 @@ class HotkeySystem:
                 capture_output=True, timeout=5
             )
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
 
     def start_wake_word_listening(self, callback):
         """Start listening for wake word"""
@@ -113,14 +116,14 @@ class HotkeySystem:
                     try:
                         text = self.recognizer.recognize_google(audio).lower()
                         if self.wake_word in text or "hey jarvis" in text:
-                            print(f"\n[WAKE WORD] Detected: {text}")
+                            _log.info(f"\n[WAKE WORD] Detected: {text}")
                             callback()
                     except sr.UnknownValueError:
-                        pass
+                        _log.debug("Ignored error", exc_info=True)
                     except sr.RequestError:
-                        pass
+                        _log.debug("Ignored error", exc_info=True)
                 except sr.WaitTimeoutError:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
                 except Exception as e:
                     if self.listening:
                         pass  # Suppress errors during normal operation
@@ -137,4 +140,4 @@ class HotkeySystem:
             try:
                 keyboard.unhook_all()
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)

@@ -44,5 +44,10 @@ class _JarvisAliasFinder(importlib.abc.MetaPathFinder):
         return spec
 
 
+# Console logging for every jarvis module (see logging_setup.py)
+from jarvis.logging_setup import install as _install_logging
+
+_install_logging()
+
 if not any(isinstance(f, _JarvisAliasFinder) for f in sys.meta_path):
     sys.meta_path.insert(0, _JarvisAliasFinder())

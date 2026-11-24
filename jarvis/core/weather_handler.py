@@ -3,6 +3,9 @@ Weather Handler - Weather information with auto-location
 Provides current weather, temperature, humidity, wind speed
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import os
 import json
 import requests
@@ -14,7 +17,7 @@ class WeatherHandler:
     """Handles weather queries with automatic location detection"""
     
     def __init__(self, perception=None):
-        print("[WEATHER] Initializing Weather Handler...")
+        _log.info("[WEATHER] Initializing Weather Handler...")
         self.perception = perception
         
         # API configuration
@@ -25,9 +28,9 @@ class WeatherHandler:
         try:
             import geocoder
             self.geocoder_available = True
-            print("[WEATHER] geocoder available for location")
+            _log.info("[WEATHER] geocoder available for location")
         except ImportError:
-            print("[WEATHER] geocoder not available - manual location required")
+            _log.warning("[WEATHER] geocoder not available - manual location required")
         
         # Cache
         self.cached_location = None
@@ -37,7 +40,7 @@ class WeatherHandler:
         self.cache_duration = 600  # 10 minutes
         self.location_cache_duration = 3600  # 1 hour
         
-        print("[WEATHER] Weather Handler Ready")
+        _log.info("[WEATHER] Weather Handler Ready")
     
     def _get_title(self) -> str:
         """Get user title from perception layer"""
@@ -50,7 +53,7 @@ class WeatherHandler:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[WEATHER] {text}")
+            _log.info(f"[WEATHER] {text}")
     
     def get_location(self) -> Optional[Dict]:
         """Get current location using IP geolocation"""
@@ -72,10 +75,10 @@ class WeatherHandler:
                         "lon": g.latlng[1] if g.latlng else None
                     }
                     self.location_cache_time = datetime.now()
-                    print(f"[WEATHER] Location from geocoder: {self.cached_location['city']}")
+                    _log.info(f"[WEATHER] Location from geocoder: {self.cached_location['city']}")
                     return self.cached_location
             except Exception as e:
-                print(f"[WEATHER] Geocoder error: {e}")
+                _log.warning(f"[WEATHER] Geocoder error: {e}")
         
         # Fallback to ipinfo.io (no library needed)
         try:
@@ -92,10 +95,10 @@ class WeatherHandler:
                         "lon": float(loc[1]) if len(loc) > 1 else None
                     }
                     self.location_cache_time = datetime.now()
-                    print(f"[WEATHER] Location from ipinfo.io: {city}")
+                    _log.info(f"[WEATHER] Location from ipinfo.io: {city}")
                     return self.cached_location
         except Exception as e:
-            print(f"[WEATHER] ipinfo.io error: {e}")
+            _log.warning(f"[WEATHER] ipinfo.io error: {e}")
         
         return None
     
@@ -139,7 +142,7 @@ class WeatherHandler:
                 return weather
         
         # Don't speak weather errors — they interrupt conversations randomly
-        print(f"[WEATHER] Could not fetch weather data for {city}")
+        _log.warning(f"[WEATHER] Could not fetch weather data for {city}")
         return None
     
     def _get_weather_free(self, city: str) -> Optional[Dict]:
@@ -166,7 +169,7 @@ class WeatherHandler:
                     "source": "wttr.in"
                 }
         except Exception as e:
-            print(f"[WEATHER] wttr.in error: {e}")
+            _log.warning(f"[WEATHER] wttr.in error: {e}")
         
         return None
     
@@ -192,7 +195,7 @@ class WeatherHandler:
                     "source": "OpenWeatherMap"
                 }
         except Exception as e:
-            print(f"[WEATHER] OpenWeatherMap error: {e}")
+            _log.warning(f"[WEATHER] OpenWeatherMap error: {e}")
         
         return None
     

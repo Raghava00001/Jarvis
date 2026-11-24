@@ -4,6 +4,9 @@ Recognizes the owner (set in user_profile.json) and limits access for outsiders
 Now with auto-install and facenet fallback!
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import os
 import json
 import threading
@@ -37,7 +40,7 @@ class FaceRecognition:
     """Face recognition authentication system for JARVIS"""
     
     def __init__(self, perception=None):
-        print("[FACE AUTH] Initializing Face Recognition...")
+        _log.info("[FACE AUTH] Initializing Face Recognition...")
         self.perception = perception
         
         # Paths
@@ -58,26 +61,26 @@ class FaceRecognition:
         try:
             import cv2
             self.cv2_available = True
-            print("[FACE AUTH] OpenCV available")
+            _log.info("[FACE AUTH] OpenCV available")
         except ImportError:
             # DON'T auto-install — it blocks the entire server for minutes
-            print("[FACE AUTH] OpenCV not available — install with: pip install opencv-python")
+            _log.warning("[FACE AUTH] OpenCV not available — install with: pip install opencv-python")
         
         try:
             import face_recognition
             self.face_recognition_available = True
-            print("[FACE AUTH] face_recognition available")
+            _log.info("[FACE AUTH] face_recognition available")
         except ImportError:
-            print("[FACE AUTH] face_recognition not available - trying facenet fallback...")
+            _log.warning("[FACE AUTH] face_recognition not available - trying facenet fallback...")
             # Try facenet-pytorch as fallback (easier to install)
             try:
                 from facenet_pytorch import MTCNN, InceptionResnetV1
                 self.facenet_available = True
                 self._init_facenet()
-                print("[FACE AUTH] Using facenet-pytorch for face recognition")
+                _log.info("[FACE AUTH] Using facenet-pytorch for face recognition")
             except ImportError:
                 # DON'T auto-install — blocks server for 2-5 minutes
-                print("[FACE AUTH] facenet-pytorch not available — install with: pip install facenet-pytorch")
+                _log.warning("[FACE AUTH] facenet-pytorch not available — install with: pip install facenet-pytorch")
         
         # Known faces
         self.known_face_encodings = []
@@ -104,7 +107,7 @@ class FaceRecognition:
         # Load saved data
         self._load_data()
         
-        print("[FACE AUTH] Face Recognition Ready")
+        _log.info("[FACE AUTH] Face Recognition Ready")
     
     def _get_title(self) -> str:
         if self.perception:
@@ -115,13 +118,13 @@ class FaceRecognition:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[FACE AUTH] {text}")
+            _log.info(f"[FACE AUTH] {text}")
     
     def _auto_install(self, package: str):
         """DISABLED: Auto-install blocks the entire server during startup.
         Prints install instructions instead."""
-        print(f"[FACE AUTH] Missing package: {package}")
-        print(f"[FACE AUTH] Install manually with: pip install {package}")
+        _log.warning(f"[FACE AUTH] Missing package: {package}")
+        _log.info(f"[FACE AUTH] Install manually with: pip install {package}")
     
     def _init_facenet(self):
         """Initialize facenet-pytorch models for face detection and recognition"""
@@ -142,9 +145,9 @@ class FaceRecognition:
             self.resnet = InceptionResnetV1(pretrained='vggface2').eval().to(device)
             self.device = device
             
-            print("[FACE AUTH] Facenet models initialized")
+            _log.info("[FACE AUTH] Facenet models initialized")
         except Exception as e:
-            print(f"[FACE AUTH] Facenet init error: {e}")
+            _log.warning(f"[FACE AUTH] Facenet init error: {e}")
             self.facenet_available = False
     
     def _enhance_low_light(self, frame):
@@ -185,7 +188,7 @@ class FaceRecognition:
         avg_brightness = gray.mean()
         
         if enhance_light and avg_brightness < 80:  # Dark image
-            print(f"[FACE AUTH] Low light detected (brightness={avg_brightness:.0f}), enhancing...")
+            _log.info(f"[FACE AUTH] Low light detected (brightness={avg_brightness:.0f}), enhancing...")
             frame = self._enhance_low_light(frame)
         
         return frame
@@ -205,9 +208,9 @@ class FaceRecognition:
             elif self.encodings_file.exists():
                 # Legacy pickle files are NOT loaded: unpickling a swapped file
                 # runs arbitrary code. Re-enroll to create face_encodings.json.
-                print("[FACE AUTH] Ignoring legacy face_encodings.pkl (unsafe format). "
+                _log.info("[FACE AUTH] Ignoring legacy face_encodings.pkl (unsafe format). "
                       "Re-register your face to create face_encodings.json.")
-            print(f"[FACE AUTH] Loaded {len(self.known_face_encodings)} face encodings")
+            _log.info(f"[FACE AUTH] Loaded {len(self.known_face_encodings)} face encodings")
             
             # Load profiles
             if self.profiles_file.exists():
@@ -220,7 +223,7 @@ class FaceRecognition:
                             access_level=data.get("access_level", 3)
                         )
         except Exception as e:
-            print(f"[FACE AUTH] Error loading data: {e}")
+            _log.warning(f"[FACE AUTH] Error loading data: {e}")
     
     def _save_data(self):
         """Save face encodings and profiles — JSON format (no pickle vulnerability)"""
@@ -255,7 +258,7 @@ class FaceRecognition:
                 json.dump(profiles_data, f, indent=2)
                 
         except Exception as e:
-            print(f"[FACE AUTH] Error saving data: {e}")
+            _log.warning(f"[FACE AUTH] Error saving data: {e}")
     
     def register_owner(self) -> bool:
         """Register the owner's face"""
@@ -320,14 +323,14 @@ class FaceRecognition:
                 import face_recognition
                 return self._register_with_face_recognition(frames, name, user_type, access_level, face_recognition, cv2)
             except Exception as e:
-                print(f"[FACE AUTH] face_recognition error: {e}")
+                _log.warning(f"[FACE AUTH] face_recognition error: {e}")
         
         # Fallback to facenet
         if self.facenet_available:
             try:
                 return self._register_with_facenet(frames, name, user_type, access_level, cv2)
             except Exception as e:
-                print(f"[FACE AUTH] facenet error: {e}")
+                _log.warning(f"[FACE AUTH] facenet error: {e}")
         
         self._speak("Could not process face. Please try again.")
         return False
@@ -479,7 +482,7 @@ class FaceRecognition:
             try:
                 face_locations = face_recognition.face_locations(rgb_frame, model="cnn")
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
         
         if not face_locations:
             return UserProfile("Unknown", UserType.UNKNOWN, 3), 0.0
@@ -637,14 +640,14 @@ class FaceRecognition:
         self.monitoring = True
         self.monitor_thread = threading.Thread(target=self._monitoring_loop, daemon=True)
         self.monitor_thread.start()
-        print("[FACE AUTH] Continuous monitoring started")
+        _log.info("[FACE AUTH] Continuous monitoring started")
     
     def stop_monitoring(self):
         """Stop continuous face monitoring"""
         self.monitoring = False
         if self.monitor_thread:
             self.monitor_thread.join(timeout=2)
-        print("[FACE AUTH] Continuous monitoring stopped")
+        _log.info("[FACE AUTH] Continuous monitoring stopped")
     
     def _monitoring_loop(self):
         """Background monitoring loop"""
@@ -660,7 +663,7 @@ class FaceRecognition:
                     old_user = self.current_user.name if self.current_user else "None"
                     self.current_user = profile
                     self.is_authenticated = profile.user_type in [UserType.OWNER, UserType.KNOWN_GUEST]
-                    print(f"[FACE AUTH] User changed: {old_user} -> {profile.name}")
+                    _log.info(f"[FACE AUTH] User changed: {old_user} -> {profile.name}")
                 
                 self.last_verification_time = time.time()
             

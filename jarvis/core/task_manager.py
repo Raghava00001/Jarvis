@@ -2,6 +2,9 @@
 Task Manager - Tasks & Reminders
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import json
 import datetime
 import uuid
@@ -13,7 +16,7 @@ class TaskManager:
     """Manages tasks and basic reminders"""
 
     def __init__(self, perception):
-        print("[TASK MANAGER] Initializing Task Manager...")
+        _log.info("[TASK MANAGER] Initializing Task Manager...")
         self.perception = perception
 
         self.data_dir = Path(__file__).parent.parent.parent / "jarvis_data"
@@ -22,7 +25,7 @@ class TaskManager:
         self.tasks_file = self.data_dir / "tasks.json"
         self._load_tasks()
 
-        print("[TASK MANAGER] Ready")
+        _log.info("[TASK MANAGER] Ready")
 
     def _get_title(self):
         return getattr(self.perception, 'user_title', 'sir')
@@ -57,7 +60,7 @@ class TaskManager:
                     else:
                         self.data = self._default_data()
             except Exception as e:
-                print(f"ERROR: Failed to load tasks: {e}")
+                _log.warning(f"ERROR: Failed to load tasks: {e}")
                 self.data = self._default_data()
         else:
             self.data = self._default_data()
@@ -149,14 +152,14 @@ class TaskManager:
                         reminders_to_save = True
                 except (KeyError, ValueError) as e:
                     # Skip invalid reminders
-                    print(f"ERROR: Invalid reminder format: {e}")
+                    _log.warning(f"ERROR: Invalid reminder format: {e}")
                     continue
 
             if reminders_to_save:
                 self._save()
         except Exception as e:
             # Silently handle errors to prevent spam
-            pass
+            _log.debug("Ignored error", exc_info=True)
 
     def list_tasks(self):
         title = self._get_title()
