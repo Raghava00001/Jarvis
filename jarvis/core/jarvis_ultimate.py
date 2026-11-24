@@ -390,14 +390,7 @@ class JARVISUltimate:
         if _r is not _NEXT:
             return _r
 
-        # ========== STOP TALKING (SAFETY - check before shutdown) ==========
-        # Intercept "shut up" and similar phrases BEFORE intent classification
-        stop_words = ["shut up", "shutup", "be quiet", "stop talking", "hush", "silence"]
-        _r = self._do_stop_words(command_lower, stop_words)
-        if _r is not _NEXT:
-            return _r
-
-        _r = self._do_alarm(command, command_lower)
+        _r = self._do_stop_talking_safety_check(_r, command, command_lower)
         if _r is not _NEXT:
             return _r
 
@@ -444,35 +437,23 @@ class JARVISUltimate:
         except ImportError:
             _log.debug("Ignored error", exc_info=True)
 
-        # ========== APP SWITCHING (switch to, switch back, list windows) ==========
-        switch_keywords = ["switch to", "switch back", "go back", "focus", "list windows", "what's open", "running apps"]
-        _r = self._do_switch_app(command, command_lower, switch_keywords)
+        _r = self._do_app_switching_switch_switch(_r, command, command_lower)
         if _r is not _NEXT:
             return _r
 
-        # ========== REMINDERS (remind me, set reminder, my reminders) ==========
-        reminder_keywords = ["remind me", "set reminder", "set a reminder", "my reminders", "read reminders", "upcoming reminders"]
-        _r = self._do_reminders(command, command_lower, reminder_keywords)
+        _r = self._do_reminders_remind_me_set(_r, command, command_lower)
         if _r is not _NEXT:
             return _r
 
-        # ========== CALENDAR (add event, schedule, my schedule) ==========
-        calendar_keywords = ["add event", "add meeting", "schedule meeting", "create event", "my schedule", 
-                           "what's on my schedule", "events today", "meetings today", "this week"]
-        _r = self._do_calendar(calendar_keywords, command, command_lower)
+        _r = self._do_calendar_add_event_schedule(_r, command, command_lower)
         if _r is not _NEXT:
             return _r
 
-        # ========== CLIPBOARD (save this, what did I copy, paste) ==========
-        clipboard_keywords = ["save this", "save clipboard", "what did i copy", "last copied", 
-                            "clipboard history", "paste last", "clear clipboard"]
-        _r = self._do_clipboard(clipboard_keywords, command, command_lower)
+        _r = self._do_clipboard_save_what_did(_r, command, command_lower)
         if _r is not _NEXT:
             return _r
 
-        # ========== WORKFLOWS (multi-action, morning routine, focus mode) ==========
-        workflow_triggers = ["morning routine", "focus mode", "and then", "and search"]
-        _r = self._do_workflow(command, command_lower, workflow_triggers)
+        _r = self._do_workflows_multi_action_morning(_r, command, command_lower)
         if _r is not _NEXT:
             return _r
 
@@ -512,6 +493,21 @@ class JARVISUltimate:
                         _log.info(f"  [OVERRIDE] Detected app open command: {app_name}")
                         break
 
+        success = self._do_handle_intent(command, command_lower, entities, intent, success)
+
+        success = self._do_fallback_llm(command, intent, success)
+        
+        # Log successful commands to context
+        if success and intent:
+            self.context_memory.add_exchange(command, "Command executed successfully", intent)
+
+        # Update learning with success status
+        self.learning.log_command(command, intent, confidence, success)
+
+        return True
+
+    def _do_handle_intent(self, command, command_lower, entities, intent, success):
+        self._do_handle_intent_2()
         # ========== BASIC ACTIONS ==========
         if intent in ["open_app", "time", "date", "joke", "search", "greeting", "thank", "new_tab", "close_tab", "youtube_search"]:
             success = self.action.execute(intent, entities, command)
@@ -632,13 +628,7 @@ class JARVISUltimate:
         # ========== DICTIONARY ==========
         elif any(phrase in command_lower for phrase in ["define ", "meaning of ", "what is ", "what does ", "definition"]):
             # Extract word
-            word = None
-            for phrase in ["define ", "meaning of ", "what is ", "what does ", "definition of "]:
-                if phrase in command_lower:
-                    word = command_lower.split(phrase)[-1].strip().rstrip("?")
-                    break
-            if word:
-                success = self.dictionary.define_word(word)
+            success = self._do_define_meaning_what_what(command_lower, success)
         
         elif "synonym" in command_lower:
             success = self._do_synonym(command_lower, success)
@@ -751,17 +741,87 @@ class JARVISUltimate:
         elif "refresh apps" in command_lower or "rescan apps" in command_lower:
             self.app_finder.refresh_cache()
             success = True
+        return success
 
-        success = self._do_fallback_llm(command, intent, success)
-        
-        # Log successful commands to context
-        if success and intent:
-            self.context_memory.add_exchange(command, "Command executed successfully", intent)
+    def _do_define_meaning_what_what(self, command_lower, success):
+        """Step of _do_handle_intent(): Define meaning of what is what does definition."""
+        word = None
+        for phrase in ["define ", "meaning of ", "what is ", "what does ", "definition of "]:
+            if phrase in command_lower:
+                word = command_lower.split(phrase)[-1].strip().rstrip("?")
+                break
+        if word:
+            success = self.dictionary.define_word(word)
+        return success
 
-        # Update learning with success status
-        self.learning.log_command(command, intent, confidence, success)
 
-        return True
+    def _do_handle_intent_2(self):
+        """Step of _do_handle_intent(): Handle the intent."""
+        """Step of _process_single_command(): Handle the intent."""
+
+
+
+    def _do_stop_talking_safety_check(self, _r, command, command_lower):
+        """Step of _process_single_command(): STOP TALKING SAFETY check before shutdown Intercept shut up and similar phrases."""
+        # ========== STOP TALKING (SAFETY - check before shutdown) ==========
+        # Intercept "shut up" and similar phrases BEFORE intent classification
+        stop_words = ["shut up", "shutup", "be quiet", "stop talking", "hush", "silence"]
+        _r = self._do_stop_words(command_lower, stop_words)
+        if _r is not _NEXT:
+            return _r
+
+        _r = self._do_alarm(command, command_lower)
+        if _r is not _NEXT:
+            return _r
+        return _NEXT
+
+    def _do_app_switching_switch_switch(self, _r, command, command_lower):
+        """Step of _process_single_command(): APP SWITCHING switch to switch back list windows."""
+        # ========== APP SWITCHING (switch to, switch back, list windows) ==========
+        switch_keywords = ["switch to", "switch back", "go back", "focus", "list windows", "what's open", "running apps"]
+        _r = self._do_switch_app(command, command_lower, switch_keywords)
+        if _r is not _NEXT:
+            return _r
+        return _NEXT
+
+    def _do_reminders_remind_me_set(self, _r, command, command_lower):
+        """Step of _process_single_command(): REMINDERS remind me set reminder my reminders."""
+        # ========== REMINDERS (remind me, set reminder, my reminders) ==========
+        reminder_keywords = ["remind me", "set reminder", "set a reminder", "my reminders", "read reminders", "upcoming reminders"]
+        _r = self._do_reminders(command, command_lower, reminder_keywords)
+        if _r is not _NEXT:
+            return _r
+        return _NEXT
+
+    def _do_calendar_add_event_schedule(self, _r, command, command_lower):
+        """Step of _process_single_command(): CALENDAR add event schedule my schedule."""
+        # ========== CALENDAR (add event, schedule, my schedule) ==========
+        calendar_keywords = ["add event", "add meeting", "schedule meeting", "create event", "my schedule", 
+                           "what's on my schedule", "events today", "meetings today", "this week"]
+        _r = self._do_calendar(calendar_keywords, command, command_lower)
+        if _r is not _NEXT:
+            return _r
+        return _NEXT
+
+    def _do_clipboard_save_what_did(self, _r, command, command_lower):
+        """Step of _process_single_command(): CLIPBOARD save this what did I copy paste."""
+        # ========== CLIPBOARD (save this, what did I copy, paste) ==========
+        clipboard_keywords = ["save this", "save clipboard", "what did i copy", "last copied", 
+                            "clipboard history", "paste last", "clear clipboard"]
+        _r = self._do_clipboard(clipboard_keywords, command, command_lower)
+        if _r is not _NEXT:
+            return _r
+        return _NEXT
+
+    def _do_workflows_multi_action_morning(self, _r, command, command_lower):
+        """Step of _process_single_command(): WORKFLOWS multi action morning routine focus mode."""
+        # ========== WORKFLOWS (multi-action, morning routine, focus mode) ==========
+        workflow_triggers = ["morning routine", "focus mode", "and then", "and search"]
+        _r = self._do_workflow(command, command_lower, workflow_triggers)
+        if _r is not _NEXT:
+            return _r
+        return _NEXT
+
 
     def _do_resolve_context(self, command, resolved_command):
         """Step of _process_single_command(): resolve context."""
