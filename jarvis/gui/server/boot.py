@@ -145,6 +145,12 @@ class BootMixin:
         import time as _time
         start = _time.time()
 
+        self._boot_critical_modules(_time, start)
+
+        self._boot_deferred_modules(_time)
+
+    def _boot_critical_modules(self, _time, start):
+        """Step of _init_standalone_modules(): critical modules."""
         # ══════════════════════════════════════════════════════════════
         # PHASE 1: CRITICAL MODULES (sync — must be ready before server accepts clients)
         # ══════════════════════════════════════════════════════════════
@@ -180,7 +186,7 @@ class BootMixin:
         # first use (it loads embeddings, so doing it here would slow boot).
         # The old eager assignment here always failed: the property has no setter.
 
-        self._boot_hotkeys_must_register_immediately()
+        self._boot_hotkeys()
 
         # Reminders & Tasks
         if REMINDER_AVAILABLE:
@@ -210,7 +216,7 @@ class BootMixin:
 
         # Gemini Live Engine (core AI voice — must start immediately)
         self.live_engine = None
-        self._boot_step()
+        self._boot_gemini_live()
 
         if ROUTER_AVAILABLE:
             _log.info(f"[WebSocket] Intent routing ready (classify_intent + HANDLER_MAP with {len(HANDLER_MAP)} handlers)")
@@ -218,6 +224,8 @@ class BootMixin:
         critical_time = _time.time() - start
         _log.info(f"[BOOT] Phase 1 complete in {critical_time:.1f}s — server accepting connections")
 
+    def _boot_deferred_modules(self, _time):
+        """Step of _init_standalone_modules(): deferred modules."""
         # ══════════════════════════════════════════════════════════════
         # PHASE 2: DEFERRED MODULES (background ThreadPoolExecutor)
         # ══════════════════════════════════════════════════════════════
@@ -332,8 +340,9 @@ class BootMixin:
         )
         self._deferred_thread.start()
 
-    def _boot_hotkeys_must_register_immediately(self):
-        """Step of _init_standalone_modules(): Hotkeys (must register immediately)."""
+
+    def _boot_hotkeys(self):
+        """Step of _init_standalone_modules(): hotkeys."""
         # Hotkeys (must register immediately)
         if HOTKEY_AVAILABLE:
             try:
@@ -344,8 +353,8 @@ class BootMixin:
                 ))
             except Exception: _log.debug("Ignored error", exc_info=True)
 
-    def _boot_step(self):
-        """Step of _init_standalone_modules(): _boot_step."""
+    def _boot_gemini_live(self):
+        """Step of _init_standalone_modules(): gemini live."""
         if GEMINI_LIVE_AVAILABLE:
             try:
                 api_key = os.getenv("GEMINI_API_KEY")

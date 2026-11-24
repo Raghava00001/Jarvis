@@ -312,12 +312,7 @@ class JARVISWebSocketServer(MessageMixin, RouterMixin, CommandsMixin, PendingMix
 
             # Build greeting for HUD chat panel (always shown — Gemini Live handles audio separately)
             greeting_text = None
-            if boot_briefing:
-                greeting_text = boot_briefing.get('spoken_briefing', f'{name} online, sir.')
-            else:
-                hour = datetime.now().hour
-                greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
-                greeting_text = f'{greeting}, sir. {name} online. How can I help you?'
+            greeting_text = self._greeting_text(boot_briefing, greeting_text, name)
 
             # ━━━ SINGLE BATCHED INIT PAYLOAD (1 send instead of 6) ━━━
             # Weather and news are network calls and stats sample the CPU for
@@ -337,15 +332,7 @@ class JARVISWebSocketServer(MessageMixin, RouterMixin, CommandsMixin, PendingMix
                 'news': news,
                 'features': self.get_feature_status(),
             }
-            if greeting_text:
-                # Greet aloud once per run, not on every reconnect. In live mode
-                # Gemini greets by itself.
-                _greet_speak = False
-                if not getattr(self, '_greeted_aloud', False) and not self._live_ready() \
-                        and not getattr(self, 'live_engine', None):
-                    self._greeted_aloud = True
-                    _greet_speak = not self._voice_reply(greeting_text)
-                init_payload['greeting'] = {'text': greeting_text, 'speak': _greet_speak}
+            self._client_greet_aloud(greeting_text, init_payload)
             if boot_briefing:
                 init_payload['briefing'] = boot_briefing
             
@@ -400,6 +387,29 @@ class JARVISWebSocketServer(MessageMixin, RouterMixin, CommandsMixin, PendingMix
                     _log.info("[BOOT] Session state saved on disconnect")
                 except Exception as e:
                     _log.warning(f"[BOOT] Session save error: {e}")
+
+    def _greeting_text(self, boot_briefing, greeting_text, name):
+        """Step of handle_client(): text."""
+        if boot_briefing:
+            greeting_text = boot_briefing.get('spoken_briefing', f'{name} online, sir.')
+        else:
+            hour = datetime.now().hour
+            greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
+            greeting_text = f'{greeting}, sir. {name} online. How can I help you?'
+        return greeting_text
+
+    def _client_greet_aloud(self, greeting_text, init_payload):
+        """Step of handle_client(): greet aloud."""
+        if greeting_text:
+            # Greet aloud once per run, not on every reconnect. In live mode
+            # Gemini greets by itself.
+            _greet_speak = False
+            if not getattr(self, '_greeted_aloud', False) and not self._live_ready() \
+                    and not getattr(self, 'live_engine', None):
+                self._greeted_aloud = True
+                _greet_speak = not self._voice_reply(greeting_text)
+            init_payload['greeting'] = {'text': greeting_text, 'speak': _greet_speak}
+
     
     async def start(self):
         """Start the server"""

@@ -935,25 +935,7 @@ class GeminiLiveEngine:
             elif name == "send_message":
                 # Spoken replies go to Gemini in live mode, so a second identical
                 # call while that draft waits is the user's "yes, send it".
-                from jarvis.core.services import peek as _peek
-                from jarvis.core.whatsapp_handler import WhatsAppHandler as _WA
-                _wa = (getattr(self.server, 'whatsapp_handler', None) if self.server else None) or _peek(_WA)
-                _draft = _wa.pending_draft() if _wa else None
-                handler = HANDLER_MAP.get("send_message")
-                if _draft and (args.get("receiver") or "").strip().lower() == _draft.contact.lower()                         and (args.get("message_text") or "").strip() == _draft.message:
-                    result = _wa.confirm_send()
-                    handler = None
-                if handler:
-                    entities = {
-                        "contact": args.get("receiver"),
-                        "message": args.get("message_text"),
-                    }
-                    res = handler(cmd="", entities=entities, context=context)
-                    result = getattr(res, "response", "")
-                    _wa = _wa or _peek(_WA)  # the handler may have just been created
-                    if _wa and _wa.pending_draft():
-                        result += (" (Not sent yet. Ask the user to confirm; only call send_message "
-                                   "again, with the same receiver and message_text, if they say yes.)")
+                result = self._tool_send_message(args, context, result)
 
             elif name == "weather_report":
                 handler = HANDLER_MAP.get("weather")
@@ -962,133 +944,16 @@ class GeminiLiveEngine:
                     result = getattr(res, "response", "Weather reported.")
 
             elif name == "youtube_video":
-                query = args.get("query", "")
-                played = False
-                # Try our YouTube downloader first
-                yt = getattr(self.server, 'youtube_downloader', None) if self.server else None
-                if yt and hasattr(yt, 'search_and_play'):
-                    try:
-                        yt.search_and_play(query)
-                        result = f"Playing {query} on YouTube."
-                        played = True
-                    except Exception as e:
-                        _log.warning(f"[LIVE] YouTube downloader failed: {e}")
-                if not played:
-                    # Open YouTube search and auto-click first result
-                    import urllib.parse
-                    url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
-                    webbrowser.open_new_tab(url)
-                    # Auto-click first video after page loads
-                    import time as _yt_time
-                    import pyautogui as _yt_pag
-                    def _auto_play():
-                        _yt_time.sleep(3.5)  # Wait for YouTube page to load
-                        # Tab to first video result and press Enter
-                        _yt_pag.press('tab', presses=8, interval=0.05)
-                        _yt_time.sleep(0.2)
-                        _yt_pag.press('enter')
-                    threading.Thread(target=_auto_play, daemon=True).start()
-                    result = f"Playing {query} on YouTube."
+                result = self._tool_youtube_video(args, result)
 
             elif name == "web_search":
-                handler = HANDLER_MAP.get("search") or HANDLER_MAP.get("ai_search")
-                if handler:
-                    res = handler(cmd="", entities={"query": args.get("query")}, context=context)
-                    result = getattr(res, "response", "Search completed.")
-                else:
-                    import urllib.parse
-                    url = f"https://www.google.com/search?q={urllib.parse.quote(args.get('query', ''))}"
-                    webbrowser.open(url)
-                    result = f"Opened Google search for: {args.get('query')}"
+                result = self._tool_web_search(args, context, result)
 
             elif name == "computer_settings":
-                action = (args.get("action") or args.get("description") or "").lower().replace(" ", "_")
-                # C-03 + M-01: Route each action to the correct handler
-                if action in ("shutdown", "shut_down", "power_off"):
-                    import signal as _sig
-                    self._push_to_chat("Shutting down all systems. Until next time, sir.", role='jarvis')
-                    result = "Shutting down."
-                    # Schedule exit after response sends
-                    def _delayed_exit():
-                        import time as _dt; _dt.sleep(2)
-                        os.kill(os.getpid(), _sig.SIGTERM)
-                    threading.Thread(target=_delayed_exit, daemon=True).start()
-                elif action in ("restart", "reboot"):
-                    # Never restart straight from an LLM tool call: arm the
-                    # server's confirmation step; the user must say/type "confirm".
-                    # In live mode spoken replies go to Gemini, so a SECOND restart
-                    # call while one is pending (i.e. after JARVIS asked and the user
-                    # answered) counts as the confirmation.
-                    if self.server and hasattr(self.server, 'request_power_action'):
-                        if self.server._get_pending_power_action() == 'restart':
-                            self.server._pending_power_action = None
-                            result = self.server._execute_power_action('restart', '')
-                        else:
-                            result = self.server.request_power_action('restart')
-                            result += " (Ask the user to confirm; only call restart again if they say yes.)"
-                    else:
-                        result = "Restart needs manual confirmation; it is disabled here."
-                elif action in ("lock", "lock_screen"):
-                    from jarvis.core.safe_exec import lock_workstation
-                    lock_workstation()
-                    result = "Screen locked."
-                elif "screenshot" in action:
-                    handler = HANDLER_MAP.get("screenshot")
-                    if handler:
-                        res = handler(cmd="screenshot", entities={}, context=context)
-                        result = getattr(res, "response", "Screenshot taken.")
-                    else:
-                        result = "Screenshot handler not available."
-                elif "mute" in action or "unmute" in action:
-                    handler = HANDLER_MAP.get("volume")
-                    if handler:
-                        res = handler(cmd=action, entities={}, context=context)
-                        result = getattr(res, "response", "Audio toggled.")
-                    else:
-                        result = "Volume control not available."
-                elif "volume" in action or "brightness" in action:
-                    handler_key = "volume" if "volume" in action else "brightness"
-                    handler = HANDLER_MAP.get(handler_key)
-                    if handler:
-                        entities = {"level": args.get("value", "")}
-                        res = handler(cmd=action, entities=entities, context=context)
-                        result = getattr(res, "response", "Setting adjusted.")
-                    else:
-                        result = f"{handler_key.title()} control not available."
-                elif "close" in action:
-                    # Delegate to close_app
-                    app_name = args.get("value", "")
-                    switcher = self._get_app_switcher()
-                    if switcher and app_name:
-                        switcher.close_app(app_name)
-                        result = f"Closed {app_name}."
-                    else:
-                        result = "Close action needs an app name."
-                else:
-                    # Generic fallback — try system_control
-                    sc = getattr(self.server, 'system_control', None) if self.server else None
-                    if sc and hasattr(sc, 'execute'):
-                        try:
-                            res = sc.execute(action, args.get("value", ""))
-                            result = res if isinstance(res, str) else "Setting adjusted."
-                        except Exception:
-                            result = f"Computer setting '{action}' noted."
-                    else:
-                        result = f"Computer setting '{action}' noted."
+                result = self._tool_computer_settings(args, context, result)
 
             elif name == "set_reminder":
-                handler = HANDLER_MAP.get("set_reminder")
-                if handler:
-                    # Build a natural language command for the parser
-                    time_str = args.get("time", "")
-                    message_str = args.get("message", "")
-                    raw_cmd = f"remind me to {message_str} {time_str}"
-                    res = handler(cmd=raw_cmd, entities={
-                        "time": time_str,
-                        "message": message_str,
-                        "raw_command": raw_cmd
-                    }, context=context)
-                    result = getattr(res, "response", "Reminder set.")
+                result = self._tool_set_reminder(args, context, result)
 
             elif name == "tell_time":
                 handler = HANDLER_MAP.get("time")
@@ -1123,120 +988,16 @@ class GeminiLiveEngine:
             # ── Window & Screen Control ──
 
             elif name == "close_app":
-                app_name = args.get("app_name", "")
-                switcher = self._get_app_switcher()
-                if switcher:
-                    success = switcher.close_app(app_name)
-                    result = f"Closed {app_name}." if success else f"Couldn't find {app_name} to close."
-                else:
-                    # Fallback: use taskkill
-                    from jarvis.core.safe_exec import kill_process
-                    try:
-                        if kill_process(app_name):
-                            result = f"Force closed {app_name}."
-                        else:
-                            result = f"Couldn't find {app_name} to close."
-                    except Exception:
-                        result = f"Couldn't close {app_name}."
+                result = self._tool_close_app(args, result)
 
             elif name == "switch_to_app":
-                app_name = args.get("app_name", "")
-                switcher = self._get_app_switcher()
-                if switcher:
-                    success = switcher.switch_to(app_name)
-                    result = f"Switched to {app_name}." if success else f"Couldn't find {app_name}."
-                else:
-                    result = "Window switching not available."
+                result = self._tool_switch_app(args, result)
 
             elif name == "screen_action":
-                action = args.get("action", "").lower().replace(" ", "_")
-                import pyautogui
-                ACTION_MAP = {
-                    "minimize": ("win", "down"),
-                    "maximize": ("win", "up"),
-                    "fullscreen": ("f11",),
-                    "alt_tab": ("alt", "tab"),
-                    "ctrl_w": ("ctrl", "w"),
-                    "ctrl_c": ("ctrl", "c"),
-                    "ctrl_v": ("ctrl", "v"),
-                    "ctrl_z": ("ctrl", "z"),
-                    "ctrl_a": ("ctrl", "a"),
-                    "ctrl_s": ("ctrl", "s"),
-                    "ctrl_t": ("ctrl", "t"),
-                    "ctrl_n": ("ctrl", "n"),
-                    "press_enter": ("enter",),
-                    "press_escape": ("escape",),
-                    "press_space": ("space",),
-                    "pause": ("space",),
-                    "play_pause": ("space",),
-                    "stop": ("space",),
-                    "pause_video": ("space",),
-                    "stop_video": ("space",),
-                    "resume": ("space",),
-                    "next_tab": ("ctrl", "tab"),
-                    "previous_tab": ("ctrl", "shift", "tab"),
-                    "prev_tab": ("ctrl", "shift", "tab"),
-                    "close_tab": ("ctrl", "w"),
-                    "new_tab": ("ctrl", "t"),
-                    "reopen_tab": ("ctrl", "shift", "t"),
-                    "refresh": ("f5",),
-                    "go_back": ("alt", "left"),
-                    "go_forward": ("alt", "right"),
-                    "scroll_up": None,
-                    "scroll_down": None,
-                    "click": None,
-                }
-                # Keys go to the focused window. If that's the JARVIS HUD (it
-                # usually is right after you talk to it), "next tab" switched
-                # the HUD's own tab or did nothing: hand focus back first.
-                from jarvis.core.screen_control import focus_away_from_jarvis, ScreenControlHandler
-                from jarvis.core.services import shared
-                focus_away_from_jarvis()
-                if action not in ACTION_MAP and not any(w in action for w in ('pause', 'stop', 'play', 'resume')):
-                    # Anything else ("switch to tab 3", "zoom in", ...): the
-                    # screen-control handler typed commands use
-                    try:
-                        handled = shared(ScreenControlHandler).handle(action.replace('_', ' '))
-                    except Exception as e:
-                        handled = None
-                        _log.warning(f"[LIVE] screen_action fallback failed: {e}")
-                    if handled and not str(handled).lower().startswith(("unknown", "i don't", "sorry")):
-                        action, result = None, str(handled)
-                if action is None:
-                    pass
-                elif action in ACTION_MAP:
-                    keys = ACTION_MAP[action]
-                    if keys:
-                        if len(keys) == 1:
-                            pyautogui.press(keys[0])
-                        else:
-                            pyautogui.hotkey(*keys)
-                        result = f"Performed {action.replace('_', ' ')}."
-                    elif action == "scroll_up":
-                        pyautogui.scroll(5)
-                        result = "Scrolled up."
-                    elif action == "scroll_down":
-                        pyautogui.scroll(-5)
-                        result = "Scrolled down."
-                    elif action == "click":
-                        pyautogui.click()
-                        result = "Clicked."
-                else:
-                    # Try pressing space for any pause/stop/play type action
-                    if any(w in action for w in ['pause', 'stop', 'play', 'resume']):
-                        pyautogui.press('space')
-                        result = f"Toggled playback."
-                    else:
-                        result = f"Unknown screen action: {action}"
+                result = self._tool_screen_action(args, result)
 
             elif name == "type_text":
-                text = args.get("text", "")
-                if text:
-                    import pyautogui
-                    pyautogui.write(text, interval=0.02)
-                    result = f"Typed: {text}"
-                else:
-                    result = "No text specified."
+                result = self._tool_type_text(args, result)
 
             elif name == "read_screen":
                 question = args.get("question", "Describe what is on the screen.")
@@ -1244,42 +1005,15 @@ class GeminiLiveEngine:
 
             # ── Music Control ──
             elif name == "music_control":
-                action = args.get("action", "").lower()
-                handler_key = {
-                    "pause": "pause_music", "resume": "play_music",
-                    "next": "next_track", "previous": "previous_track",
-                    "stop": "pause_music"
-                }.get(action, "pause_music")
-                handler = HANDLER_MAP.get(handler_key)
-                if handler:
-                    res = handler(cmd=action, entities={}, context=context)
-                    result = getattr(res, "response", f"Music {action}.")
-                else:
-                    result = f"Music control '{action}' not available."
+                result = self._tool_music_control(args, context, result)
 
             # ── Alarm ──
             elif name == "set_alarm":
-                handler = HANDLER_MAP.get("set_alarm")
-                if handler:
-                    time_str = args.get("time", "")
-                    label = args.get("label", "alarm")
-                    raw_cmd = f"set alarm for {time_str} {label}"
-                    res = handler(cmd=raw_cmd, entities={
-                        "time": time_str, "label": label, "raw_command": raw_cmd
-                    }, context=context)
-                    result = getattr(res, "response", "Alarm set.")
+                result = self._tool_set_alarm(args, context, result)
 
             # ── Timer ──
             elif name == "set_timer":
-                handler = HANDLER_MAP.get("set_timer")
-                if handler:
-                    duration = args.get("duration", "")
-                    label = args.get("label", "timer")
-                    raw_cmd = f"set timer for {duration} {label}"
-                    res = handler(cmd=raw_cmd, entities={
-                        "duration": duration, "label": label, "raw_command": raw_cmd
-                    }, context=context)
-                    result = getattr(res, "response", "Timer set.")
+                result = self._tool_set_timer(args, context, result)
 
             # ── List Reminders ──
             elif name == "list_reminders":
@@ -1290,34 +1024,11 @@ class GeminiLiveEngine:
 
             # ── Brightness ──
             elif name == "brightness_control":
-                handler = HANDLER_MAP.get("brightness")
-                action = args.get("action", "up")
-                level = args.get("level", "")
-                if handler:
-                    cmd = f"brightness {action}"
-                    if level:
-                        cmd = f"set brightness to {level}"
-                    res = handler(cmd=cmd, entities={"level": level}, context=context)
-                    result = getattr(res, "response", "Brightness adjusted.")
+                result = self._tool_brightness_control(args, context, result)
 
             # ── Screenshot ──
             elif name == "take_screenshot":
-                handler = HANDLER_MAP.get("screenshot")
-                if handler:
-                    res = handler(cmd="screenshot", entities={}, context=context)
-                    result = getattr(res, "response", "Screenshot taken.")
-                else:
-                    # Fallback to screenshot_handler on server
-                    sh = getattr(self.server, 'screenshot_handler', None) if self.server else None
-                    if sh:
-                        path = sh.take_screenshot()
-                        result = f"Screenshot saved to {path}." if path else "Screenshot failed."
-                    else:
-                        import pyautogui
-                        ss = pyautogui.screenshot()
-                        p = Path.home() / "Pictures" / f"jarvis_screenshot_{datetime.datetime.now().strftime('%H%M%S')}.png"
-                        ss.save(str(p))
-                        result = f"Screenshot saved to {p.name}."
+                result = self._tool_take_screenshot(context, result)
 
             # ── Dictionary ──
             elif name == "dictionary_lookup":
@@ -1353,68 +1064,19 @@ class GeminiLiveEngine:
 
             # ── Workflow Automation ──
             elif name == "run_workflow":
-                command = args.get("command", "")
-                try:
-                    from jarvis.core.workflow_manager import get_workflow_manager
-                    wm = get_workflow_manager(
-                        jarvis_core=getattr(self.server, 'jarvis', None),
-                        perception=self.perception
-                    )
-                    workflow = wm.parse_workflow(command)
-                    if workflow:
-                        threading.Thread(
-                            target=wm.execute_workflow,
-                            args=(workflow,),
-                            daemon=True
-                        ).start()
-                        result = f"Running {len(workflow.steps)}-step workflow: {command}"
-                    elif wm.is_workflow_command(command):
-                        threading.Thread(
-                            target=wm.handle,
-                            args=(command,),
-                            daemon=True
-                        ).start()
-                        result = f"Running workflow: {command}"
-                    else:
-                        result = f"Couldn't parse as a workflow: {command}"
-                except Exception as e:
-                    result = f"Workflow error: {e}"
+                result = self._tool_run_workflow(args, result)
 
             # ── Email ──
             elif name == "send_email":
-                email_handler = getattr(self.server, 'email_handler_obj', None) if self.server else None
-                if email_handler and hasattr(email_handler, 'send_email'):
-                    to = args.get("to", "")
-                    subject = args.get("subject", "")
-                    body = args.get("body", "")
-                    try:
-                        email_handler.send_email(to, subject, body)
-                        result = f"Email sent to {to}."
-                    except Exception as e:
-                        result = f"Failed to send email: {e}"
-                else:
-                    result = "Email service not configured."
+                result = self._tool_send_email(args, result)
 
             # ── Hand gestures on/off ──
             elif name == "gesture_control":
-                setter = getattr(self.server, 'set_gesture_enabled', None) if self.server else None
-                if setter is None:
-                    result = "Gesture control isn't available."
-                else:
-                    on = args.get("enabled")
-                    on = on if isinstance(on, bool) else str(on).strip().lower() in ("true", "on", "1", "yes")
-                    result = setter(on, 'sir')
+                result = self._tool_gesture_control(args, result)
 
             # ── Mute / Unmute JARVIS (C-02) ──
             elif name == "mute_jarvis":
-                self._muted = True
-                # Drain any pending audio so silence is immediate
-                if self.audio_in_queue:
-                    while not self.audio_in_queue.empty():
-                        try: self.audio_in_queue.get_nowait()
-                        except Exception: break
-                result = "Muted. I'll stay silent until you need me."
-                _log.info("[LIVE] JARVIS muted by user request")
+                result = self._tool_mute_jarvis(result)
 
             elif name == "unmute_jarvis":
                 self._muted = False
@@ -1423,48 +1085,16 @@ class GeminiLiveEngine:
 
             # ── COORD-FIX: New tool dispatches via HANDLER_MAP ──
             elif name == "read_screen_text":
-                handler = HANDLER_MAP.get("ocr")
-                if handler:
-                    res = handler(cmd="read screen", entities={}, context=context)
-                    result = res.response if res else "OCR not available."
-                else:
-                    result = "OCR handler not found."
+                result = self._tool_read_screen(context, result)
 
             elif name == "habit_tracker":
-                handler = HANDLER_MAP.get("habit")
-                if handler:
-                    action = args.get("action", "list")
-                    habit_name = args.get("habit_name", "")
-                    cmd_text = f"{action} habit {habit_name}".strip()
-                    res = handler(cmd=cmd_text, entities={}, context=context)
-                    result = res.response if res else "Habit tracker not available."
-                else:
-                    result = "Habit tracker not found."
+                result = self._tool_habit_tracker(args, context, result)
 
             elif name == "check_calendar":
-                handler = HANDLER_MAP.get("calendar")
-                if handler:
-                    res = handler(cmd="events today", entities={}, context=context)
-                    result = res.response if res else "Calendar not available."
-                else:
-                    result = "Calendar handler not found."
+                result = self._tool_check_calendar(context, result)
 
             elif name == "tell_story":
-                handler = HANDLER_MAP.get("story")
-                if handler:
-                    genre = (args.get("genre") or "").strip()
-                    topic = (args.get("topic") or "").strip()
-                    entities = {"genre": genre} if genre else {}
-                    cmd = f"tell me a {genre + ' ' if genre else ''}story" + (f" about {topic}" if topic else "")
-                    res = handler(cmd=cmd, entities=entities, context=context)
-                    story = res.response if res else ""
-                    # Gemini used to get the bare story back and just say "Sweet
-                    # dreams, sir": the story was written but never told
-                    result = ("Narrate this story to the user now, aloud, in full and word for word. "
-                              "Don't summarise it or comment first.\n\n" + story) if story else \
-                             "The story couldn't be written. Tell the user a short story yourself."
-                else:
-                    result = "Story handler not found."
+                result = self._tool_tell_story(args, context, result)
 
             else:
                 result = f"Tool {name} is not implemented yet."
@@ -1502,6 +1132,529 @@ class GeminiLiveEngine:
             name=name,
             response={"result": result}
         )
+
+    def _tool_send_message(self, args, context, result):
+        """Step of _execute_tool(): Send_message."""
+        from jarvis.core.services import peek as _peek
+        from jarvis.core.whatsapp_handler import WhatsAppHandler as _WA
+        _wa = (getattr(self.server, 'whatsapp_handler', None) if self.server else None) or _peek(_WA)
+        _draft = _wa.pending_draft() if _wa else None
+        handler = HANDLER_MAP.get("send_message")
+        if _draft and (args.get("receiver") or "").strip().lower() == _draft.contact.lower()                         and (args.get("message_text") or "").strip() == _draft.message:
+            result = _wa.confirm_send()
+            handler = None
+        if handler:
+            entities = {
+                "contact": args.get("receiver"),
+                "message": args.get("message_text"),
+            }
+            res = handler(cmd="", entities=entities, context=context)
+            result = getattr(res, "response", "")
+            _wa = _wa or _peek(_WA)  # the handler may have just been created
+            if _wa and _wa.pending_draft():
+                result += (" (Not sent yet. Ask the user to confirm; only call send_message "
+                           "again, with the same receiver and message_text, if they say yes.)")
+        return result
+
+    def _tool_youtube_video(self, args, result):
+        """Step of _execute_tool(): Youtube_video."""
+        query = args.get("query", "")
+        played = False
+        # Try our YouTube downloader first
+        yt = getattr(self.server, 'youtube_downloader', None) if self.server else None
+        if yt and hasattr(yt, 'search_and_play'):
+            try:
+                yt.search_and_play(query)
+                result = f"Playing {query} on YouTube."
+                played = True
+            except Exception as e:
+                _log.warning(f"[LIVE] YouTube downloader failed: {e}")
+        if not played:
+            # Open YouTube search and auto-click first result
+            import urllib.parse
+            url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
+            webbrowser.open_new_tab(url)
+            # Auto-click first video after page loads
+            import time as _yt_time
+            import pyautogui as _yt_pag
+            def _auto_play():
+                _yt_time.sleep(3.5)  # Wait for YouTube page to load
+                # Tab to first video result and press Enter
+                _yt_pag.press('tab', presses=8, interval=0.05)
+                _yt_time.sleep(0.2)
+                _yt_pag.press('enter')
+            threading.Thread(target=_auto_play, daemon=True).start()
+            result = f"Playing {query} on YouTube."
+        return result
+
+    def _tool_web_search(self, args, context, result):
+        """Step of _execute_tool(): Web_search."""
+        handler = HANDLER_MAP.get("search") or HANDLER_MAP.get("ai_search")
+        if handler:
+            res = handler(cmd="", entities={"query": args.get("query")}, context=context)
+            result = getattr(res, "response", "Search completed.")
+        else:
+            import urllib.parse
+            url = f"https://www.google.com/search?q={urllib.parse.quote(args.get('query', ''))}"
+            webbrowser.open(url)
+            result = f"Opened Google search for: {args.get('query')}"
+        return result
+
+    def _tool_computer_settings(self, args, context, result):
+        """Step of _execute_tool(): Computer_settings."""
+        action = (args.get("action") or args.get("description") or "").lower().replace(" ", "_")
+        # C-03 + M-01: Route each action to the correct handler
+        if action in ("shutdown", "shut_down", "power_off"):
+            result = self._tool_power(result)
+        elif action in ("restart", "reboot"):
+            # Never restart straight from an LLM tool call: arm the
+            # server's confirmation step; the user must say/type "confirm".
+            # In live mode spoken replies go to Gemini, so a SECOND restart
+            # call while one is pending (i.e. after JARVIS asked and the user
+            # answered) counts as the confirmation.
+            result = self._tool_restart_reboot(result)
+        elif action in ("lock", "lock_screen"):
+            from jarvis.core.safe_exec import lock_workstation
+            lock_workstation()
+            result = "Screen locked."
+        elif "screenshot" in action:
+            result = self._tool_screenshot(context, result)
+        elif "mute" in action or "unmute" in action:
+            result = self._tool_mute_unmute(action, context, result)
+        elif "volume" in action or "brightness" in action:
+            result = self._tool_volume_brightness(action, args, context, result)
+        elif "close" in action:
+            # Delegate to close_app
+            result = self._tool_close(args, result)
+        else:
+            # Generic fallback — try system_control
+            result = self._tool_generic_fallback(action, args, result)
+        return result
+
+    def _tool_power(self, result):
+        """Step of _tool_computer_settings(): power."""
+        import signal as _sig
+        self._push_to_chat("Shutting down all systems. Until next time, sir.", role='jarvis')
+        result = "Shutting down."
+        # Schedule exit after response sends
+        def _delayed_exit():
+            import time as _dt; _dt.sleep(2)
+            os.kill(os.getpid(), _sig.SIGTERM)
+        threading.Thread(target=_delayed_exit, daemon=True).start()
+        return result
+
+    def _tool_restart_reboot(self, result):
+        """Step of _tool_computer_settings(): Restart reboot."""
+        if self.server and hasattr(self.server, 'request_power_action'):
+            if self.server._get_pending_power_action() == 'restart':
+                self.server._pending_power_action = None
+                result = self.server._execute_power_action('restart', '')
+            else:
+                result = self.server.request_power_action('restart')
+                result += " (Ask the user to confirm; only call restart again if they say yes.)"
+        else:
+            result = "Restart needs manual confirmation; it is disabled here."
+        return result
+
+    def _tool_screenshot(self, context, result):
+        """Step of _tool_computer_settings(): Screenshot."""
+        handler = HANDLER_MAP.get("screenshot")
+        if handler:
+            res = handler(cmd="screenshot", entities={}, context=context)
+            result = getattr(res, "response", "Screenshot taken.")
+        else:
+            result = "Screenshot handler not available."
+        return result
+
+    def _tool_mute_unmute(self, action, context, result):
+        """Step of _tool_computer_settings(): Mute unmute."""
+        handler = HANDLER_MAP.get("volume")
+        if handler:
+            res = handler(cmd=action, entities={}, context=context)
+            result = getattr(res, "response", "Audio toggled.")
+        else:
+            result = "Volume control not available."
+        return result
+
+    def _tool_volume_brightness(self, action, args, context, result):
+        """Step of _tool_computer_settings(): Volume brightness."""
+        handler_key = "volume" if "volume" in action else "brightness"
+        handler = HANDLER_MAP.get(handler_key)
+        if handler:
+            entities = {"level": args.get("value", "")}
+            res = handler(cmd=action, entities=entities, context=context)
+            result = getattr(res, "response", "Setting adjusted.")
+        else:
+            result = f"{handler_key.title()} control not available."
+        return result
+
+    def _tool_close(self, args, result):
+        """Step of _tool_computer_settings(): Close."""
+        app_name = args.get("value", "")
+        switcher = self._get_app_switcher()
+        if switcher and app_name:
+            switcher.close_app(app_name)
+            result = f"Closed {app_name}."
+        else:
+            result = "Close action needs an app name."
+        return result
+
+    def _tool_generic_fallback(self, action, args, result):
+        """Step of _tool_computer_settings(): generic fallback."""
+        sc = getattr(self.server, 'system_control', None) if self.server else None
+        if sc and hasattr(sc, 'execute'):
+            try:
+                res = sc.execute(action, args.get("value", ""))
+                result = res if isinstance(res, str) else "Setting adjusted."
+            except Exception:
+                result = f"Computer setting '{action}' noted."
+        else:
+            result = f"Computer setting '{action}' noted."
+        return result
+
+
+    def _tool_set_reminder(self, args, context, result):
+        """Step of _execute_tool(): Set_reminder."""
+        handler = HANDLER_MAP.get("set_reminder")
+        if handler:
+            # Build a natural language command for the parser
+            time_str = args.get("time", "")
+            message_str = args.get("message", "")
+            raw_cmd = f"remind me to {message_str} {time_str}"
+            res = handler(cmd=raw_cmd, entities={
+                "time": time_str,
+                "message": message_str,
+                "raw_command": raw_cmd
+            }, context=context)
+            result = getattr(res, "response", "Reminder set.")
+        return result
+
+    def _tool_close_app(self, args, result):
+        """Step of _execute_tool(): Close_app."""
+        app_name = args.get("app_name", "")
+        switcher = self._get_app_switcher()
+        if switcher:
+            success = switcher.close_app(app_name)
+            result = f"Closed {app_name}." if success else f"Couldn't find {app_name} to close."
+        else:
+            # Fallback: use taskkill
+            from jarvis.core.safe_exec import kill_process
+            try:
+                if kill_process(app_name):
+                    result = f"Force closed {app_name}."
+                else:
+                    result = f"Couldn't find {app_name} to close."
+            except Exception:
+                result = f"Couldn't close {app_name}."
+        return result
+
+    def _tool_switch_app(self, args, result):
+        """Step of _execute_tool(): Switch_to_app."""
+        app_name = args.get("app_name", "")
+        switcher = self._get_app_switcher()
+        if switcher:
+            success = switcher.switch_to(app_name)
+            result = f"Switched to {app_name}." if success else f"Couldn't find {app_name}."
+        else:
+            result = "Window switching not available."
+        return result
+
+    def _tool_screen_action(self, args, result):
+        """Step of _execute_tool(): Screen_action."""
+        action = args.get("action", "").lower().replace(" ", "_")
+        import pyautogui
+        ACTION_MAP = {
+            "minimize": ("win", "down"),
+            "maximize": ("win", "up"),
+            "fullscreen": ("f11",),
+            "alt_tab": ("alt", "tab"),
+            "ctrl_w": ("ctrl", "w"),
+            "ctrl_c": ("ctrl", "c"),
+            "ctrl_v": ("ctrl", "v"),
+            "ctrl_z": ("ctrl", "z"),
+            "ctrl_a": ("ctrl", "a"),
+            "ctrl_s": ("ctrl", "s"),
+            "ctrl_t": ("ctrl", "t"),
+            "ctrl_n": ("ctrl", "n"),
+            "press_enter": ("enter",),
+            "press_escape": ("escape",),
+            "press_space": ("space",),
+            "pause": ("space",),
+            "play_pause": ("space",),
+            "stop": ("space",),
+            "pause_video": ("space",),
+            "stop_video": ("space",),
+            "resume": ("space",),
+            "next_tab": ("ctrl", "tab"),
+            "previous_tab": ("ctrl", "shift", "tab"),
+            "prev_tab": ("ctrl", "shift", "tab"),
+            "close_tab": ("ctrl", "w"),
+            "new_tab": ("ctrl", "t"),
+            "reopen_tab": ("ctrl", "shift", "t"),
+            "refresh": ("f5",),
+            "go_back": ("alt", "left"),
+            "go_forward": ("alt", "right"),
+            "scroll_up": None,
+            "scroll_down": None,
+            "click": None,
+        }
+        # Keys go to the focused window. If that's the JARVIS HUD (it
+        # usually is right after you talk to it), "next tab" switched
+        # the HUD's own tab or did nothing: hand focus back first.
+        from jarvis.core.screen_control import focus_away_from_jarvis, ScreenControlHandler
+        from jarvis.core.services import shared
+        focus_away_from_jarvis()
+        if action not in ACTION_MAP and not any(w in action for w in ('pause', 'stop', 'play', 'resume')):
+            # Anything else ("switch to tab 3", "zoom in", ...): the
+            # screen-control handler typed commands use
+            try:
+                handled = shared(ScreenControlHandler).handle(action.replace('_', ' '))
+            except Exception as e:
+                handled = None
+                _log.warning(f"[LIVE] screen_action fallback failed: {e}")
+            if handled and not str(handled).lower().startswith(("unknown", "i don't", "sorry")):
+                action, result = None, str(handled)
+        if action is None:
+            pass
+        elif action in ACTION_MAP:
+            result = self._press_action_keys(ACTION_MAP, action, pyautogui, result)
+        else:
+            # Try pressing space for any pause/stop/play type action
+            if any(w in action for w in ['pause', 'stop', 'play', 'resume']):
+                pyautogui.press('space')
+                result = f"Toggled playback."
+            else:
+                result = f"Unknown screen action: {action}"
+        return result
+
+    def _press_action_keys(self, ACTION_MAP, action, pyautogui, result):
+        """Step of _tool_screen_action(): action keys."""
+        keys = ACTION_MAP[action]
+        if keys:
+            if len(keys) == 1:
+                pyautogui.press(keys[0])
+            else:
+                pyautogui.hotkey(*keys)
+            result = f"Performed {action.replace('_', ' ')}."
+        elif action == "scroll_up":
+            pyautogui.scroll(5)
+            result = "Scrolled up."
+        elif action == "scroll_down":
+            pyautogui.scroll(-5)
+            result = "Scrolled down."
+        elif action == "click":
+            pyautogui.click()
+            result = "Clicked."
+        return result
+
+
+    def _tool_type_text(self, args, result):
+        """Step of _execute_tool(): type text."""
+        text = args.get("text", "")
+        if text:
+            import pyautogui
+            pyautogui.write(text, interval=0.02)
+            result = f"Typed: {text}"
+        else:
+            result = "No text specified."
+        return result
+
+    def _tool_music_control(self, args, context, result):
+        """Step of _execute_tool(): Music_control."""
+        action = args.get("action", "").lower()
+        handler_key = {
+            "pause": "pause_music", "resume": "play_music",
+            "next": "next_track", "previous": "previous_track",
+            "stop": "pause_music"
+        }.get(action, "pause_music")
+        handler = HANDLER_MAP.get(handler_key)
+        if handler:
+            res = handler(cmd=action, entities={}, context=context)
+            result = getattr(res, "response", f"Music {action}.")
+        else:
+            result = f"Music control '{action}' not available."
+        return result
+
+    def _tool_set_alarm(self, args, context, result):
+        """Step of _execute_tool(): Set_alarm."""
+        handler = HANDLER_MAP.get("set_alarm")
+        if handler:
+            time_str = args.get("time", "")
+            label = args.get("label", "alarm")
+            raw_cmd = f"set alarm for {time_str} {label}"
+            res = handler(cmd=raw_cmd, entities={
+                "time": time_str, "label": label, "raw_command": raw_cmd
+            }, context=context)
+            result = getattr(res, "response", "Alarm set.")
+        return result
+
+    def _tool_set_timer(self, args, context, result):
+        """Step of _execute_tool(): Set_timer."""
+        handler = HANDLER_MAP.get("set_timer")
+        if handler:
+            duration = args.get("duration", "")
+            label = args.get("label", "timer")
+            raw_cmd = f"set timer for {duration} {label}"
+            res = handler(cmd=raw_cmd, entities={
+                "duration": duration, "label": label, "raw_command": raw_cmd
+            }, context=context)
+            result = getattr(res, "response", "Timer set.")
+        return result
+
+    def _tool_brightness_control(self, args, context, result):
+        """Step of _execute_tool(): Brightness_control."""
+        handler = HANDLER_MAP.get("brightness")
+        action = args.get("action", "up")
+        level = args.get("level", "")
+        if handler:
+            cmd = f"brightness {action}"
+            if level:
+                cmd = f"set brightness to {level}"
+            res = handler(cmd=cmd, entities={"level": level}, context=context)
+            result = getattr(res, "response", "Brightness adjusted.")
+        return result
+
+    def _tool_take_screenshot(self, context, result):
+        """Step of _execute_tool(): Take_screenshot."""
+        handler = HANDLER_MAP.get("screenshot")
+        if handler:
+            res = handler(cmd="screenshot", entities={}, context=context)
+            result = getattr(res, "response", "Screenshot taken.")
+        else:
+            # Fallback to screenshot_handler on server
+            sh = getattr(self.server, 'screenshot_handler', None) if self.server else None
+            if sh:
+                path = sh.take_screenshot()
+                result = f"Screenshot saved to {path}." if path else "Screenshot failed."
+            else:
+                import pyautogui
+                ss = pyautogui.screenshot()
+                p = Path.home() / "Pictures" / f"jarvis_screenshot_{datetime.datetime.now().strftime('%H%M%S')}.png"
+                ss.save(str(p))
+                result = f"Screenshot saved to {p.name}."
+        return result
+
+    def _tool_run_workflow(self, args, result):
+        """Step of _execute_tool(): Run_workflow."""
+        command = args.get("command", "")
+        try:
+            from jarvis.core.workflow_manager import get_workflow_manager
+            wm = get_workflow_manager(
+                jarvis_core=getattr(self.server, 'jarvis', None),
+                perception=self.perception
+            )
+            workflow = wm.parse_workflow(command)
+            if workflow:
+                threading.Thread(
+                    target=wm.execute_workflow,
+                    args=(workflow,),
+                    daemon=True
+                ).start()
+                result = f"Running {len(workflow.steps)}-step workflow: {command}"
+            elif wm.is_workflow_command(command):
+                threading.Thread(
+                    target=wm.handle,
+                    args=(command,),
+                    daemon=True
+                ).start()
+                result = f"Running workflow: {command}"
+            else:
+                result = f"Couldn't parse as a workflow: {command}"
+        except Exception as e:
+            result = f"Workflow error: {e}"
+        return result
+
+    def _tool_send_email(self, args, result):
+        """Step of _execute_tool(): Send_email."""
+        email_handler = getattr(self.server, 'email_handler_obj', None) if self.server else None
+        if email_handler and hasattr(email_handler, 'send_email'):
+            to = args.get("to", "")
+            subject = args.get("subject", "")
+            body = args.get("body", "")
+            try:
+                email_handler.send_email(to, subject, body)
+                result = f"Email sent to {to}."
+            except Exception as e:
+                result = f"Failed to send email: {e}"
+        else:
+            result = "Email service not configured."
+        return result
+
+    def _tool_gesture_control(self, args, result):
+        """Step of _execute_tool(): Gesture_control."""
+        setter = getattr(self.server, 'set_gesture_enabled', None) if self.server else None
+        if setter is None:
+            result = "Gesture control isn't available."
+        else:
+            on = args.get("enabled")
+            on = on if isinstance(on, bool) else str(on).strip().lower() in ("true", "on", "1", "yes")
+            result = setter(on, 'sir')
+        return result
+
+    def _tool_mute_jarvis(self, result):
+        """Step of _execute_tool(): Mute_jarvis."""
+        self._muted = True
+        # Drain any pending audio so silence is immediate
+        if self.audio_in_queue:
+            while not self.audio_in_queue.empty():
+                try: self.audio_in_queue.get_nowait()
+                except Exception: break
+        result = "Muted. I'll stay silent until you need me."
+        _log.info("[LIVE] JARVIS muted by user request")
+        return result
+
+    def _tool_read_screen(self, context, result):
+        """Step of _execute_tool(): Read_screen_text."""
+        handler = HANDLER_MAP.get("ocr")
+        if handler:
+            res = handler(cmd="read screen", entities={}, context=context)
+            result = res.response if res else "OCR not available."
+        else:
+            result = "OCR handler not found."
+        return result
+
+    def _tool_habit_tracker(self, args, context, result):
+        """Step of _execute_tool(): Habit_tracker."""
+        handler = HANDLER_MAP.get("habit")
+        if handler:
+            action = args.get("action", "list")
+            habit_name = args.get("habit_name", "")
+            cmd_text = f"{action} habit {habit_name}".strip()
+            res = handler(cmd=cmd_text, entities={}, context=context)
+            result = res.response if res else "Habit tracker not available."
+        else:
+            result = "Habit tracker not found."
+        return result
+
+    def _tool_check_calendar(self, context, result):
+        """Step of _execute_tool(): Check_calendar."""
+        handler = HANDLER_MAP.get("calendar")
+        if handler:
+            res = handler(cmd="events today", entities={}, context=context)
+            result = res.response if res else "Calendar not available."
+        else:
+            result = "Calendar handler not found."
+        return result
+
+    def _tool_tell_story(self, args, context, result):
+        """Step of _execute_tool(): Tell_story."""
+        handler = HANDLER_MAP.get("story")
+        if handler:
+            genre = (args.get("genre") or "").strip()
+            topic = (args.get("topic") or "").strip()
+            entities = {"genre": genre} if genre else {}
+            cmd = f"tell me a {genre + ' ' if genre else ''}story" + (f" about {topic}" if topic else "")
+            res = handler(cmd=cmd, entities=entities, context=context)
+            story = res.response if res else ""
+            # Gemini used to get the bare story back and just say "Sweet
+            # dreams, sir": the story was written but never told
+            result = ("Narrate this story to the user now, aloud, in full and word for word. "
+                      "Don't summarise it or comment first.\n\n" + story) if story else \
+                     "The story couldn't be written. Tell the user a short story yourself."
+        else:
+            result = "Story handler not found."
+        return result
+
 
     # ── Audio I/O ────────────────────────────────────────────────
 

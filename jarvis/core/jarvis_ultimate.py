@@ -380,20 +380,7 @@ class JARVISUltimate:
                 self.perception.speak(reason)
                 return True  # Command was blocked, but continue listening
 
-        # ========== FACE RECOGNITION COMMANDS ==========
-        if "register my face" in command_lower or "register owner" in command_lower:
-            self.face_auth.register_owner()
-            return True
-        
-        _r = self._do_register_guest(command_lower)
-        if _r is not _NEXT:
-            return _r
-        
-        if "who am i" in command_lower or "verify me" in command_lower:
-            self.face_auth.authenticate()
-            return True
-        
-        _r = self._do_list_registered_users_who(command_lower)
+        _r = self._do_face_recognition_commands(_r, command_lower)
         if _r is not _NEXT:
             return _r
 
@@ -430,14 +417,9 @@ class JARVISUltimate:
         except ImportError:
             _log.debug("Ignored error", exc_info=True)
 
-        # ========== SCREEN CONTROL (scroll, click, switch, minimize) ==========
-        screen_control_keywords = ["scroll up", "scroll down", "click", "double click", "right click", 
-                                   "switch window", "alt tab", "minimize", "maximize", "close window",
-                                   "move mouse", "type "]
-        if any(kw in command_lower for kw in screen_control_keywords):
-            response = self.screen_control.handle(command)
-            self.perception.speak(response)
-            return True
+        _r = self._do_screen_control_scroll_click(command, command_lower)
+        if _r is not _NEXT:
+            return _r
 
         # ========== MUSIC CONTROL (play, pause, next, previous) ==========
         try:
@@ -473,7 +455,7 @@ class JARVISUltimate:
 
         # ========== REMINDERS (remind me, set reminder, my reminders) ==========
         reminder_keywords = ["remind me", "set reminder", "set a reminder", "my reminders", "read reminders", "upcoming reminders"]
-        _r = self._do_step(command, command_lower, reminder_keywords)
+        _r = self._do_reminders(command, command_lower, reminder_keywords)
         if _r is not _NEXT:
             return _r
 
@@ -580,49 +562,14 @@ class JARVISUltimate:
 
         # ========== TASKS & REMINDERS ==========
         elif intent in ["task", "reminder"] or "task" in command_lower or "remind me" in command_lower:
-            if "add" in command_lower or "create" in command_lower:
-                task_text = command_lower.replace("add task", "").replace("create task", "").strip()
-                if "tomorrow" in command_lower or "in" in command_lower:
-                    success = self.task_manager.set_reminder(task_text, command)
-                else:
-                    success = self.task_manager.add_task(task_text)
-            elif "list" in command_lower or "show" in command_lower:
-                success = self.task_manager.list_tasks()
-            else:
-                # Try to add as task
-                task_text = command_lower.replace("remind me to", "").replace("remind me", "").strip()
-                if task_text:
-                    success = self.task_manager.add_task(task_text)
+            success = self._do_tasks(command, command_lower, success)
 
         elif intent == "list_tasks":
             success = self.task_manager.list_tasks()
 
         # ========== NEWS ==========
         elif intent == "news" or "news" in command_lower or "headline" in command_lower:
-            category = "general"
-            count = 5
-            
-            if "sports" in command_lower or "sport" in command_lower:
-                category = "sports"
-            elif "tech" in command_lower or "technology" in command_lower:
-                category = "technology"
-            elif "business" in command_lower:
-                category = "business"
-            elif "entertainment" in command_lower:
-                category = "entertainment"
-            elif "politic" in command_lower:
-                category = "politics"
-            elif "econom" in command_lower:  # matches economics, economy, economic
-                category = "economics"
-            elif "world" in command_lower or "global" in command_lower or "international" in command_lower:
-                category = "world"
-            
-            # Extract count
-            numbers = entities.get("numbers", [])
-            if numbers:
-                count = min(numbers[0], 10)  # Max 10 headlines
-            
-            success = self.news_handler.get_headlines(count, category)
+            success = self._do_news(command_lower, entities, success)
 
         # ========== VOLUME CONTROL ==========
         elif intent == "volume_up" or ("volume" in command_lower and "up" in command_lower):
@@ -691,19 +638,7 @@ class JARVISUltimate:
 
         # ========== HABITS ==========
         elif intent == "habit" or ("remind" in command_lower and "every" in command_lower):
-            desc = command_lower.replace("remind me to", "").replace("remind me", "").strip()
-            interval = "daily"
-            if "hourly" in command_lower or "every hour" in command_lower:
-                interval = "hourly"
-            elif "morning" in command_lower:
-                interval = "morning"
-            elif "evening" in command_lower:
-                interval = "evening"
-            elif "night" in command_lower:
-                interval = "night"
-            
-            if desc:
-                success = self.habit_tracker.create_habit(desc, interval)
+            success = self._do_habits(command_lower, success)
 
         elif intent == "list_habits" or ("habits" in command_lower and ("show" in command_lower or "list" in command_lower)):
             success = self.habit_tracker.list_habits()
@@ -711,17 +646,7 @@ class JARVISUltimate:
         # ========== WEATHER ==========
         elif "weather" in command_lower or "temperature" in command_lower:
             # Extract city if mentioned
-            city = None
-            for phrase in ["in ", "at ", "for "]:
-                if phrase in command_lower:
-                    city = command_lower.split(phrase)[-1].strip()
-            
-            if "rain" in command_lower:
-                success = self.weather.will_it_rain(city)
-            elif "temperature" in command_lower:
-                success = self.weather.get_temperature(city)
-            else:
-                success = self.weather.report_weather(city)
+            success = self._do_weather_temperature(command_lower, success)
 
         # ========== ENTERTAINMENT ==========
         elif any(word in command_lower for word in ["sing", "song", "story", "joke", "poem", "riddle", "make me laugh"]):
@@ -782,82 +707,23 @@ class JARVISUltimate:
 
         # ========== YOUTUBE DOWNLOAD ==========
         elif "download" in command_lower and ("youtube" in command_lower or "video" in command_lower):
-            url = self.youtube.extract_url_from_command(command)
-            if url:
-                if "audio" in command_lower or "music" in command_lower or "mp3" in command_lower:
-                    success = self.youtube.download_audio(url) is not None
-                else:
-                    success = self.youtube.download_video(url) is not None
-            else:
-                self.perception.speak(f"Please provide a YouTube URL to download, {self.perception.user_title}.")
-                success = True
+            success = self._do_download_youtube_video(command, command_lower, success)
         
         elif "youtube downloads" in command_lower or "open youtube folder" in command_lower:
             success = self.youtube.open_downloads_folder()
 
         # ========== OCR (Read Text from Screen/Image) ==========
         elif any(phrase in command_lower for phrase in ["read screen", "read text", "ocr", "extract text"]):
-            if "clipboard" in command_lower:
-                success = self.ocr.read_clipboard_image() is not None
-            elif "screen" in command_lower or "display" in command_lower:
-                success = self.ocr.read_screen() is not None
-            else:
-                # Default to screen reading
-                success = self.ocr.read_screen() is not None
+            success = self._do_read_screen_read_ocr(command_lower, success)
 
         # ========== PDF SUMMARIZATION ==========
         elif any(phrase in command_lower for phrase in ["summarize pdf", "summarize this pdf", "summarize the pdf", "pdf summary", "read pdf"]):
             # Try to find the active PDF or ask user
-            import win32gui
-            try:
-                active_window = win32gui.GetWindowText(win32gui.GetForegroundWindow())
-                if '.pdf' in active_window.lower():
-                    # Extract PDF path from window title (common pattern)
-                    pdf_name = active_window.split(' - ')[0].strip()
-                    # Find this PDF in recent files
-                    recent_pdfs = self.pdf.find_pdfs()
-                    for pdf_path in recent_pdfs:
-                        if pdf_name.lower() in str(pdf_path).lower():
-                            summary = self.pdf.summarize(str(pdf_path))
-                            self.perception.speak(summary[:1500] if len(summary) > 1500 else summary)
-                            success = True
-                            break
-                    else:
-                        self.perception.speak(f"Found PDF window but couldn't locate the file. Try placing a PDF in your Documents folder, {self.perception.user_title}.")
-                        success = True
-                else:
-                    self.perception.speak(f"No PDF is currently open, {self.perception.user_title}. Please open a PDF first.")
-                    success = True
-            except Exception as e:
-                _log.warning(f"[PDF] Error detecting active PDF: {e}")
-                # Fallback: summarize most recent PDF
-                recent_pdfs = self.pdf.find_pdfs()
-                if recent_pdfs:
-                    self.perception.speak(f"Summarizing most recent PDF, {self.perception.user_title}.")
-                    summary = self.pdf.summarize(str(recent_pdfs[0]))
-                    self.perception.speak(summary[:1500] if len(summary) > 1500 else summary)
-                    success = True
-                else:
-                    self.perception.speak(f"No PDFs found in your Documents folder, {self.perception.user_title}.")
-                    success = True
+            success = self._do_summarize_pdf(success)
 
         # ========== HELP SYSTEM ==========
         elif "help" in command_lower:
-            if "app" in command_lower:
-                self.help_system.get_help("apps")
-            elif "voice" in command_lower:
-                self.help_system.get_help("voice")
-            elif "setting" in command_lower:
-                self.help_system.get_help("settings")
-            elif "entertainment" in command_lower or "fun" in command_lower:
-                self.help_system.get_help("entertainment")
-            elif "system" in command_lower:
-                self.help_system.get_help("system")
-            elif "troubleshoot" in command_lower or "problem" in command_lower:
-                self.help_system.get_help("troubleshooting")
-            else:
-                self.help_system.get_help()
-            success = True
+            success = self._do_help(command_lower, success)
         
         elif "quick reference" in command_lower or "command list" in command_lower:
             self.help_system.quick_reference()
@@ -930,6 +796,208 @@ class JARVISUltimate:
             self.app_finder.refresh_cache()
             success = True
 
+        success = self._do_fallback_llm(command, intent, success)
+        
+        # Log successful commands to context
+        if success and intent:
+            self.context_memory.add_exchange(command, "Command executed successfully", intent)
+
+        # Update learning with success status
+        self.learning.log_command(command, intent, confidence, success)
+
+        return True
+
+    def _do_face_recognition_commands(self, _r, command_lower):
+        """Step of _process_single_command(): FACE RECOGNITION COMMANDS."""
+        # ========== FACE RECOGNITION COMMANDS ==========
+        if "register my face" in command_lower or "register owner" in command_lower:
+            self.face_auth.register_owner()
+            return True
+        
+        _r = self._do_register_guest(command_lower)
+        if _r is not _NEXT:
+            return _r
+        
+        if "who am i" in command_lower or "verify me" in command_lower:
+            self.face_auth.authenticate()
+            return True
+        
+        _r = self._do_list_users(command_lower)
+        if _r is not _NEXT:
+            return _r
+        return _NEXT
+
+    def _do_screen_control_scroll_click(self, command, command_lower):
+        """Step of _process_single_command(): SCREEN CONTROL (scroll, click, switch, minimize)."""
+        # ========== SCREEN CONTROL (scroll, click, switch, minimize) ==========
+        screen_control_keywords = ["scroll up", "scroll down", "click", "double click", "right click", 
+                                   "switch window", "alt tab", "minimize", "maximize", "close window",
+                                   "move mouse", "type "]
+        if any(kw in command_lower for kw in screen_control_keywords):
+            response = self.screen_control.handle(command)
+            self.perception.speak(response)
+            return True
+        return _NEXT
+
+
+    def _do_tasks(self, command, command_lower, success):
+        """Step of _process_single_command(): tasks."""
+        if "add" in command_lower or "create" in command_lower:
+            task_text = command_lower.replace("add task", "").replace("create task", "").strip()
+            if "tomorrow" in command_lower or "in" in command_lower:
+                success = self.task_manager.set_reminder(task_text, command)
+            else:
+                success = self.task_manager.add_task(task_text)
+        elif "list" in command_lower or "show" in command_lower:
+            success = self.task_manager.list_tasks()
+        else:
+            # Try to add as task
+            task_text = command_lower.replace("remind me to", "").replace("remind me", "").strip()
+            if task_text:
+                success = self.task_manager.add_task(task_text)
+        return success
+
+    def _do_news(self, command_lower, entities, success):
+        """Step of _process_single_command(): news."""
+        category = "general"
+        count = 5
+
+        if "sports" in command_lower or "sport" in command_lower:
+            category = "sports"
+        elif "tech" in command_lower or "technology" in command_lower:
+            category = "technology"
+        elif "business" in command_lower:
+            category = "business"
+        elif "entertainment" in command_lower:
+            category = "entertainment"
+        elif "politic" in command_lower:
+            category = "politics"
+        elif "econom" in command_lower:  # matches economics, economy, economic
+            category = "economics"
+        elif "world" in command_lower or "global" in command_lower or "international" in command_lower:
+            category = "world"
+
+        # Extract count
+        numbers = entities.get("numbers", [])
+        if numbers:
+            count = min(numbers[0], 10)  # Max 10 headlines
+
+        success = self.news_handler.get_headlines(count, category)
+        return success
+
+    def _do_habits(self, command_lower, success):
+        """Step of _process_single_command(): habits."""
+        desc = command_lower.replace("remind me to", "").replace("remind me", "").strip()
+        interval = "daily"
+        if "hourly" in command_lower or "every hour" in command_lower:
+            interval = "hourly"
+        elif "morning" in command_lower:
+            interval = "morning"
+        elif "evening" in command_lower:
+            interval = "evening"
+        elif "night" in command_lower:
+            interval = "night"
+
+        if desc:
+            success = self.habit_tracker.create_habit(desc, interval)
+        return success
+
+    def _do_weather_temperature(self, command_lower, success):
+        """Step of _process_single_command(): Weather temperature."""
+        city = None
+        for phrase in ["in ", "at ", "for "]:
+            if phrase in command_lower:
+                city = command_lower.split(phrase)[-1].strip()
+
+        if "rain" in command_lower:
+            success = self.weather.will_it_rain(city)
+        elif "temperature" in command_lower:
+            success = self.weather.get_temperature(city)
+        else:
+            success = self.weather.report_weather(city)
+        return success
+
+    def _do_download_youtube_video(self, command, command_lower, success):
+        """Step of _process_single_command(): Download youtube video."""
+        url = self.youtube.extract_url_from_command(command)
+        if url:
+            if "audio" in command_lower or "music" in command_lower or "mp3" in command_lower:
+                success = self.youtube.download_audio(url) is not None
+            else:
+                success = self.youtube.download_video(url) is not None
+        else:
+            self.perception.speak(f"Please provide a YouTube URL to download, {self.perception.user_title}.")
+            success = True
+        return success
+
+    def _do_read_screen_read_ocr(self, command_lower, success):
+        """Step of _process_single_command(): Read screen read text ocr extract text."""
+        if "clipboard" in command_lower:
+            success = self.ocr.read_clipboard_image() is not None
+        elif "screen" in command_lower or "display" in command_lower:
+            success = self.ocr.read_screen() is not None
+        else:
+            # Default to screen reading
+            success = self.ocr.read_screen() is not None
+        return success
+
+    def _do_summarize_pdf(self, success):
+        """Step of _process_single_command(): summarize pdf."""
+        import win32gui
+        try:
+            active_window = win32gui.GetWindowText(win32gui.GetForegroundWindow())
+            if '.pdf' in active_window.lower():
+                # Extract PDF path from window title (common pattern)
+                pdf_name = active_window.split(' - ')[0].strip()
+                # Find this PDF in recent files
+                recent_pdfs = self.pdf.find_pdfs()
+                for pdf_path in recent_pdfs:
+                    if pdf_name.lower() in str(pdf_path).lower():
+                        summary = self.pdf.summarize(str(pdf_path))
+                        self.perception.speak(summary[:1500] if len(summary) > 1500 else summary)
+                        success = True
+                        break
+                else:
+                    self.perception.speak(f"Found PDF window but couldn't locate the file. Try placing a PDF in your Documents folder, {self.perception.user_title}.")
+                    success = True
+            else:
+                self.perception.speak(f"No PDF is currently open, {self.perception.user_title}. Please open a PDF first.")
+                success = True
+        except Exception as e:
+            _log.warning(f"[PDF] Error detecting active PDF: {e}")
+            # Fallback: summarize most recent PDF
+            recent_pdfs = self.pdf.find_pdfs()
+            if recent_pdfs:
+                self.perception.speak(f"Summarizing most recent PDF, {self.perception.user_title}.")
+                summary = self.pdf.summarize(str(recent_pdfs[0]))
+                self.perception.speak(summary[:1500] if len(summary) > 1500 else summary)
+                success = True
+            else:
+                self.perception.speak(f"No PDFs found in your Documents folder, {self.perception.user_title}.")
+                success = True
+        return success
+
+    def _do_help(self, command_lower, success):
+        """Step of _process_single_command(): Help."""
+        if "app" in command_lower:
+            self.help_system.get_help("apps")
+        elif "voice" in command_lower:
+            self.help_system.get_help("voice")
+        elif "setting" in command_lower:
+            self.help_system.get_help("settings")
+        elif "entertainment" in command_lower or "fun" in command_lower:
+            self.help_system.get_help("entertainment")
+        elif "system" in command_lower:
+            self.help_system.get_help("system")
+        elif "troubleshoot" in command_lower or "problem" in command_lower:
+            self.help_system.get_help("troubleshooting")
+        else:
+            self.help_system.get_help()
+        success = True
+        return success
+
+    def _do_fallback_llm(self, command, intent, success):
+        """Step of _process_single_command(): FALLBACK TO LLM."""
         # ========== FALLBACK TO LLM ==========
         if not success:
             # Use context for better LLM responses
@@ -940,15 +1008,8 @@ class JARVISUltimate:
             # Log to context memory
             self.context_memory.add_exchange(command, answer, intent)
             success = True
-        
-        # Log successful commands to context
-        if success and intent:
-            self.context_memory.add_exchange(command, "Command executed successfully", intent)
+        return success
 
-        # Update learning with success status
-        self.learning.log_command(command, intent, confidence, success)
-
-        return True
 
     def _do_stop_any_ongoing_speech(self, command_lower, stop_talking_words):
         """Step of _process_single_command(): Stop any ongoing speech."""
@@ -977,8 +1038,8 @@ class JARVISUltimate:
             return True
         return _NEXT
 
-    def _do_list_registered_users_who(self, command_lower):
-        """Step of _process_single_command(): List registered users who is registered."""
+    def _do_list_users(self, command_lower):
+        """Step of _process_single_command(): list users."""
         if "list registered users" in command_lower or "who is registered" in command_lower:
             users = self.face_auth.list_registered_users()
             if users:
@@ -988,8 +1049,8 @@ class JARVISUltimate:
             return True
         return _NEXT
 
-    def _do_step(self, command, command_lower, reminder_keywords):
-        """Step of _process_single_command(): _do_step."""
+    def _do_reminders(self, command, command_lower, reminder_keywords):
+        """Step of _process_single_command(): reminders."""
         if any(kw in command_lower for kw in reminder_keywords):
             if "read" in command_lower or "my reminders" in command_lower or "upcoming" in command_lower:
                 self.smart_reminders.read_reminders()

@@ -178,14 +178,7 @@ class RouterMixin:
                 },
             }
 
-            if intent_name in CONTEXT_MAP and active_app:
-                app_key = active_app.lower()
-                mapping = CONTEXT_MAP[intent_name]
-                for key, resolved in mapping.items():
-                    if key in app_key:
-                        if jlog: jlog.intent(f'{intent_name}→{resolved}', context=active_app)
-                        intent_name = resolved
-                        break
+            intent_name = self._apply_app_context(CONTEXT_MAP, active_app, intent_name)
 
             # ══════════════════════════════════════════════════════════════
             # DIRECT HANDLERS: Critical system commands that MUST execute
@@ -235,155 +228,35 @@ class RouterMixin:
 
                 return f"What time should I set the alarm for, {title}?"
 
-            if intent_name == 'list_alarms' and self.alarm_system:
-                alarms = self.alarm_system.scheduler.get_all()
-                if not alarms:
-                    return f"No active alarms, {title}."
-                alarm_list = ", ".join([f"{a.label} at {a.trigger_time.strftime('%I:%M %p')}" for a in alarms])
-                return f"Active alarms: {alarm_list}, {title}."
+            _r = self._route_list_alarms(intent_name, title)
+            if _r is not _NEXT:
+                return _r
 
-            # --- OPEN APP ---
-            if intent_name == 'open_app':
-                app_name = entities.get('app', '')
-                if app_name:
-                    try:
-                        from jarvis.core.app_finder import AppFinder
-                        finder = shared(AppFinder)
-                        success = finder.open_app(app_name)
-                        if success:
-                            self.state_manager.active_app = app_name.lower()
-                            self.state_manager._active_app_time = time.time()
-                            if jlog: jlog.state(active_app=app_name.lower())
-                            return f"Opening {app_name}, {title}."
-                        else:
-                            return f"Couldn't find {app_name}, {title}. Try the full name."
-                    except Exception as e:
-                        if jlog: jlog.error(f'App open failed: {app_name}', e)
-                        else: _log.warning(f"[WebSocket] App open error: {e}")
-                        return f"Had trouble opening {app_name}, {title}."
+            _r = self._route_open_app(entities, intent_name, title)
+            if _r is not _NEXT:
+                return _r
 
             # --- TOGGLE FEATURES (gesture, face, emotion) ---
             cmd_lower = command.lower()
-            _r = self._route_enable_disable_turn_turn(cmd_lower, title)
+            _r = self._route_feature_switches(cmd_lower, title)
             if _r is not _NEXT:
                 return _r
 
             # --- MUSIC CONTROL ---
             if intent_name in ('play_music', 'pause_music', 'next_track', 'previous_track'):
-                if jlog: jlog.route('music', intent_name)
-                try:
-                    from jarvis.core.music_handler import MusicHandler
-                    mh = shared(MusicHandler)
-                    result = mh.handle_command(command)
-                    if result:
-                        return result
-                except Exception as e:
-                    _log.warning(f"[WebSocket] MusicHandler error: {e}")
-                # Fallback: use media keys via ctypes
-                try:
-                    from jarvis.core.music_handler import MediaKeyController
-                    mk = MediaKeyController()
-                    if intent_name == 'play_music':
-                        mk.play_pause()
-                        return f"Playing music, {title}."
-                    elif intent_name == 'pause_music':
-                        mk.play_pause()
-                        return f"Music paused, {title}."
-                    elif intent_name == 'next_track':
-                        mk.next_track()
-                        return f"Next track, {title}."
-                    elif intent_name == 'previous_track':
-                        mk.previous_track()
-                        return f"Previous track, {title}."
-                except Exception as e:
-                    _log.warning(f"[WebSocket] MediaKey error: {e}")
+                _r = self._route_music(command, intent_name, title)
+                if _r is not _NEXT:
+                    return _r
 
             # --- OCR / READ SCREEN ---
             # OCR: handled by HANDLER_MAP['ocr'] (handle_ocr). This inline copy
             # skipped the Tesseract availability check and said "No readable text".
 
-            # --- READ CLIPBOARD ---
-            if intent_name == 'read_clipboard':
-                try:
-                    text = subprocess.run(['powershell', '-command', 'Get-Clipboard'],
-                                         capture_output=True, text=True, timeout=5).stdout.strip()
-                    if text:
-                        short_text = text[:300] + '...' if len(text) > 300 else text
-                        return f"Clipboard contains: {short_text}"
-                    return f"Clipboard is empty, {title}."
-                except Exception as e:
-                    return f"Clipboard error: {e}"
+            _r = self._route_read_clipboard(intent_name, title)
+            if _r is not _NEXT:
+                return _r
 
-            # ══════════════════════════════════════════════════════════════
-            # HANDLER_MAP DISPATCH: Direct handler lookup for all other intents
-            # Time, date, greeting, joke, weather, story, etc.
-            # ══════════════════════════════════════════════════════════════
-            if ROUTER_AVAILABLE and intent_name in HANDLER_MAP:
-                try:
-                    handler = HANDLER_MAP[intent_name]
-
-                    # Build handler context with all available subsystems
-                    handler_context = {
-                        'title': title,
-                        'system_stats': self.get_system_stats() if hasattr(self, 'get_system_stats') else {},
-                        'alarm_system': self.alarm_system,
-                        'screenshot_handler': self.screenshot_handler,
-                        'knowledge': self.knowledge,
-                        'state_manager': self.state_manager,
-                        'weather_handler': self.weather_handler,
-                        'news_handler': self.news_handler,
-                        'entertainment': self.entertainment,
-                        'system_control': self.system_control,
-                        'reminder_manager': getattr(self, 'reminder_manager', None),
-                        'whatsapp_handler': getattr(self, 'whatsapp_handler', None),
-                        'perception': self.hud_perception,
-                        'face_auth': getattr(self, 'face_recognition', None),
-                        'ai_search': self.knowledge,  # KnowledgeLayer doubles as AI search
-                        'ocr_handler': self.ocr_handler,  # P2-wire: OCR via lazy property
-                    }
-
-                    if jlog: jlog.route('HANDLER_MAP', intent_name)
-                    else: _log.info(f"[WebSocket] HANDLER_MAP dispatch: {intent_name}")
-
-                    result = handler(command, entities, handler_context)
-
-                    # A handler that spoke its answer (news search, weather report)
-                    # returns "" with should_speak=False. That is an answer: use what
-                    # it said. Treating it as "no handler" made the AI answer again,
-                    # so the user heard two different replies.
-                    if result and result.success and not result.response:
-                        result.response = turn_text()
-
-                    if result and result.success and result.response:
-                        # Handle side-effects from handler data
-                        if result.data:
-                            data_type = result.data.get('type', '')
-                            if data_type == 'switch_voice':
-                                voice = result.data.get('voice', 'jarvis')
-                                if voice == 'friday':
-                                    self.hud_perception.switch_to_friday()
-                                else:
-                                    self.hud_perception.switch_to_jarvis()
-                            # COORD-FIX: Forward news/weather data to HUD
-                            elif data_type == 'news' and result.data.get('items'):
-                                # The router runs in a worker thread, so hand the
-                                # update to the event loop. (This called a
-                                # _broadcast() that doesn't exist: the news reply
-                                # was built, then thrown away by the AttributeError,
-                                # and the AI was asked instead. The HUD's news
-                                # panel listens for type 'news'.)
-                                self._dispatch_from_thread('stats', {
-                                    'type': 'news',
-                                    'items': result.data['items'],
-                                    'category': result.data.get('category', ''),
-                                })
-                        return result.response
-                except Exception as e:
-                    if jlog: jlog.error(f'Handler dispatch failed: {intent_name}', e)
-                    else: _log.warning(f"[WebSocket] Handler error for {intent_name}: {e}")
-
-            # No handler found - fall through
-            return None
+            return self._route_dispatch_handler(_r, command, entities, intent_name, title)
 
         except Exception as e:
             if jlog: jlog.error('Router pipeline failed', e)
@@ -393,8 +266,190 @@ class RouterMixin:
                 traceback.print_exc()
             return None
 
-    def _route_enable_disable_turn_turn(self, cmd_lower, title):
-        """Step of _route_through_router(): Enable disable turn on turn off start stop."""
+    def _route_dispatch_handler(self, _r, command, entities, intent_name, title):
+        """Step of _route_through_router(): dispatch handler."""
+        # ══════════════════════════════════════════════════════════════
+        # HANDLER_MAP DISPATCH: Direct handler lookup for all other intents
+        # Time, date, greeting, joke, weather, story, etc.
+        # ══════════════════════════════════════════════════════════════
+        if ROUTER_AVAILABLE and intent_name in HANDLER_MAP:
+            _r = self._route_handler_context(command, entities, intent_name, title)
+            if _r is not _NEXT:
+                return _r
+
+        # No handler found - fall through
+        return None
+
+
+    def _route_music(self, command, intent_name, title):
+        """Step of _route_through_router(): music."""
+        if jlog: jlog.route('music', intent_name)
+        try:
+            from jarvis.core.music_handler import MusicHandler
+            mh = shared(MusicHandler)
+            result = mh.handle_command(command)
+            if result:
+                return result
+        except Exception as e:
+            _log.warning(f"[WebSocket] MusicHandler error: {e}")
+        # Fallback: use media keys via ctypes
+        try:
+            from jarvis.core.music_handler import MediaKeyController
+            mk = MediaKeyController()
+            if intent_name == 'play_music':
+                mk.play_pause()
+                return f"Playing music, {title}."
+            elif intent_name == 'pause_music':
+                mk.play_pause()
+                return f"Music paused, {title}."
+            elif intent_name == 'next_track':
+                mk.next_track()
+                return f"Next track, {title}."
+            elif intent_name == 'previous_track':
+                mk.previous_track()
+                return f"Previous track, {title}."
+        except Exception as e:
+            _log.warning(f"[WebSocket] MediaKey error: {e}")
+        return _NEXT
+
+    def _route_handler_context(self, command, entities, intent_name, title):
+        """Step of _route_through_router(): handler context."""
+        try:
+            handler = HANDLER_MAP[intent_name]
+
+            # Build handler context with all available subsystems
+            handler_context = {
+                'title': title,
+                'system_stats': self.get_system_stats() if hasattr(self, 'get_system_stats') else {},
+                'alarm_system': self.alarm_system,
+                'screenshot_handler': self.screenshot_handler,
+                'knowledge': self.knowledge,
+                'state_manager': self.state_manager,
+                'weather_handler': self.weather_handler,
+                'news_handler': self.news_handler,
+                'entertainment': self.entertainment,
+                'system_control': self.system_control,
+                'reminder_manager': getattr(self, 'reminder_manager', None),
+                'whatsapp_handler': getattr(self, 'whatsapp_handler', None),
+                'perception': self.hud_perception,
+                'face_auth': getattr(self, 'face_recognition', None),
+                'ai_search': self.knowledge,  # KnowledgeLayer doubles as AI search
+                'ocr_handler': self.ocr_handler,  # P2-wire: OCR via lazy property
+            }
+
+            if jlog: jlog.route('HANDLER_MAP', intent_name)
+            else: _log.info(f"[WebSocket] HANDLER_MAP dispatch: {intent_name}")
+
+            result = handler(command, entities, handler_context)
+
+            # A handler that spoke its answer (news search, weather report)
+            # returns "" with should_speak=False. That is an answer: use what
+            # it said. Treating it as "no handler" made the AI answer again,
+            # so the user heard two different replies.
+            if result and result.success and not result.response:
+                result.response = turn_text()
+
+            _r = self._route_handler_side_effects(result)
+            if _r is not _NEXT:
+                return _r
+        except Exception as e:
+            if jlog: jlog.error(f'Handler dispatch failed: {intent_name}', e)
+            else: _log.warning(f"[WebSocket] Handler error for {intent_name}: {e}")
+        return _NEXT
+
+    def _route_handler_side_effects(self, result):
+        """Step of _route_handler_context(): handler side effects."""
+        if result and result.success and result.response:
+            # Handle side-effects from handler data
+            if result.data:
+                data_type = result.data.get('type', '')
+                if data_type == 'switch_voice':
+                    voice = result.data.get('voice', 'jarvis')
+                    if voice == 'friday':
+                        self.hud_perception.switch_to_friday()
+                    else:
+                        self.hud_perception.switch_to_jarvis()
+                # COORD-FIX: Forward news/weather data to HUD
+                elif data_type == 'news' and result.data.get('items'):
+                    # The router runs in a worker thread, so hand the
+                    # update to the event loop. (This called a
+                    # _broadcast() that doesn't exist: the news reply
+                    # was built, then thrown away by the AttributeError,
+                    # and the AI was asked instead. The HUD's news
+                    # panel listens for type 'news'.)
+                    self._dispatch_from_thread('stats', {
+                        'type': 'news',
+                        'items': result.data['items'],
+                        'category': result.data.get('category', ''),
+                    })
+            return result.response
+        return _NEXT
+
+
+
+    def _apply_app_context(self, CONTEXT_MAP, active_app, intent_name):
+        """Step of _route_through_router(): app context."""
+        if intent_name in CONTEXT_MAP and active_app:
+            app_key = active_app.lower()
+            mapping = CONTEXT_MAP[intent_name]
+            for key, resolved in mapping.items():
+                if key in app_key:
+                    if jlog: jlog.intent(f'{intent_name}→{resolved}', context=active_app)
+                    intent_name = resolved
+                    break
+        return intent_name
+
+    def _route_list_alarms(self, intent_name, title):
+        """Step of _route_through_router(): List_alarms."""
+        if intent_name == 'list_alarms' and self.alarm_system:
+            alarms = self.alarm_system.scheduler.get_all()
+            if not alarms:
+                return f"No active alarms, {title}."
+            alarm_list = ", ".join([f"{a.label} at {a.trigger_time.strftime('%I:%M %p')}" for a in alarms])
+            return f"Active alarms: {alarm_list}, {title}."
+        return _NEXT
+
+    def _route_open_app(self, entities, intent_name, title):
+        """Step of _route_through_router(): OPEN APP."""
+        # --- OPEN APP ---
+        if intent_name == 'open_app':
+            app_name = entities.get('app', '')
+            if app_name:
+                try:
+                    from jarvis.core.app_finder import AppFinder
+                    finder = shared(AppFinder)
+                    success = finder.open_app(app_name)
+                    if success:
+                        self.state_manager.active_app = app_name.lower()
+                        self.state_manager._active_app_time = time.time()
+                        if jlog: jlog.state(active_app=app_name.lower())
+                        return f"Opening {app_name}, {title}."
+                    else:
+                        return f"Couldn't find {app_name}, {title}. Try the full name."
+                except Exception as e:
+                    if jlog: jlog.error(f'App open failed: {app_name}', e)
+                    else: _log.warning(f"[WebSocket] App open error: {e}")
+                    return f"Had trouble opening {app_name}, {title}."
+        return _NEXT
+
+    def _route_read_clipboard(self, intent_name, title):
+        """Step of _route_through_router(): READ CLIPBOARD."""
+        # --- READ CLIPBOARD ---
+        if intent_name == 'read_clipboard':
+            try:
+                text = subprocess.run(['powershell', '-command', 'Get-Clipboard'],
+                                     capture_output=True, text=True, timeout=5).stdout.strip()
+                if text:
+                    short_text = text[:300] + '...' if len(text) > 300 else text
+                    return f"Clipboard contains: {short_text}"
+                return f"Clipboard is empty, {title}."
+            except Exception as e:
+                return f"Clipboard error: {e}"
+        return _NEXT
+
+
+    def _route_feature_switches(self, cmd_lower, title):
+        """Step of _route_through_router(): feature switches."""
         if any(w in cmd_lower for w in ['enable', 'disable', 'turn on', 'turn off', 'start', 'stop']):
             enabling = any(w in cmd_lower for w in ['enable', 'turn on', 'start'])
 

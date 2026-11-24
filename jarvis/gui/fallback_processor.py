@@ -30,11 +30,11 @@ class FallbackProcessor:
         name = self.server.hud_perception.assistant_name
         title = self.server.hud_perception.user_title
         
-        _r = await self._cmd_voice_switching_needs_websocket(cmd, websocket)
+        _r = await self._cmd_switch_voice(cmd, websocket)
         if _r is not _NEXT:
             return _r
         
-        _r = await self._cmd_switch_jarvis_activate_jarvis(cmd, title, websocket)
+        _r = await self._cmd_switch_to_jarvis(cmd, title, websocket)
         if _r is not _NEXT:
             return _r
         
@@ -60,11 +60,11 @@ class FallbackProcessor:
             now = datetime.now()
             return f"Today is {now.strftime('%A, %B %d, %Y')}, {title}."
         
-        _r = self._cmd_system_status_long_response(cmd, title)
+        _r = self._cmd_system_status(cmd, title)
         if _r is not _NEXT:
             return _r
         
-        _r = self._cmd_how_are_you_sir(cmd, title)
+        _r = self._cmd_how_are_you(cmd, title)
         if _r is not _NEXT:
             return _r
         
@@ -94,47 +94,20 @@ class FallbackProcessor:
         
         # STORY - Check BEFORE jokes (so "horror story" doesn't match "joke")
         if 'story' in cmd and 'joke' not in cmd:
-            genre = "adventure"
-            if 'horror' in cmd or 'scary' in cmd or 'creepy' in cmd:
-                genre = "horror"
-            elif 'funny' in cmd or 'comedy' in cmd:
-                genre = "comedy"
-            elif 'romance' in cmd or 'love' in cmd:
-                genre = "romance"
-            elif 'bedtime' in cmd or 'sleep' in cmd:
-                genre = "bedtime"
-            elif 'mystery' in cmd or 'detective' in cmd:
-                genre = "mystery"
-            elif 'sci-fi' in cmd or 'science fiction' in cmd or 'space' in cmd:
-                genre = "sci-fi"
-            
-            # Play ambient sound for horror stories
-            if genre == 'horror' and self.server.entertainment and hasattr(self.server.entertainment, 'sound_library'):
-                try:
-                    self.server.entertainment.sound_library.play('suspense')
-                except Exception as _err:
-                    recovered("Fallback", _err)
-            
-            # One story implementation (intent_handlers.handle_story: topic,
-            # genre, full length). This used to be a separate copy that cut
-            # stories at 400 characters and ignored the topic.
-            from jarvis.core.intent_handlers import handle_story
-            result = await self.server._run_blocking(
-                handle_story, command, {}, {'title': title, 'knowledge': self.server.knowledge})
-            return result.response
+            return await self._cmd_story_joke(cmd, command, title)
         
-        _r = self._cmd_jokes_use_gemini_ai(cmd)
+        _r = self._cmd_jokes(cmd)
         if _r is not _NEXT:
             return _r
         
-        _r = self._cmd_thank_you_no_sir(cmd)
+        _r = self._cmd_thanks(cmd)
         if _r is not _NEXT:
             return _r
         
         # PLAY MUSIC / SPOTIFY / YOUTUBE
         if 'play music' in cmd or 'play song' in cmd or 'spotify' in cmd or 'youtube' in cmd:
             # If YouTube is specifically mentioned
-            _r = self._cmd_play_music_play_song(cmd, title)
+            _r = self._cmd_play_music(cmd, title)
             if _r is not _NEXT:
                 return _r
         
@@ -144,39 +117,39 @@ class FallbackProcessor:
             if parse_level_request(cmd) is not None:
                 return self.server.system_control.adjust('volume', cmd)
 
-        _r = self._cmd_screen_control_click_scroll(cmd, title)
+        _r = self._cmd_screen_control(cmd, title)
         if _r is not _NEXT:
             return _r
         
-        _r = self._cmd_whatsapp_coord_fix_only(cmd, title)
+        _r = self._cmd_whatsapp(cmd, title)
         if _r is not _NEXT:
             return _r
         
-        _r = self._cmd_calendar_events_schedule_meetings(cmd, title)
+        _r = self._cmd_calendar(cmd, title)
         if _r is not _NEXT:
             return _r
         
-        _r = self._cmd_email_read_emails_summarize(cmd, title)
+        _r = self._cmd_email_summary(cmd, title)
         if _r is not _NEXT:
             return _r
         
-        _r = self._cmd_youtube_download_video_download(cmd, title)
+        _r = self._cmd_youtube_download(cmd, title)
         if _r is not _NEXT:
             return _r
         
-        _r = self._cmd_habits_create_list_complete(cmd, title)
+        _r = self._cmd_habits(cmd, title)
         if _r is not _NEXT:
             return _r
         
-        _r = self._cmd_tasks_add_list_complete(cmd, title)
+        _r = self._cmd_tasks(cmd, title)
         if _r is not _NEXT:
             return _r
         
-        _r = self._cmd_wellness_check_wellness_session(cmd, title)
+        _r = self._cmd_wellness_check(cmd, title)
         if _r is not _NEXT:
             return _r
         
-        _r = self._cmd_chat_history_search_conversations(cmd, title)
+        _r = self._cmd_chat_history_search(cmd, title)
         if _r is not _NEXT:
             return _r
         
@@ -190,7 +163,7 @@ class FallbackProcessor:
         if switched is not None:
             return switched
         
-        _r = self._cmd_go_back_alt_tab(cmd, title)
+        _r = self._cmd_go_back(cmd, title)
         if _r is not _NEXT:
             return _r
         
@@ -217,7 +190,7 @@ class FallbackProcessor:
         if _r is not _NEXT:
             return _r
         
-        _r = await self._cmd_ocr_read_screen(cmd, title, websocket)
+        _r = await self._cmd_read_screen(cmd, title, websocket)
         if _r is not _NEXT:
             return _r
         
@@ -305,7 +278,7 @@ class FallbackProcessor:
         if _r is not _NEXT:
             return _r
         
-        _r = self._cmd_default_fallback_use_gemini(command)
+        _r = self._cmd_ask_gemini(command)
         if _r is not _NEXT:
             return _r
         
@@ -318,8 +291,40 @@ class FallbackProcessor:
         # Final fallback
         return "I'm not sure about that. Try asking differently or be more specific."
 
-    async def _cmd_voice_switching_needs_websocket(self, cmd, websocket):
-        """Step of process(): Voice switching (needs WebSocket   handle before router)."""
+    async def _cmd_story_joke(self, cmd, command, title):
+        """Step of process(): Story joke."""
+        genre = "adventure"
+        if 'horror' in cmd or 'scary' in cmd or 'creepy' in cmd:
+            genre = "horror"
+        elif 'funny' in cmd or 'comedy' in cmd:
+            genre = "comedy"
+        elif 'romance' in cmd or 'love' in cmd:
+            genre = "romance"
+        elif 'bedtime' in cmd or 'sleep' in cmd:
+            genre = "bedtime"
+        elif 'mystery' in cmd or 'detective' in cmd:
+            genre = "mystery"
+        elif 'sci-fi' in cmd or 'science fiction' in cmd or 'space' in cmd:
+            genre = "sci-fi"
+
+        # Play ambient sound for horror stories
+        if genre == 'horror' and self.server.entertainment and hasattr(self.server.entertainment, 'sound_library'):
+            try:
+                self.server.entertainment.sound_library.play('suspense')
+            except Exception as _err:
+                recovered("Fallback", _err)
+
+        # One story implementation (intent_handlers.handle_story: topic,
+        # genre, full length). This used to be a separate copy that cut
+        # stories at 400 characters and ignored the topic.
+        from jarvis.core.intent_handlers import handle_story
+        result = await self.server._run_blocking(
+            handle_story, command, {}, {'title': title, 'knowledge': self.server.knowledge})
+        return result.response
+
+
+    async def _cmd_switch_voice(self, cmd, websocket):
+        """Step of process(): switch voice."""
         # Voice switching (needs WebSocket - handle before router)
         if 'switch to friday' in cmd or 'activate friday' in cmd:
             self.server.hud_perception.switch_to_friday()
@@ -331,8 +336,8 @@ class FallbackProcessor:
             return "FRIDAY online. Hello, boss. How can I help you today?"
         return _NEXT
 
-    async def _cmd_switch_jarvis_activate_jarvis(self, cmd, title, websocket):
-        """Step of process(): Switch to jarvis activate jarvis."""
+    async def _cmd_switch_to_jarvis(self, cmd, title, websocket):
+        """Step of process(): switch to jarvis."""
         if 'switch to jarvis' in cmd or 'activate jarvis' in cmd:
             self.server.hud_perception.switch_to_jarvis()
             await self.server._send_to(websocket, json.dumps({
@@ -343,8 +348,8 @@ class FallbackProcessor:
             return f"JARVIS back online, {title}. At your service."
         return _NEXT
 
-    def _cmd_system_status_long_response(self, cmd, title):
-        """Step of process(): System status   long response, sir once at the END only."""
+    def _cmd_system_status(self, cmd, title):
+        """Step of process(): system status."""
         # System status - long response, sir once at the END only
         if 'system status' in cmd or 'system report' in cmd:
             stats = self.server.get_system_stats()
@@ -354,8 +359,8 @@ class FallbackProcessor:
                    f"battery at {stats['battery']}%{charge}, {title}."
         return _NEXT
 
-    def _cmd_how_are_you_sir(self, cmd, title):
-        """Step of process(): How are you   sir once at end."""
+    def _cmd_how_are_you(self, cmd, title):
+        """Step of process(): how are you."""
         # How are you - sir once at end
         if 'how are you' in cmd:
             stats = self.server.get_system_stats()
@@ -399,8 +404,8 @@ class FallbackProcessor:
                    "You can also interact with the globe to get location-specific news."
         return _NEXT
 
-    def _cmd_jokes_use_gemini_ai(self, cmd):
-        """Step of process(): Jokes   use Gemini AI for unique jokes."""
+    def _cmd_jokes(self, cmd):
+        """Step of process(): jokes."""
         # Jokes - use Gemini AI for unique jokes
         if 'joke' in cmd:
             if self.server.knowledge and hasattr(self.server.knowledge, 'answer_question'):
@@ -425,8 +430,8 @@ class FallbackProcessor:
             return random.choice(jokes)
         return _NEXT
 
-    def _cmd_thank_you_no_sir(self, cmd):
-        """Step of process(): Thank you   no 'sir' every time."""
+    def _cmd_thanks(self, cmd):
+        """Step of process(): thanks."""
         # Thank you - no 'sir' every time
         if 'thank' in cmd:
             responses = [
@@ -438,8 +443,8 @@ class FallbackProcessor:
             return random.choice(responses)
         return _NEXT
 
-    def _cmd_play_music_play_song(self, cmd, title):
-        """Step of process(): Play music play song spotify youtube."""
+    def _cmd_play_music(self, cmd, title):
+        """Step of process(): play music."""
         if 'youtube' in cmd:
             # Extract query: play [query] on youtube
             query_match = re.search(r'(?:play|find|search)\s+(.+?)(?:\s+on|\s+in)?\s*youtube', cmd, re.I)
@@ -469,8 +474,8 @@ class FallbackProcessor:
             return f"Couldn't open Spotify. Make sure it's installed{maybe_title(title)}."
         return _NEXT
 
-    def _cmd_screen_control_click_scroll(self, cmd, title):
-        """Step of process(): SCREEN CONTROL   click, scroll, type, move mouse."""
+    def _cmd_screen_control(self, cmd, title):
+        """Step of process(): screen control."""
         # SCREEN CONTROL - click, scroll, type, move mouse
         if self.server.screen_control:
             # Click commands
@@ -499,8 +504,8 @@ class FallbackProcessor:
                 return result if isinstance(result, str) else f"Key pressed{maybe_title(title)}."
         return _NEXT
 
-    def _cmd_whatsapp_coord_fix_only(self, cmd, title):
-        """Step of process(): WHATSAPP   COORD FIX: Only fire direct dispatch for commands NOT handled by HANDLER_MAP. T."""
+    def _cmd_whatsapp(self, cmd, title):
+        """Step of process(): whatsapp."""
         # WHATSAPP - COORD-FIX: Only fire direct dispatch for commands NOT handled by HANDLER_MAP.
         # The HANDLER_MAP 'send_message' handler already covers "whatsapp" and "send message".
         # This block is now a FALLBACK for commands like "open whatsapp" and "read messages"
@@ -516,8 +521,8 @@ class FallbackProcessor:
                 return result if isinstance(result, str) else f"Opening WhatsApp to view messages, {title}."
         return _NEXT
 
-    def _cmd_calendar_events_schedule_meetings(self, cmd, title):
-        """Step of process(): CALENDAR   events, schedule, meetings."""
+    def _cmd_calendar(self, cmd, title):
+        """Step of process(): calendar."""
         # CALENDAR - events, schedule, meetings
         if self.server.calendar:
             # Today's events
@@ -546,8 +551,8 @@ class FallbackProcessor:
                 return f"Opening calendar, {title}. What would you like to do?"
         return _NEXT
 
-    def _cmd_email_read_emails_summarize(self, cmd, title):
-        """Step of process(): EMAIL   read emails, summarize emails."""
+    def _cmd_email_summary(self, cmd, title):
+        """Step of process(): email summary."""
         # EMAIL - read emails, summarize emails
         if self.server.email_handler_obj:
             if 'email' in cmd or 'mail' in cmd or 'gmail' in cmd:
@@ -562,8 +567,8 @@ class FallbackProcessor:
                     return f"Checking your inbox, {title}."
         return _NEXT
 
-    def _cmd_youtube_download_video_download(self, cmd, title):
-        """Step of process(): YOUTUBE   download video, download audio."""
+    def _cmd_youtube_download(self, cmd, title):
+        """Step of process(): youtube download."""
         # YOUTUBE - download video, download audio
         if self.server.youtube_downloader:
             if 'youtube' in cmd or 'download video' in cmd or 'download audio' in cmd:
@@ -584,8 +589,8 @@ class FallbackProcessor:
                     return f"Please provide a YouTube URL for me to download, {title}."
         return _NEXT
 
-    def _cmd_habits_create_list_complete(self, cmd, title):
-        """Step of process(): HABITS   create, list, complete habits."""
+    def _cmd_habits(self, cmd, title):
+        """Step of process(): habits."""
         # HABITS - create, list, complete habits
         if self.server.habit_tracker:
             if 'habit' in cmd:
@@ -607,8 +612,8 @@ class FallbackProcessor:
                     return f"No habit reminders due, {title}."
         return _NEXT
 
-    def _cmd_tasks_add_list_complete(self, cmd, title):
-        """Step of process(): TASKS   add, list, complete tasks."""
+    def _cmd_tasks(self, cmd, title):
+        """Step of process(): tasks."""
         # TASKS - add, list, complete tasks
         if self.server.task_manager_obj:
             if 'task' in cmd or 'to do' in cmd or 'todo' in cmd:
@@ -629,8 +634,8 @@ class FallbackProcessor:
                         return f"Task marked complete, {title}."
         return _NEXT
 
-    def _cmd_wellness_check_wellness_session(self, cmd, title):
-        """Step of process(): WELLNESS   check wellness, session duration."""
+    def _cmd_wellness_check(self, cmd, title):
+        """Step of process(): wellness check."""
         # WELLNESS - check wellness, session duration
         if self.server.wellness_monitor:
             if 'wellness' in cmd or 'health' in cmd or 'break' in cmd:
@@ -647,8 +652,8 @@ class FallbackProcessor:
                     return f"Session reset. Good on you for taking a break, {title}."
         return _NEXT
 
-    def _cmd_chat_history_search_conversations(self, cmd, title):
-        """Step of process(): CHAT HISTORY   search conversations, recent chat."""
+    def _cmd_chat_history_search(self, cmd, title):
+        """Step of process(): chat history search."""
         # CHAT HISTORY - search conversations, recent chat
         if self.server.chat_history:
             if 'history' in cmd or 'conversation' in cmd or 'what did' in cmd:
@@ -712,8 +717,8 @@ class FallbackProcessor:
                 return f"Searching for '{query}', {title}."
         return _NEXT
 
-    def _cmd_go_back_alt_tab(self, cmd, title):
-        """Step of process(): Go back alt tab switch window next window previous window."""
+    def _cmd_go_back(self, cmd, title):
+        """Step of process(): go back."""
         if cmd in ('go back', 'alt tab', 'switch window', 'next window', 'previous window'):
             try:
                 import pyautogui
@@ -779,13 +784,13 @@ class FallbackProcessor:
             'chatgpt': 'chatgpt',
         }
 
-        _r = self._cmd_try_using_jarvis_app(app, app_lower, app_paths, title)
+        _r = self._cmd_open_with_app_finder(app, app_lower, app_paths, title)
         if _r is not _NEXT:
             return _r
         return _NEXT
 
-    def _cmd_try_using_jarvis_app(self, app, app_lower, app_paths, title):
-        """Step of _cmd_open(): Try using JARVIS app_finder first (most reliable)."""
+    def _cmd_open_with_app_finder(self, app, app_lower, app_paths, title):
+        """Step of _cmd_open(): open with app finder."""
         try:
             # Try using JARVIS app_finder first (most reliable)
             if self.server.jarvis and hasattr(self.server.jarvis, 'app_finder'):
@@ -873,8 +878,8 @@ class FallbackProcessor:
             return f"Screenshot feature not available, {title}."
         return _NEXT
 
-    async def _cmd_ocr_read_screen(self, cmd, title, websocket):
-        """Step of process(): OCR / READ SCREEN."""
+    async def _cmd_read_screen(self, cmd, title, websocket):
+        """Step of process(): read screen."""
         # OCR / READ SCREEN
         if 'read screen' in cmd or 'read text' in cmd or 'extract text' in cmd or 'ocr' in cmd:
             if self.server.ocr_handler:
@@ -1039,8 +1044,8 @@ class FallbackProcessor:
             return "What would you like me to search for?"
         return _NEXT
 
-    def _cmd_default_fallback_use_gemini(self, command):
-        """Step of process(): Default fallback   USE GEMINI AI for intelligent responses."""
+    def _cmd_ask_gemini(self, command):
+        """Step of process(): ask gemini."""
         # Default fallback - USE GEMINI AI for intelligent responses
         if self.server.knowledge and hasattr(self.server.knowledge, 'answer_question'):
             try:

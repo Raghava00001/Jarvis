@@ -754,7 +754,7 @@ class JARVISDesktopApp(ctk.CTk):
 
         # ── Gesture feedback ──
         elif msg_type in ("gesture_feedback", "gesture_action"):
-            self._on_gesture_feedback_gesture_action(data)
+            self._on_gesture_action(data)
 
         # ── Emotion update ──
         elif msg_type == "emotion_update":
@@ -849,8 +849,8 @@ class JARVISDesktopApp(ctk.CTk):
                         wraplength=180, justify="left", anchor="w"
                     ).pack(fill="x", pady=2)
 
-    def _on_gesture_feedback_gesture_action(self, data):
-        """Step of _handle_ws_message(): Gesture_feedback gesture_action."""
+    def _on_gesture_action(self, data):
+        """Step of _handle_ws_message(): gesture action."""
         gesture = data.get("gesture", "")
         action = data.get("action", "")
         if gesture:

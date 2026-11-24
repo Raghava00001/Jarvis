@@ -50,7 +50,7 @@ class MessageMixin:
         # below handle live mode, and fall back to the local pipeline when the
         # Gemini session is down.)
 
-        _r = await self._on_speech_interruption_stop_jarvis(msg_type, websocket)
+        _r = await self._on_stop_speaking(msg_type, websocket)
         if _r is not _NEXT:
             return _r
 
@@ -59,7 +59,7 @@ class MessageMixin:
         # All user input flows through the same brain path
         # ═══════════════════════════════════════════════════════════════
         if msg_type in ('text_input', 'voice_input', 'command', 'chat'):
-            _r = await self._on_input_voice_input_chat(data, msg_type, websocket)
+            _r = await self._on_input(data, msg_type, websocket)
             if _r is not _NEXT:
                 return _r
 
@@ -96,8 +96,8 @@ class MessageMixin:
         elif msg_type == 'get_features':
             await self._send_to(websocket, json.dumps(self.get_feature_status()))
 
-    async def _on_speech_interruption_stop_jarvis(self, msg_type, websocket):
-        """Step of process_message(): SPEECH INTERRUPTION: Stop JARVIS mid speech Gesture (palm) or explicit 'stop' command stop."""
+    async def _on_stop_speaking(self, msg_type, websocket):
+        """Step of process_message(): stop speaking."""
         # ═══════════════════════════════════════════════════════════════
         # SPEECH INTERRUPTION: Stop JARVIS mid-speech
         # Gesture (palm) or explicit 'stop' command stops TTS immediately
@@ -112,8 +112,8 @@ class MessageMixin:
             return
         return _NEXT
 
-    async def _on_input_voice_input_chat(self, data, msg_type, websocket):
-        """Step of process_message(): Text_input voice_input command chat."""
+    async def _on_input(self, data, msg_type, websocket):
+        """Step of process_message(): input."""
         text = data.get('text', '') or data.get('payload', {}).get('text', '')
 
         # ── VOICE CLASH GUARD ─────────────────────────────────────
@@ -133,19 +133,7 @@ class MessageMixin:
         # EXCEPTION: Local shutdown/exit commands bypass routing to guarantee clean termination.
         # Power commands and confirmations are handled locally (never by the LLM).
         is_local_power = False
-        if text.strip():
-            cmd_check = normalize_command(text)
-            is_local_power = (
-                # Feature switches (gestures, face, emotion) are local
-                # settings; in live mode the HUD's gesture button was sent
-                # to Gemini, which can't flip them.
-                bool(FEATURE_TOGGLE_RE.match(cmd_check))
-                or is_jarvis_exit_command(cmd_check)
-                or detect_pc_power_action(cmd_check) is not None
-                or (self._get_pending_power_action() is not None
-                    and bool(CONFIRM_RE.match(cmd_check) or CANCEL_RE.match(cmd_check)))
-                or self._answers_whatsapp_draft(cmd_check)
-            )
+        is_local_power = self._on_feature_switches(is_local_power, text)
 
         _r = self._on_input_chat(_live_active, is_local_power, msg_type, text)
         if _r is not _NEXT:
@@ -317,7 +305,7 @@ class MessageMixin:
         # NOTE: Removed duplicate apply_action send - result message above
         # already contains the response. Sending twice caused double messages.
 
-        self._on_save_chat_history_memory(response, text)
+        self._on_save_chat_history(response, text)
 
         # Record action for proactive pattern learning
         if self.proactive_assistant:
@@ -338,8 +326,26 @@ class MessageMixin:
         }))
         return _NEXT
 
+    def _on_feature_switches(self, is_local_power, text):
+        """Step of _on_input(): feature switches."""
+        if text.strip():
+            cmd_check = normalize_command(text)
+            is_local_power = (
+                # Feature switches (gestures, face, emotion) are local
+                # settings; in live mode the HUD's gesture button was sent
+                # to Gemini, which can't flip them.
+                bool(FEATURE_TOGGLE_RE.match(cmd_check))
+                or is_jarvis_exit_command(cmd_check)
+                or detect_pc_power_action(cmd_check) is not None
+                or (self._get_pending_power_action() is not None
+                    and bool(CONFIRM_RE.match(cmd_check) or CANCEL_RE.match(cmd_check)))
+                or self._answers_whatsapp_draft(cmd_check)
+            )
+        return is_local_power
+
+
     def _on_voice_input(self, _live_active, msg_type, text):
-        """Step of _on_input_voice_input_chat(): Voice_input."""
+        """Step of _on_input(): Voice_input."""
         if msg_type == 'voice_input' and _live_active:
             if jlog:
                 jlog.warn(f'voice_input suppressed (Gemini Live active): "{text[:60]}"')
@@ -349,7 +355,7 @@ class MessageMixin:
         return _NEXT
 
     def _on_input_chat(self, _live_active, is_local_power, msg_type, text):
-        """Step of _on_input_voice_input_chat(): Text_input command chat."""
+        """Step of _on_input(): Text_input command chat."""
         if _live_active and msg_type in ('text_input', 'command', 'chat') and text.strip() and not is_local_power:
             try:
                 # Push user text into the Gemini Live session as a text turn
@@ -371,8 +377,8 @@ class MessageMixin:
                 return
         return _NEXT
 
-    def _on_save_chat_history_memory(self, response, text):
-        """Step of _on_input_voice_input_chat(): Save to chat history for memory."""
+    def _on_save_chat_history(self, response, text):
+        """Step of _on_input(): save chat history."""
         # Save to chat history for memory
         if self.chat_history:
             try:
