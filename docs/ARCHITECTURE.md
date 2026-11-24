@@ -123,7 +123,7 @@ flowchart LR
     end
 ```
 
-## How the design is implemented (v2.6)
+## How the design is implemented (v2.6 – v2.10)
 
 ### One request, end to end
 
@@ -158,6 +158,41 @@ subsystems, and 37 modules were loaded twice (as `core.X` and `jarvis.core.X`). 
 running JARVIS had two state managers, two reminder checkers on the same database
 and two hotkey registrations.
 
+### The HUD server, by responsibility
+
+`jarvis/gui/websocket_server.py` used to be one 3,262-line class. It is now ~490 lines
+(start-up, client connections, lifecycle), and `JARVISWebSocketServer` is assembled
+from parts in `jarvis/gui/server/`, each owning one job:
+
+| Part | Owns |
+|---|---|
+| `messages.py` | every incoming HUD message (`process_message`), mood tracking |
+| `router.py` | intent classification, `HANDLER_MAP` dispatch, answering what no handler covers |
+| `commands.py` | local commands; one command = one turn (`process_command`) |
+| `pending.py` | questions awaiting an answer (PC power, WhatsApp drafts) |
+| `speech.py` | voice output: one owner per reply, announcements, stop |
+| `gestures.py` | the camera gesture thread and what each gesture means |
+| `voice_input.py` | the server's own microphone loop |
+| `boot.py` | loading subsystems: critical now, the rest in the background |
+| `services.py` | subsystems loaded on first use |
+| `transport.py` | per-client send queues, channels, thread-safe dispatch |
+| `features.py` | optional imports and their `*_AVAILABLE` flags |
+| `tables.py` | command tables and phrase lists |
+
+Long rule chains are written as **named steps**: `fallback_processor.process`,
+Gemini Live's `_execute_tool` (one `_tool_*` method per voice tool), the router and
+the keyword classifier call one small function per rule. A step that doesn't handle
+the request returns `_NEXT`, and the caller moves on to the next step.
+
+### Logging
+
+Modules log with `_log = logging.getLogger(__name__)`; there are no `print()` calls.
+`jarvis/logging_setup.py` gives the `jarvis` loggers one console handler when the
+package is imported. Output looks like it always did (`[ALARMS] System Ready`).
+`JARVIS_LOG_LEVEL` in `.env` controls it: `WARNING` shows only problems, `DEBUG` also
+shows every error JARVIS recovered from on its own, with its location and traceback.
+An error that is deliberately ignored is still logged at debug level, never `pass`.
+
 ### Rules the tests enforce
 
 | Invariant | Test |
@@ -169,6 +204,10 @@ and two hotkey registrations.
 | No heavy ML library is imported on the startup path | `tests/test_fast_boot.py` |
 | Everyday commands reach the right handler (real pipeline, side effects stubbed) | `tests/test_routing_corpus.py` |
 | Security rules (WebSocket origin + token, shell injection, power confirmation) | `tests/test_security_regressions.py` |
+| Every `self.method()` call exists (the server and its parts checked as one class) | `tests/test_self_calls.py` |
+| No `print()`, no silent `except: pass`, no bare `except:` | `tests/test_code_quality.py` |
+| No function over 120 lines; the few older ones may only get shorter | `tests/test_code_quality.py` |
+| No server file over 550 lines; the server keeps its 10 parts | `tests/test_code_quality.py` |
 
 ### Adding a feature
 
@@ -184,6 +223,7 @@ and two hotkey registrations.
 ```
 jarvis/
 ├── __init__.py               # one module identity (maps legacy core.X imports)
+├── logging_setup.py          # console logging for every module (JARVIS_LOG_LEVEL)
 ├── core/
 │   ├── services.py           # service registry (composition root)
 │   ├── brain_adapter.py      # understanding pipeline
@@ -199,7 +239,8 @@ jarvis/
 │   ├── personality.py, context_memory.py, proactive_assistant.py, …
 │   └── safe_exec.py, rss.py, user_profile.py
 ├── gui/
-│   ├── websocket_server.py   # transport + orchestration
+│   ├── websocket_server.py   # start-up, client connections, lifecycle
+│   ├── server/               # the server's parts (messages, router, commands, speech, …)
 │   ├── command_rules.py      # wake / exit / power rules, WebSocket access
 │   ├── fast_path.py          # instant-command rules
 │   ├── web_hud/index.html    # the HUD
