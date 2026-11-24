@@ -163,6 +163,27 @@ Every fix has a regression test in `tests/test_security_regressions.py`.
 
 ---
 
+## What's new in v2.10: code quality, and every feature checked
+
+About 110 typed commands and all 36 Gemini voice tools were sent through the real server (side effects stubbed), and everything that misbehaved was fixed:
+
+| Feature | Before | After |
+|---|---|---|
+| Voice alarms | Gemini passed "7 am" as text: every alarm rang at **midnight** | Set for the time you said |
+| "calculate 25 times 4" | Answered with the time ("times") | A safe calculator (no eval): "That's 100" |
+| Typos | "wats the wether", "whats the tiem" went to the AI | Command words are corrected; real words never are |
+| Memory | "remember that..." crashed; recall was never used | Facts are kept and recalled by keyword |
+| Opening apps outside the fast path | Always failed (wrong class); its fallback was injectable | Works; the app name reaches PowerShell as data |
+| Tabs, multi-step commands | "open a new tab" launched an app called "a new tab" | Key presses; "open X and set a timer" does both |
+| Music / video pause, next, previous | Space / Ctrl+Right typed into whatever window had focus | Media keys, which every player handles |
+| "Play X on YouTube" | Pressed Tab x8 + Enter, blind, 3.5 s later | Opens the first video directly; no key presses |
+| Email by voice | Said "sent" whatever happened | Reports what really happened |
+| Tasks, habits, notes, calendar, news topics, system status | Placeholders, crashes, ignored topics, 0% readings | Real content |
+
+**Code quality:** no `print()` (module loggers; `JARVIS_LOG_LEVEL`), no silent `except`, `websocket_server.py` split into 12 focused parts, long rule chains turned into named steps, 133 lint warnings removed; tests enforce all of it with ratchets that only go down.
+
+---
+
 ## What's new in v2.9: gestures, WhatsApp drafts, mood, and fixes from real use
 
 | Area | Before | After |
@@ -294,7 +315,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-**602 tests pass:**
+**665 tests pass:**
 - smoke tests: boot, Gemini Live dedup and echo gate, BrainAdapter, persona switching
 - NLP and router unit tests
 - 67 security and regression tests
