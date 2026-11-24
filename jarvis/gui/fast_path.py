@@ -9,6 +9,10 @@ import logging
 import re
 _log = logging.getLogger(__name__)
 
+# Returned by an extracted step that didn't handle the request: the
+# caller carries on with its next step.
+_NEXT = object()
+
 from datetime import datetime
 from pathlib import Path
 
@@ -53,37 +57,19 @@ def try_fast_path(server, text: str):
         except Exception:
             return None  # Fall through to normal pipeline
 
-    # ── SCREENSHOT (instant) ──
-    if 'screenshot' in cmd or 'screen capture' in cmd:
-        try:
-            import pyautogui
-            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-            path = Path.home() / 'Pictures' / f'jarvis_screenshot_{ts}.png'
-            pyautogui.screenshot(str(path))
-            _log.info(f"[FAST] Screenshot saved: {path}")
-            return f"Screenshot saved, {title}."
-        except Exception:
-            return None
+    _r = _fast_screenshot_instant(cmd, title)
+    if _r is not _NEXT:
+        return _r
 
-    # ── VOLUME / BRIGHTNESS (instant; the reply is what really happened) ──
-    for kind in ('volume', 'brightness'):
-        if kind in cmd and server.system_control:
-            from jarvis.core.system_control import parse_level_request
-            if parse_level_request(cmd) is not None:
-                return server.system_control.adjust(kind, cmd)
+    _r = _fast_volume_brightness_instant_reply(cmd, server)
+    if _r is not _NEXT:
+        return _r
 
     # ── PLAY IN YOUTUBE (instant — prevents Spotify conflict) ──
     yt_match = re.search(r'play\s+(.+?)\s+(?:in|on)\s+youtube', cmd)
-    if yt_match:
-        query = yt_match.group(1).strip()
-        try:
-            # First video, opened directly (no blind Tab/Enter key presses)
-            from jarvis.core.youtube_play import play_on_youtube
-            play_on_youtube(query)
-            _log.info(f"[FAST] YouTube search: {query}")
-            return f"Playing {query} on YouTube, {title}."
-        except Exception:
-            return None
+    _r = _fast_first_video_opened_directly(title, yt_match)
+    if _r is not _NEXT:
+        return _r
 
     # ── OPEN APP (instant) ──
     open_match = re.match(r'^(?:open|launch|start)\s+(.+)', cmd)
@@ -104,16 +90,78 @@ def try_fast_path(server, text: str):
         except Exception:
             return None
 
+    _r = _fast_time_instant(cmd, title)
+    if _r is not _NEXT:
+        return _r
+
+    _r = _fast_date_instant(cmd, title)
+    if _r is not _NEXT:
+        return _r
+
+    _r = _fast_pause_resume_music_video(cmd, title)
+    if _r is not _NEXT:
+        return _r
+
+
+    return None  # No fast path — use normal pipeline
+
+def _fast_screenshot_instant(cmd, title):
+    """Step of try_fast_path(): SCREENSHOT (instant)."""
+    # ── SCREENSHOT (instant) ──
+    if 'screenshot' in cmd or 'screen capture' in cmd:
+        try:
+            import pyautogui
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            path = Path.home() / 'Pictures' / f'jarvis_screenshot_{ts}.png'
+            pyautogui.screenshot(str(path))
+            _log.info(f"[FAST] Screenshot saved: {path}")
+            return f"Screenshot saved, {title}."
+        except Exception:
+            return None
+    return _NEXT
+
+def _fast_volume_brightness_instant_reply(cmd, server):
+    """Step of try_fast_path(): VOLUME / BRIGHTNESS (instant; the reply is what really happened)."""
+    # ── VOLUME / BRIGHTNESS (instant; the reply is what really happened) ──
+    for kind in ('volume', 'brightness'):
+        if kind in cmd and server.system_control:
+            from jarvis.core.system_control import parse_level_request
+            if parse_level_request(cmd) is not None:
+                return server.system_control.adjust(kind, cmd)
+    return _NEXT
+
+def _fast_first_video_opened_directly(title, yt_match):
+    """Step of try_fast_path(): First video, opened directly (no blind Tab/Enter key presses)."""
+    if yt_match:
+        query = yt_match.group(1).strip()
+        try:
+            # First video, opened directly (no blind Tab/Enter key presses)
+            from jarvis.core.youtube_play import play_on_youtube
+            play_on_youtube(query)
+            _log.info(f"[FAST] YouTube search: {query}")
+            return f"Playing {query} on YouTube, {title}."
+        except Exception:
+            return None
+    return _NEXT
+
+def _fast_time_instant(cmd, title):
+    """Step of try_fast_path(): TIME (instant)."""
     # ── TIME (instant) ──
     if cmd in ['time', 'what time is it', 'what is the time', 'tell me the time', "what's the time"]:
         now = datetime.now().strftime('%I:%M %p')
         return f"It's {now}, {title}."
+    return _NEXT
 
+def _fast_date_instant(cmd, title):
+    """Step of try_fast_path(): DATE (instant)."""
     # ── DATE (instant) ──
     if cmd in ['date', 'what date is it', "what's the date", 'what is the date', "what's today's date"]:
         now = datetime.now().strftime('%A, %B %d, %Y')
         return f"It's {now}, {title}."
+    return _NEXT
 
+def _fast_pause_resume_music_video(cmd, title):
+    """Step of try_fast_path(): PAUSE / RESUME music or video (instant) The play/pause media key: Spotify, YouTube in the ."""
     # ── PAUSE / RESUME music or video (instant) ──
     # The play/pause media key: Spotify, YouTube in the browser and media players
     # all handle it, whatever window has focus. (Two blocks here pressed Space,
@@ -130,6 +178,5 @@ def try_fast_path(server, text: str):
         if any(w in cmd for w in ('resume', 'unpause', 'play video', 'play youtube')):
             return f"Resuming playback, {title}."
         return f"Paused, {title}."
+    return _NEXT
 
-
-    return None  # No fast path — use normal pipeline

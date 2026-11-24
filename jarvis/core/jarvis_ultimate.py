@@ -355,17 +355,15 @@ class JARVISUltimate:
         # ========== CONTEXTUAL UNDERSTANDING ==========
         # Resolve pronouns like "it", "that" to actual entities
         resolved_command = self.context_memory.resolve_pronoun(command)
-        if resolved_command != command:
-            _log.info(f"  [CONTEXT] Resolved: '{command}' -> '{resolved_command}'")
-            command = resolved_command
+        command = self._do_resolve_context(command, resolved_command)
         
         command_lower = command.lower()
 
         # Exit commands - use word boundaries to prevent "perplexity" matching "exit"
         exit_words = ["exit jarvis", "quit jarvis", "goodbye jarvis", "bye jarvis", "close jarvis", "stop jarvis", "jarvis stop"]
-        if any(phrase in command_lower for phrase in exit_words) or command_lower in ["exit", "quit", "goodbye", "bye", "stop"]:
-            self.perception.speak("Goodbye, sir.")
-            return False
+        _r = self._do_exit(command_lower, exit_words)
+        if _r is not _NEXT:
+            return _r
 
         # ========== STOP TALKING / STOP STORY ==========
         stop_talking_words = ["stop story", "stop talking", "be quiet", "shut up", "enough", "stop that", "cancel story"]
@@ -388,21 +386,20 @@ class JARVISUltimate:
         # ========== SECURITY ACCESS CHECK ==========
         # Check if outsider is trying to use restricted commands
         allowed, reason = self.face_auth.check_command_access(command)
-        if not allowed:
-            self.perception.speak(self.face_auth.get_outsider_response(command))
-            return True
+        _r = self._do_outsider_check(allowed, command)
+        if _r is not _NEXT:
+            return _r
 
         # ========== STOP TALKING (SAFETY - check before shutdown) ==========
         # Intercept "shut up" and similar phrases BEFORE intent classification
         stop_words = ["shut up", "shutup", "be quiet", "stop talking", "hush", "silence"]
-        if any(word in command_lower for word in stop_words):
-            self.perception.speak("Understood.")
-            return True
+        _r = self._do_stop_words(command_lower, stop_words)
+        if _r is not _NEXT:
+            return _r
 
-        # ========== DIRECT ALARM DETECTION (fallback if intent fails) ==========
-        if any(phrase in command_lower for phrase in ["set alarm", "set an alarm", "alarm for", "alarm at", "alarm in", "wake me up"]):
-            success = self.alarm_system.set_alarm(command, "Alarm")
-            return True
+        _r = self._do_alarm(command, command_lower)
+        if _r is not _NEXT:
+            return _r
 
         # ========== DIRECT BROWSER TAB CONTROL ==========
         try:
@@ -449,10 +446,9 @@ class JARVISUltimate:
 
         # ========== APP SWITCHING (switch to, switch back, list windows) ==========
         switch_keywords = ["switch to", "switch back", "go back", "focus", "list windows", "what's open", "running apps"]
-        if any(kw in command_lower for kw in switch_keywords):
-            response = self.app_switcher.handle(command)
-            self.perception.speak(response)
-            return True
+        _r = self._do_switch_app(command, command_lower, switch_keywords)
+        if _r is not _NEXT:
+            return _r
 
         # ========== REMINDERS (remind me, set reminder, my reminders) ==========
         reminder_keywords = ["remind me", "set reminder", "set a reminder", "my reminders", "read reminders", "upcoming reminders"]
@@ -463,22 +459,22 @@ class JARVISUltimate:
         # ========== CALENDAR (add event, schedule, my schedule) ==========
         calendar_keywords = ["add event", "add meeting", "schedule meeting", "create event", "my schedule", 
                            "what's on my schedule", "events today", "meetings today", "this week"]
-        if any(kw in command_lower for kw in calendar_keywords):
-            self.calendar.handle(command)
-            return True
+        _r = self._do_calendar(calendar_keywords, command, command_lower)
+        if _r is not _NEXT:
+            return _r
 
         # ========== CLIPBOARD (save this, what did I copy, paste) ==========
         clipboard_keywords = ["save this", "save clipboard", "what did i copy", "last copied", 
                             "clipboard history", "paste last", "clear clipboard"]
-        if any(kw in command_lower for kw in clipboard_keywords):
-            self.clipboard.handle(command)
-            return True
+        _r = self._do_clipboard(clipboard_keywords, command, command_lower)
+        if _r is not _NEXT:
+            return _r
 
         # ========== WORKFLOWS (multi-action, morning routine, focus mode) ==========
         workflow_triggers = ["morning routine", "focus mode", "and then", "and search"]
-        if self.workflow.is_workflow_command(command) or any(t in command_lower for t in workflow_triggers):
-            self.workflow.handle(command)
-            return True
+        _r = self._do_workflow(command, command_lower, workflow_triggers)
+        if _r is not _NEXT:
+            return _r
 
         # ========== CLOSE APP ==========
         if "close " in command_lower and any(w in command_lower for w in ["close app", "close chrome", "close notepad", "close spotify", "close window"]):
@@ -544,9 +540,7 @@ class JARVISUltimate:
         # ========== QUESTIONS (LLM) ==========
         elif intent == "question" or intent == "uncertain":
             # Use knowledge layer for questions
-            answer = self.knowledge.answer_question(command)
-            self.perception.speak(answer)
-            success = True
+            success = self._do_question_uncertain(command, success)
 
         # ========== ALARMS ==========
         elif intent == "set_alarm":
@@ -580,11 +574,7 @@ class JARVISUltimate:
             success = self._say_result(self.system_control.volume_down())
 
         elif intent == "set_volume" or ("volume" in command_lower and entities.get("numbers")):
-            numbers = entities.get("numbers", [])
-            if numbers:
-                success = self._say_result(self.system_control.set_volume(numbers[0]))
-            else:
-                self.perception.speak("What volume level, sir?")
+            success = self._do_set_volume(entities, success)
 
         elif intent == "mute" or "mute" in command_lower:
             success = self._say_result(self.system_control.mute_volume())
@@ -597,9 +587,7 @@ class JARVISUltimate:
             success = self._say_result(self.system_control.brightness_down())
 
         elif intent == "set_brightness" or ("brightness" in command_lower and entities.get("numbers")):
-            numbers = entities.get("numbers", [])
-            if numbers:
-                success = self._say_result(self.system_control.set_brightness(numbers[0]))
+            success = self._do_set_brightness(entities, success)
 
         # ========== BLUETOOTH ==========
         elif intent == "bluetooth_on" or ("bluetooth" in command_lower and "on" in command_lower):
@@ -616,26 +604,14 @@ class JARVISUltimate:
 
         # ========== SYSTEM POWER (with stricter check) ==========
         elif intent == "sleep" or ("sleep" in command_lower and "computer" in command_lower):
-            if "confirm" in command_lower or "yes" in command_lower:
-                success = self.system_control.sleep_system(confirm=True)
-            else:
-                self.perception.speak("Say 'sleep confirm' to put the system to sleep, sir.")
-                success = True
+            success = self._do_sleep(command_lower, success)
 
         # STRICT shutdown check - require explicit keywords to prevent "shut up" confusion
         elif intent == "shutdown" or ("shutdown" in command_lower and any(w in command_lower for w in ["computer", "system", "pc", "confirm"])):
-            if "confirm" in command_lower or "yes" in command_lower:
-                success = self.system_control.shutdown_system(confirm=True)
-            else:
-                self.perception.speak("Say 'shutdown confirm' to shut down, sir.")
-                success = True
+            success = self._do_shutdown(command_lower, success)
 
         elif intent == "restart" or ("restart" in command_lower and any(w in command_lower for w in ["computer", "system", "pc", "confirm"])):
-            if "confirm" in command_lower or "yes" in command_lower:
-                success = self.system_control.restart_system(confirm=True)
-            else:
-                self.perception.speak("Say 'restart confirm' to restart, sir.")
-                success = True
+            success = self._do_restart(command_lower, success)
 
         # ========== HABITS ==========
         elif intent == "habit" or ("remind" in command_lower and "every" in command_lower):
@@ -665,16 +641,11 @@ class JARVISUltimate:
                 success = self.dictionary.define_word(word)
         
         elif "synonym" in command_lower:
-            word = command_lower.replace("synonym for", "").replace("synonyms for", "").replace("synonym of", "").strip()
-            if word:
-                success = self.dictionary.synonym(word)
+            success = self._do_synonym(command_lower, success)
 
         # ========== SCREENSHOT ==========
         elif "screenshot" in command_lower or "screen capture" in command_lower:
-            if "clipboard" in command_lower or "copy" in command_lower:
-                success = self.screenshot.copy_to_clipboard()
-            else:
-                success = self.screenshot.take_fullscreen()
+            success = self._do_screenshot_screen_capture(command_lower, success)
 
         # ========== SYSTEM STATUS ==========
         elif "system status" in command_lower or "system report" in command_lower:
@@ -702,9 +673,7 @@ class JARVISUltimate:
             success = True
         
         elif "who are you" in command_lower or "what's your name" in command_lower:
-            name = self.perception.assistant_name
-            self.perception.speak(f"I am {name}, your personal AI assistant created by {self.creator}. At your service, {self.perception.user_title}.")
-            success = True
+            success = self._do_identity(success)
 
         # ========== YOUTUBE DOWNLOAD ==========
         elif "download" in command_lower and ("youtube" in command_lower or "video" in command_lower):
@@ -736,25 +705,17 @@ class JARVISUltimate:
         
         elif "what is my" in command_lower or "what's my" in command_lower:
             # Recall a memory - extract key
-            key = command_lower.replace("what is my", "").replace("what's my", "").strip()
-            self.smart_notes.recall(key)
-            success = True
+            success = self._do_whats_my(command_lower, success)
         
         elif "take a note" in command_lower or "note that" in command_lower:
-            content = command_lower.replace("take a note", "").replace("note that", "").strip()
-            if content:
-                self.smart_notes.add_note(content)
-            success = True
+            success = self._do_take_note(command_lower, success)
         
         elif "my notes" in command_lower or "read notes" in command_lower:
             self.smart_notes.read_notes()
             success = True
         
         elif "search notes" in command_lower:
-            query = command_lower.replace("search notes", "").replace("for", "").strip()
-            if query:
-                self.smart_notes.search_notes(query)
-            success = True
+            success = self._do_search_notes(command_lower, success)
 
         # ========== SMART REMINDERS ==========
         elif any(phrase in command_lower for phrase in ["remind me", "reminder to", "set a reminder"]):
@@ -774,16 +735,10 @@ class JARVISUltimate:
             success = True
         
         elif "speak faster" in command_lower:
-            new_rate = self.settings.get("speech_rate") + 20
-            self.settings.set_speech_rate(new_rate)
-            self.perception.speak(f"Speaking faster now, {self.perception.user_title}.")
-            success = True
+            success = self._do_speak_faster(success)
         
         elif "speak slower" in command_lower:
-            new_rate = self.settings.get("speech_rate") - 20
-            self.settings.set_speech_rate(new_rate)
-            self.perception.speak(f"Speaking slower now, {self.perception.user_title}.")
-            success = True
+            success = self._do_speak_slower(success)
         
         elif "turn off wellness" in command_lower or "disable wellness" in command_lower:
             self.settings.toggle_wellness(False)
@@ -807,6 +762,183 @@ class JARVISUltimate:
         self.learning.log_command(command, intent, confidence, success)
 
         return True
+
+    def _do_resolve_context(self, command, resolved_command):
+        """Step of _process_single_command(): resolve context."""
+        if resolved_command != command:
+            _log.info(f"  [CONTEXT] Resolved: '{command}' -> '{resolved_command}'")
+            command = resolved_command
+        return command
+
+    def _do_exit(self, command_lower, exit_words):
+        """Step of _process_single_command(): exit."""
+        if any(phrase in command_lower for phrase in exit_words) or command_lower in ["exit", "quit", "goodbye", "bye", "stop"]:
+            self.perception.speak("Goodbye, sir.")
+            return False
+        return _NEXT
+
+    def _do_outsider_check(self, allowed, command):
+        """Step of _process_single_command(): outsider check."""
+        if not allowed:
+            self.perception.speak(self.face_auth.get_outsider_response(command))
+            return True
+        return _NEXT
+
+    def _do_stop_words(self, command_lower, stop_words):
+        """Step of _process_single_command(): stop words."""
+        if any(word in command_lower for word in stop_words):
+            self.perception.speak("Understood.")
+            return True
+        return _NEXT
+
+    def _do_alarm(self, command, command_lower):
+        """Step of _process_single_command(): alarm."""
+        # ========== DIRECT ALARM DETECTION (fallback if intent fails) ==========
+        if any(phrase in command_lower for phrase in ["set alarm", "set an alarm", "alarm for", "alarm at", "alarm in", "wake me up"]):
+            self.alarm_system.set_alarm(command, "Alarm")
+            return True
+        return _NEXT
+
+    def _do_switch_app(self, command, command_lower, switch_keywords):
+        """Step of _process_single_command(): switch app."""
+        if any(kw in command_lower for kw in switch_keywords):
+            response = self.app_switcher.handle(command)
+            self.perception.speak(response)
+            return True
+        return _NEXT
+
+    def _do_calendar(self, calendar_keywords, command, command_lower):
+        """Step of _process_single_command(): calendar."""
+        if any(kw in command_lower for kw in calendar_keywords):
+            self.calendar.handle(command)
+            return True
+        return _NEXT
+
+    def _do_clipboard(self, clipboard_keywords, command, command_lower):
+        """Step of _process_single_command(): clipboard."""
+        if any(kw in command_lower for kw in clipboard_keywords):
+            self.clipboard.handle(command)
+            return True
+        return _NEXT
+
+    def _do_workflow(self, command, command_lower, workflow_triggers):
+        """Step of _process_single_command(): workflow."""
+        if self.workflow.is_workflow_command(command) or any(t in command_lower for t in workflow_triggers):
+            self.workflow.handle(command)
+            return True
+        return _NEXT
+
+    def _do_question_uncertain(self, command, success):
+        """Step of _process_single_command(): Question uncertain."""
+        answer = self.knowledge.answer_question(command)
+        self.perception.speak(answer)
+        success = True
+        return success
+
+    def _do_set_volume(self, entities, success):
+        """Step of _process_single_command(): set volume."""
+        numbers = entities.get("numbers", [])
+        if numbers:
+            success = self._say_result(self.system_control.set_volume(numbers[0]))
+        else:
+            self.perception.speak("What volume level, sir?")
+        return success
+
+    def _do_set_brightness(self, entities, success):
+        """Step of _process_single_command(): set brightness."""
+        numbers = entities.get("numbers", [])
+        if numbers:
+            success = self._say_result(self.system_control.set_brightness(numbers[0]))
+        return success
+
+    def _do_sleep(self, command_lower, success):
+        """Step of _process_single_command(): sleep."""
+        if "confirm" in command_lower or "yes" in command_lower:
+            success = self.system_control.sleep_system(confirm=True)
+        else:
+            self.perception.speak("Say 'sleep confirm' to put the system to sleep, sir.")
+            success = True
+        return success
+
+    def _do_shutdown(self, command_lower, success):
+        """Step of _process_single_command(): shutdown."""
+        if "confirm" in command_lower or "yes" in command_lower:
+            success = self.system_control.shutdown_system(confirm=True)
+        else:
+            self.perception.speak("Say 'shutdown confirm' to shut down, sir.")
+            success = True
+        return success
+
+    def _do_restart(self, command_lower, success):
+        """Step of _process_single_command(): restart."""
+        if "confirm" in command_lower or "yes" in command_lower:
+            success = self.system_control.restart_system(confirm=True)
+        else:
+            self.perception.speak("Say 'restart confirm' to restart, sir.")
+            success = True
+        return success
+
+    def _do_synonym(self, command_lower, success):
+        """Step of _process_single_command(): Synonym."""
+        word = command_lower.replace("synonym for", "").replace("synonyms for", "").replace("synonym of", "").strip()
+        if word:
+            success = self.dictionary.synonym(word)
+        return success
+
+    def _do_screenshot_screen_capture(self, command_lower, success):
+        """Step of _process_single_command(): Screenshot screen capture."""
+        if "clipboard" in command_lower or "copy" in command_lower:
+            success = self.screenshot.copy_to_clipboard()
+        else:
+            success = self.screenshot.take_fullscreen()
+        return success
+
+    def _do_identity(self, success):
+        """Step of _process_single_command(): identity."""
+        name = self.perception.assistant_name
+        self.perception.speak(f"I am {name}, your personal AI assistant created by {self.creator}. At your service, {self.perception.user_title}.")
+        success = True
+        return success
+
+    def _do_whats_my(self, command_lower, success):
+        """Step of _process_single_command(): whats my."""
+        key = command_lower.replace("what is my", "").replace("what's my", "").strip()
+        self.smart_notes.recall(key)
+        success = True
+        return success
+
+    def _do_take_note(self, command_lower, success):
+        """Step of _process_single_command(): take note."""
+        content = command_lower.replace("take a note", "").replace("note that", "").strip()
+        if content:
+            self.smart_notes.add_note(content)
+        success = True
+        return success
+
+    def _do_search_notes(self, command_lower, success):
+        """Step of _process_single_command(): Search notes."""
+        query = command_lower.replace("search notes", "").replace("for", "").strip()
+        if query:
+            self.smart_notes.search_notes(query)
+        success = True
+        return success
+
+    def _do_speak_faster(self, success):
+        """Step of _process_single_command(): Speak faster."""
+        new_rate = self.settings.get("speech_rate") + 20
+        self.settings.set_speech_rate(new_rate)
+        self.perception.speak(f"Speaking faster now, {self.perception.user_title}.")
+        success = True
+        return success
+
+    def _do_speak_slower(self, success):
+        """Step of _process_single_command(): Speak slower."""
+        new_rate = self.settings.get("speech_rate") - 20
+        self.settings.set_speech_rate(new_rate)
+        self.perception.speak(f"Speaking slower now, {self.perception.user_title}.")
+        success = True
+        return success
+
 
     def _do_face_recognition_commands(self, _r, command_lower):
         """Step of _process_single_command(): FACE RECOGNITION COMMANDS."""

@@ -873,178 +873,9 @@ class GeminiLiveEngine:
             else:
                 context = {'perception': self.perception, 'server': self.server, 'title': 'sir'}
 
-            if name == "open_app":
-                handler = HANDLER_MAP.get("open_app")
-                if handler:
-                    res = handler(cmd="", entities={"app": args.get("app_name", "")}, context=context)
-                    result = getattr(res, "response", "Opened app.")
-
-            elif name == "send_message":
-                # Spoken replies go to Gemini in live mode, so a second identical
-                # call while that draft waits is the user's "yes, send it".
-                result = self._tool_send_message(args, context, result)
-
-            elif name == "weather_report":
-                handler = HANDLER_MAP.get("weather")
-                if handler:
-                    res = handler(cmd="", entities={"city": args.get("city")}, context=context)
-                    result = getattr(res, "response", "Weather reported.")
-
-            elif name == "youtube_video":
-                result = self._tool_youtube_video(args, result)
-
-            elif name == "web_search":
-                result = self._tool_web_search(args, context, result)
-
-            elif name == "computer_settings":
-                result = self._tool_computer_settings(args, context, result)
-
-            elif name == "set_reminder":
-                result = self._tool_set_reminder(args, context, result)
-
-            elif name == "tell_time":
-                handler = HANDLER_MAP.get("time")
-                if handler:
-                    res = handler(cmd="", entities={}, context=context)
-                    result = getattr(res, "response", datetime.datetime.now().strftime("%I:%M %p"))
-
-            elif name == "tell_joke":
-                handler = HANDLER_MAP.get("joke")
-                if handler:
-                    res = handler(cmd="", entities={}, context=context)
-                    result = getattr(res, "response", "I'm afraid my humor circuits are offline, sir.")
-
-            elif name == "play_music":
-                handler = HANDLER_MAP.get("play_music")
-                if handler:
-                    res = handler(cmd="", entities={"song": args.get("song", "")}, context=context)
-                    result = getattr(res, "response", "Playing music.")
-
-            elif name == "system_status":
-                handler = HANDLER_MAP.get("system_status")
-                if handler:
-                    res = handler(cmd="", entities={}, context=context)
-                    result = getattr(res, "response", "System nominal.")
-
-            elif name == "news":
-                handler = HANDLER_MAP.get("news")
-                if handler:
-                    res = handler(cmd="", entities={"topic": args.get("topic", "")}, context=context)
-                    result = getattr(res, "response", "Here are the latest headlines.")
-
-            # ── Window & Screen Control ──
-
-            elif name == "close_app":
-                result = self._tool_close_app(args, result)
-
-            elif name == "switch_to_app":
-                result = self._tool_switch_app(args, result)
-
-            elif name == "screen_action":
-                result = self._tool_screen_action(args, result)
-
-            elif name == "type_text":
-                result = self._tool_type_text(args, result)
-
-            elif name == "read_screen":
-                question = args.get("question", "Describe what is on the screen.")
-                result = self._read_screen(question)
-
-            # ── Music Control ──
-            elif name == "music_control":
-                result = self._tool_music_control(args, context, result)
-
-            # ── Alarm ──
-            elif name == "set_alarm":
-                result = self._tool_set_alarm(args, context, result)
-
-            # ── Timer ──
-            elif name == "set_timer":
-                result = self._tool_set_timer(args, context, result)
-
-            # ── List Reminders ──
-            elif name == "list_reminders":
-                handler = HANDLER_MAP.get("list_reminders")
-                if handler:
-                    res = handler(cmd="", entities={}, context=context)
-                    result = getattr(res, "response", "No upcoming reminders.")
-
-            # ── Brightness ──
-            elif name == "brightness_control":
-                result = self._tool_brightness_control(args, context, result)
-
-            # ── Screenshot ──
-            elif name == "take_screenshot":
-                result = self._tool_take_screenshot(context, result)
-
-            # ── Dictionary ──
-            elif name == "dictionary_lookup":
-                handler = HANDLER_MAP.get("dictionary")
-                word = args.get("word", "")
-                if handler:
-                    res = handler(cmd=f"define {word}", entities={"word": word}, context=context)
-                    result = getattr(res, "response", f"Could not find definition for {word}.")
-
-            # ── Memory: Remember ──
-            elif name == "remember_this":
-                handler = HANDLER_MAP.get("remember")
-                info = args.get("information", "")
-                if handler:
-                    res = handler(cmd=f"remember {info}", entities={"fact": info, "raw_command": f"remember {info}"}, context=context)
-                    result = getattr(res, "response", "Noted, sir.")
-
-            # ── Memory: Recall ──
-            elif name == "recall_memory":
-                handler = HANDLER_MAP.get("recall")
-                query = args.get("query", "")
-                if handler:
-                    res = handler(cmd=f"recall {query}", entities={"query": query, "raw_command": f"recall {query}"}, context=context)
-                    result = getattr(res, "response", "I don't have that in memory, sir.")
-
-            # ── Conversation Recall ──
-            elif name == "recall_conversation":
-                query = args.get("query", "")
-                if self.server and hasattr(self.server, 'recall_conversation'):
-                    result = self.server.recall_conversation(query)
-                else:
-                    result = "Conversation history search not available."
-
-            # ── Workflow Automation ──
-            elif name == "run_workflow":
-                result = self._tool_run_workflow(args, result)
-
-            # ── Email ──
-            elif name == "send_email":
-                result = self._tool_send_email(args, result)
-
-            # ── Hand gestures on/off ──
-            elif name == "gesture_control":
-                result = self._tool_gesture_control(args, result)
-
-            # ── Mute / Unmute JARVIS (C-02) ──
-            elif name == "mute_jarvis":
-                result = self._tool_mute_jarvis(result)
-
-            elif name == "unmute_jarvis":
-                self._muted = False
-                result = "Back online, sir. What do you need?"
-                _log.info("[LIVE] JARVIS unmuted by user request")
-
-            # ── COORD-FIX: New tool dispatches via HANDLER_MAP ──
-            elif name == "read_screen_text":
-                result = self._tool_read_screen(context, result)
-
-            elif name == "habit_tracker":
-                result = self._tool_habit_tracker(args, context, result)
-
-            elif name == "check_calendar":
-                result = self._tool_check_calendar(context, result)
-
-            elif name == "tell_story":
-                result = self._tool_tell_story(args, context, result)
-
-            else:
-                result = f"Tool {name} is not implemented yet."
+            # One method per tool, looked up by name (see _tools)
+            tool = self._tools().get(name)
+            result = tool(args, context, result) if tool else f"Tool {name} is not implemented yet."
 
         except Exception as e:
             _log.warning(f"[LIVE] Tool execution failed: {name} - {e}")
@@ -1079,6 +910,179 @@ class GeminiLiveEngine:
             name=name,
             response={"result": result}
         )
+
+    def _tools(self):
+        """Gemini tool name -> method(args, context, result) -> result.
+
+        This was a 37-branch if/elif inside _execute_tool. Add a tool by adding
+        its declaration (TOOL_DECLARATIONS) and one entry here.
+        """
+        return {
+            "open_app": self._tool_open_app,
+            "send_message": self._tool_send_message,
+            "weather_report": self._tool_weather_report,
+            "youtube_video": lambda args, context, result: self._tool_youtube_video(args, result),
+            "web_search": self._tool_web_search,
+            "computer_settings": self._tool_computer_settings,
+            "set_reminder": self._tool_set_reminder,
+            "tell_time": self._tool_tell_time,
+            "tell_joke": self._tool_tell_joke,
+            "play_music": self._tool_play_music,
+            "system_status": self._tool_system_status,
+            "news": self._tool_news,
+            "close_app": lambda args, context, result: self._tool_close_app(args, result),
+            "switch_to_app": lambda args, context, result: self._tool_switch_app(args, result),
+            "screen_action": lambda args, context, result: self._tool_screen_action(args, result),
+            "type_text": lambda args, context, result: self._tool_type_text(args, result),
+            "read_screen": self._tool_read_screen_tool,
+            "music_control": self._tool_music_control,
+            "set_alarm": self._tool_set_alarm,
+            "set_timer": self._tool_set_timer,
+            "list_reminders": self._tool_list_reminders,
+            "brightness_control": self._tool_brightness_control,
+            "take_screenshot": lambda args, context, result: self._tool_take_screenshot(context, result),
+            "dictionary_lookup": self._tool_dictionary_lookup,
+            "remember_this": self._tool_remember_this,
+            "recall_memory": self._tool_recall_memory,
+            "recall_conversation": self._tool_recall_conversation,
+            "run_workflow": lambda args, context, result: self._tool_run_workflow(args, result),
+            "send_email": lambda args, context, result: self._tool_send_email(args, result),
+            "gesture_control": lambda args, context, result: self._tool_gesture_control(args, result),
+            "mute_jarvis": lambda args, context, result: self._tool_mute_jarvis(result),
+            "unmute_jarvis": self._tool_unmute_jarvis,
+            "read_screen_text": lambda args, context, result: self._tool_read_screen(context, result),
+            "habit_tracker": self._tool_habit_tracker,
+            "check_calendar": lambda args, context, result: self._tool_check_calendar(context, result),
+            "tell_story": self._tool_tell_story,
+        }
+
+
+    def _tool_open_app(self, args, context, result):
+        """Voice tool: open_app."""
+        handler = HANDLER_MAP.get("open_app")
+        if handler:
+            res = handler(cmd="", entities={"app": args.get("app_name", "")}, context=context)
+            result = getattr(res, "response", "Opened app.")
+        return result
+
+
+    def _tool_weather_report(self, args, context, result):
+        """Voice tool: weather_report."""
+        handler = HANDLER_MAP.get("weather")
+        if handler:
+            res = handler(cmd="", entities={"city": args.get("city")}, context=context)
+            result = getattr(res, "response", "Weather reported.")
+        return result
+
+
+    def _tool_tell_time(self, args, context, result):
+        """Voice tool: tell_time."""
+        handler = HANDLER_MAP.get("time")
+        if handler:
+            res = handler(cmd="", entities={}, context=context)
+            result = getattr(res, "response", datetime.datetime.now().strftime("%I:%M %p"))
+        return result
+
+
+    def _tool_tell_joke(self, args, context, result):
+        """Voice tool: tell_joke."""
+        handler = HANDLER_MAP.get("joke")
+        if handler:
+            res = handler(cmd="", entities={}, context=context)
+            result = getattr(res, "response", "I'm afraid my humor circuits are offline, sir.")
+        return result
+
+
+    def _tool_play_music(self, args, context, result):
+        """Voice tool: play_music."""
+        handler = HANDLER_MAP.get("play_music")
+        if handler:
+            res = handler(cmd="", entities={"song": args.get("song", "")}, context=context)
+            result = getattr(res, "response", "Playing music.")
+        return result
+
+
+    def _tool_system_status(self, args, context, result):
+        """Voice tool: system_status."""
+        handler = HANDLER_MAP.get("system_status")
+        if handler:
+            res = handler(cmd="", entities={}, context=context)
+            result = getattr(res, "response", "System nominal.")
+        return result
+
+
+    def _tool_news(self, args, context, result):
+        """Voice tool: news."""
+        handler = HANDLER_MAP.get("news")
+        if handler:
+            res = handler(cmd="", entities={"topic": args.get("topic", "")}, context=context)
+            result = getattr(res, "response", "Here are the latest headlines.")
+        return result
+
+
+    def _tool_read_screen_tool(self, args, context, result):
+        """Voice tool: read_screen."""
+        question = args.get("question", "Describe what is on the screen.")
+        result = self._read_screen(question)
+        return result
+
+
+    def _tool_list_reminders(self, args, context, result):
+        """Voice tool: list_reminders."""
+        handler = HANDLER_MAP.get("list_reminders")
+        if handler:
+            res = handler(cmd="", entities={}, context=context)
+            result = getattr(res, "response", "No upcoming reminders.")
+        return result
+
+
+    def _tool_dictionary_lookup(self, args, context, result):
+        """Voice tool: dictionary_lookup."""
+        handler = HANDLER_MAP.get("dictionary")
+        word = args.get("word", "")
+        if handler:
+            res = handler(cmd=f"define {word}", entities={"word": word}, context=context)
+            result = getattr(res, "response", f"Could not find definition for {word}.")
+        return result
+
+
+    def _tool_remember_this(self, args, context, result):
+        """Voice tool: remember_this."""
+        handler = HANDLER_MAP.get("remember")
+        info = args.get("information", "")
+        if handler:
+            res = handler(cmd=f"remember {info}", entities={"fact": info, "raw_command": f"remember {info}"}, context=context)
+            result = getattr(res, "response", "Noted, sir.")
+        return result
+
+
+    def _tool_recall_memory(self, args, context, result):
+        """Voice tool: recall_memory."""
+        handler = HANDLER_MAP.get("recall")
+        query = args.get("query", "")
+        if handler:
+            res = handler(cmd=f"recall {query}", entities={"query": query, "raw_command": f"recall {query}"}, context=context)
+            result = getattr(res, "response", "I don't have that in memory, sir.")
+        return result
+
+
+    def _tool_recall_conversation(self, args, context, result):
+        """Voice tool: recall_conversation."""
+        query = args.get("query", "")
+        if self.server and hasattr(self.server, 'recall_conversation'):
+            result = self.server.recall_conversation(query)
+        else:
+            result = "Conversation history search not available."
+        return result
+
+
+    def _tool_unmute_jarvis(self, args, context, result):
+        """Voice tool: unmute_jarvis."""
+        self._muted = False
+        result = "Back online, sir. What do you need?"
+        _log.info("[LIVE] JARVIS unmuted by user request")
+        return result
+
 
     def _tool_send_message(self, args, context, result):
         """Step of _execute_tool(): Send_message."""

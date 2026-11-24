@@ -87,11 +87,7 @@ class RouterMixin:
             # intent + entities. Otherwise fall through to keyword engine.
             # ══════════════════════════════════════════════════════════════
             brain_result = None
-            if getattr(self, '_brain', None):
-                try:
-                    brain_result = self._brain.process(command, source="voice")
-                except Exception as be:
-                    _log.warning(f"[WebSocket] Brain error (non-fatal): {be}")
+            brain_result = self._route_brain(brain_result, command)
 
             if brain_result and brain_result.is_valid:
                 # Brain produced a confident result — use it
@@ -159,9 +155,7 @@ class RouterMixin:
 
             # Clear stale context (5 min timeout)
             app_set_time = getattr(self.state_manager, '_active_app_time', 0)
-            if active_app and (time.time() - app_set_time) > 300:
-                active_app = None
-                self.state_manager.active_app = None
+            active_app = self._expire_active_app(active_app, app_set_time)
 
             CONTEXT_MAP = {
                 'next': {
@@ -185,10 +179,9 @@ class RouterMixin:
             # These bypass the router to guarantee actual hardware control
             # ══════════════════════════════════════════════════════════════
 
-            # --- VOLUME / BRIGHTNESS: the reply is what really happened ---
-            if intent_name in ('volume', 'brightness') and self.system_control:
-                text = f"{entities.get('action') or ''} {command}"
-                return self.system_control.adjust(intent_name, text, entities.get('level'))
+            _r = self._route_volume_brightness(command, entities, intent_name)
+            if _r is not _NEXT:
+                return _r
 
             # --- ALARM ---
             if intent_name == 'set_alarm' and self.alarm_system:
@@ -242,11 +235,9 @@ class RouterMixin:
             if _r is not _NEXT:
                 return _r
 
-            # --- MUSIC CONTROL ---
-            if intent_name in ('play_music', 'pause_music', 'next_track', 'previous_track'):
-                _r = self._route_music(command, intent_name, title)
-                if _r is not _NEXT:
-                    return _r
+            _r = self._route_music_control(_r, command, intent_name, title)
+            if _r is not _NEXT:
+                return _r
 
             # --- OCR / READ SCREEN ---
             # OCR: handled by HANDLER_MAP['ocr'] (handle_ocr). This inline copy
@@ -265,6 +256,40 @@ class RouterMixin:
                 import traceback
                 traceback.print_exc()
             return None
+
+    def _route_brain(self, brain_result, command):
+        """Step of _route_through_router(): _brain."""
+        if getattr(self, '_brain', None):
+            try:
+                brain_result = self._brain.process(command, source="voice")
+            except Exception as be:
+                _log.warning(f"[WebSocket] Brain error (non-fatal): {be}")
+        return brain_result
+
+    def _expire_active_app(self, active_app, app_set_time):
+        """Step of _route_through_router(): active app."""
+        if active_app and (time.time() - app_set_time) > 300:
+            active_app = None
+            self.state_manager.active_app = None
+        return active_app
+
+    def _route_volume_brightness(self, command, entities, intent_name):
+        """Step of _route_through_router(): volume brightness."""
+        # --- VOLUME / BRIGHTNESS: the reply is what really happened ---
+        if intent_name in ('volume', 'brightness') and self.system_control:
+            text = f"{entities.get('action') or ''} {command}"
+            return self.system_control.adjust(intent_name, text, entities.get('level'))
+        return _NEXT
+
+    def _route_music_control(self, _r, command, intent_name, title):
+        """Step of _route_through_router(): MUSIC CONTROL."""
+        # --- MUSIC CONTROL ---
+        if intent_name in ('play_music', 'pause_music', 'next_track', 'previous_track'):
+            _r = self._route_music(command, intent_name, title)
+            if _r is not _NEXT:
+                return _r
+        return _NEXT
+
 
     def _route_dispatch_handler(self, _r, command, entities, intent_name, title):
         """Step of _route_through_router(): dispatch handler."""

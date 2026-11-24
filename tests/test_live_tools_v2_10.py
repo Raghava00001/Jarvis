@@ -187,3 +187,12 @@ def test_conversation_search_shows_the_words():
     with patch.object(type(srv), "chat_history", property(lambda self: self._chat_history)):
         out = srv.recall_conversation("weather")
     assert "[Nov 22, 11:55 PM] You: what's the weather" in out
+
+
+# ── the tool table matches what Gemini is told it can call ──────────────────
+
+def test_every_declared_tool_has_a_method_and_vice_versa():
+    import jarvis.core.gemini_live_engine as g
+    declared = {d["name"] for d in g.TOOL_DECLARATIONS}
+    table = set(_engine()._tools())
+    assert declared == table, {"declared, no method": declared - table, "method, not declared": table - declared}

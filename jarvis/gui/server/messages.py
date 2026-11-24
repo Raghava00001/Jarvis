@@ -146,13 +146,9 @@ class MessageMixin:
         if jlog: jlog.input(msg_type, text)
         else: _log.info(f"[WebSocket] Input ({msg_type}): {text}")
 
-        # Deduplication: only for speech, where the mic can deliver the same
-        # sentence twice. A typed or clicked command is always deliberate;
-        # dropping it silently ("what time is it" asked twice in 2 s) left
-        # the HUD waiting for an answer that never came.
-        if msg_type == 'voice_input' and self.state_manager.is_duplicate_command(text):
-            if jlog: jlog.warn(f'Skipping duplicate: "{text}"')
-            return
+        _r = self._on_duplicate_speech(msg_type, text)
+        if _r is not _NEXT:
+            return _r
 
         # Update state: processing (skip intermediate 'listening' broadcast)
         self.state_manager.force_state("processing")
@@ -243,10 +239,7 @@ class MessageMixin:
         # State: speaking
         self.state_manager.force_state("speaking")
 
-        # ━━━ MUTE MIC BEFORE SPEAKING (prevents TTS echo) ━━━
-        if self.perception:
-            self.perception.mic_muted = True
-            self.perception.is_speaking = True
+        self._on_mute_mic()
 
         # ━━━ SPEAK THE REPLY EXACTLY ONCE ━━━
         # Live mode: Gemini voices its own replies, so nothing is spoken here.
@@ -307,12 +300,7 @@ class MessageMixin:
 
         self._on_save_chat_history(response, text)
 
-        # Record action for proactive pattern learning
-        if self.proactive_assistant:
-            try:
-                self.proactive_assistant.record_action(action, {'command': text})
-            except Exception as _err:
-                recovered("WebSocket", _err)
+        self._on_record_action(action, text)
 
         # Return to idle after speaking
         len(response.split()) if response else 1
@@ -325,6 +313,34 @@ class MessageMixin:
             'state': self.state_manager.get_full_state()
         }))
         return _NEXT
+
+    def _on_duplicate_speech(self, msg_type, text):
+        """Step of _on_input(): duplicate speech."""
+        # Deduplication: only for speech, where the mic can deliver the same
+        # sentence twice. A typed or clicked command is always deliberate;
+        # dropping it silently ("what time is it" asked twice in 2 s) left
+        # the HUD waiting for an answer that never came.
+        if msg_type == 'voice_input' and self.state_manager.is_duplicate_command(text):
+            if jlog: jlog.warn(f'Skipping duplicate: "{text}"')
+            return
+        return _NEXT
+
+    def _on_mute_mic(self):
+        """Step of _on_input(): mute mic."""
+        # ━━━ MUTE MIC BEFORE SPEAKING (prevents TTS echo) ━━━
+        if self.perception:
+            self.perception.mic_muted = True
+            self.perception.is_speaking = True
+
+    def _on_record_action(self, action, text):
+        """Step of _on_input(): record action."""
+        # Record action for proactive pattern learning
+        if self.proactive_assistant:
+            try:
+                self.proactive_assistant.record_action(action, {'command': text})
+            except Exception as _err:
+                recovered("WebSocket", _err)
+
 
     def _on_feature_switches(self, is_local_power, text):
         """Step of _on_input(): feature switches."""

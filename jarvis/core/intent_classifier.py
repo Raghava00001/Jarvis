@@ -265,6 +265,55 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
                         # Found context-aware match!
                         return intent, entities
     
+    _r = _rule_keyword_overrides(cmd, command, entities)
+    if _r is not _NEXT:
+        return _r
+    
+    # ═══════════════════════════════════════════════════════════
+    # TIME & DATE
+    # ═══════════════════════════════════════════════════════════
+    if has(cmd, 'time') and not has(cmd, 'timer'):
+        return 'time', {}
+    
+    if has(cmd, 'date') or (has(cmd, 'what') and has(cmd, 'day')):
+        return 'date', {}
+    
+    _r = _rule_system_status(cmd, entities)
+    if _r is not _NEXT:
+        return _r
+    
+    _r = _rule_news(_r, cmd, command, entities)
+    if _r is not _NEXT:
+        return _r
+    
+    # ═══════════════════════════════════════════════════════════
+    # P2-02: HABIT TRACKING
+    # ═══════════════════════════════════════════════════════════
+    if has(cmd, *['my habits', 'list habits', 'show habits', 'track habit',
+                                         'add habit', 'create habit', 'habit check', 'habit status']):
+        return 'habit', {}
+    
+    # ═══════════════════════════════════════════════════════════
+    # P2-02: EMAIL
+    # ═══════════════════════════════════════════════════════════
+    if has(cmd, *['send email', 'check email', 'read email', 'compose email',
+                                         'write email', 'inbox', 'new email']):
+        return 'email', {}
+    
+    # ═══════════════════════════════════════════════════════════
+    # P2-02: CALENDAR
+    # ═══════════════════════════════════════════════════════════
+    if has(cmd, *['calendar', 'events today', 'my schedule', 'today\'s schedule',
+                                         'upcoming events', 'what\'s on my calendar']):
+        return 'calendar', {}
+    
+    # ═══════════════════════════════════════════════════════════
+    # FALLBACK TO CONVERSATION (AI will handle it)
+    # ═══════════════════════════════════════════════════════════
+    return 'conversation', {}
+
+def _rule_keyword_overrides(cmd, command, entities):
+    """Step of classify_intent(): KEYWORD OVERRIDES common commands that should always work These override even without."""
     # ═══════════════════════════════════════════════════════════
     # KEYWORD OVERRIDES (common commands that should always work)
     # ═══════════════════════════════════════════════════════════
@@ -301,28 +350,13 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     if _r is not _NEXT:
         return _r
     
-    # ═══════════════════════════════════════════════════════════
-    # IDENTITY
-    # ═══════════════════════════════════════════════════════════
-    if has(cmd, 'who are you') or has(cmd, 'your name'):
-        return 'identity', {}
-    
-    if has(cmd, *['who made you', 'who created you', 'your creator', 'who built you']):
-        return 'creator', {}
-    
-    # ═══════════════════════════════════════════════════════════
-    # TIME & DATE
-    # ═══════════════════════════════════════════════════════════
-    if has(cmd, 'time') and not has(cmd, 'timer'):
-        return 'time', {}
-    
-    if has(cmd, 'date') or (has(cmd, 'what') and has(cmd, 'day')):
-        return 'date', {}
-    
-    _r = _rule_system_status(cmd, entities)
+    _r = _rule_identity(cmd)
     if _r is not _NEXT:
         return _r
-    
+    return _NEXT
+
+def _rule_news(_r, cmd, command, entities):
+    """Step of classify_intent(): NEWS Enhanced with Hacker News News about a topic news about diabetes."""
     # ═══════════════════════════════════════════════════════════
     # NEWS (Enhanced with Hacker News)
     # ═══════════════════════════════════════════════════════════
@@ -393,6 +427,26 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     if _r is not _NEXT:
         return _r
     
+    _r = _rule_emotion_detection(_r, cmd)
+    if _r is not _NEXT:
+        return _r
+    return _NEXT
+
+
+def _rule_identity(cmd):
+    """Step of classify_intent(): IDENTITY."""
+    # ═══════════════════════════════════════════════════════════
+    # IDENTITY
+    # ═══════════════════════════════════════════════════════════
+    if has(cmd, 'who are you') or has(cmd, 'your name'):
+        return 'identity', {}
+    
+    if has(cmd, *['who made you', 'who created you', 'your creator', 'who built you']):
+        return 'creator', {}
+    return _NEXT
+
+def _rule_emotion_detection(_r, cmd):
+    """Step of classify_intent(): EMOTION DETECTION."""
     # ═══════════════════════════════════════════════════════════
     # EMOTION DETECTION
     # ═══════════════════════════════════════════════════════════
@@ -405,32 +459,8 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     _r = _rule_features_status(_r, cmd)
     if _r is not _NEXT:
         return _r
-    
-    # ═══════════════════════════════════════════════════════════
-    # P2-02: HABIT TRACKING
-    # ═══════════════════════════════════════════════════════════
-    if has(cmd, *['my habits', 'list habits', 'show habits', 'track habit',
-                                         'add habit', 'create habit', 'habit check', 'habit status']):
-        return 'habit', {}
-    
-    # ═══════════════════════════════════════════════════════════
-    # P2-02: EMAIL
-    # ═══════════════════════════════════════════════════════════
-    if has(cmd, *['send email', 'check email', 'read email', 'compose email',
-                                         'write email', 'inbox', 'new email']):
-        return 'email', {}
-    
-    # ═══════════════════════════════════════════════════════════
-    # P2-02: CALENDAR
-    # ═══════════════════════════════════════════════════════════
-    if has(cmd, *['calendar', 'events today', 'my schedule', 'today\'s schedule',
-                                         'upcoming events', 'what\'s on my calendar']):
-        return 'calendar', {}
-    
-    # ═══════════════════════════════════════════════════════════
-    # FALLBACK TO CONVERSATION (AI will handle it)
-    # ═══════════════════════════════════════════════════════════
-    return 'conversation', {}
+    return _NEXT
+
 
 def _rule_voice_switching(cmd):
     """Step of classify_intent(): voice switching."""
