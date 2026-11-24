@@ -71,6 +71,18 @@ def test_no_silent_or_bare_except():
                           + "\n".join(silent))
 
 
+def test_no_control_characters_in_source():
+    """A regex's word boundary once became a literal backspace character (written
+    through a script): invisible, and the pattern could never match."""
+    allowed = {9, 12}   # tab, form feed
+    found = []
+    for p in sorted(list(JARVIS.rglob("*.py")) + list((ROOT / "tests").rglob("*.py"))):
+        for i, line in enumerate(p.read_text(encoding="utf-8-sig").splitlines(), 1):
+            if any(ord(c) < 32 and ord(c) not in allowed for c in line):
+                found.append(f"{_rel(p)}:{i}")
+    assert found == [], ", ".join(found)
+
+
 def test_function_length_ratchet():
     over, grew, done = [], [], []
     seen = set()

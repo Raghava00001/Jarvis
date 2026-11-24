@@ -29,6 +29,9 @@ from jarvis.gui.server.tables import RESUME_PHRASES
 from jarvis.gui.server.tables import STORY_PHRASES
 from jarvis.gui.server.tables import WEB_APPS
 
+from jarvis.core.screen_control import is_tab_command
+from jarvis.core.typo_fix import fix_typos
+
 _log = logging.getLogger(__name__)
 
 
@@ -54,7 +57,6 @@ class CommandsMixin:
         if cmd isn't an app switch (e.g. "switch to the next tab", "switch to
         friday"). Uses AppSwitcher (Win32): the old code pasted the spoken name
         into a PowerShell script, a shell-injection risk."""
-        from jarvis.core.screen_control import is_tab_command
         prefix = next((p for p in self.SWITCH_PREFIXES if cmd.startswith(p)), None)
         if prefix is None or cmd.split()[-1] in ('friday', 'jarvis') or is_tab_command(cmd):
             return None
@@ -100,6 +102,7 @@ class CommandsMixin:
 
         This was one 475-line function.
         """
+        command = fix_typos(command)   # every entry point: HUD, the server's mic, sub-commands
         cmd = normalize_command(command.lower().strip())
         title = self.hud_perception.user_title
         if not cmd:
@@ -289,8 +292,8 @@ class CommandsMixin:
     def _cmd_open_app(self, cmd: str, command: str, title: str):
         """'open X': direct map, web apps, AppFinder, then the Start menu. No ML."""
         open_match = re.match(r'^(?:open|launch|start|run)\s+(.+)', cmd, re.I)
-        if not open_match:
-            return None
+        if not open_match or is_tab_command(cmd):
+            return None   # "open a new tab" is a key press (screen control), not an app
         app_name = open_match.group(1).strip()
         app_lower = app_name.lower()
 
@@ -322,8 +325,8 @@ class CommandsMixin:
             return f"Opening {app_name}, {title}."
         except Exception:
             try:  # search the Start menu
-                from jarvis.core.app_finder import AppFinder
-                if shared(AppFinder).open_app(app_lower):
+                from jarvis.core.app_finder import AppManager
+                if shared(AppManager, lambda: AppManager(self.hud_perception)).open_app(app_lower):
                     return f"Opening {app_name}, {title}."
             except Exception as e:
                 recovered("WebSocket", e)
@@ -342,8 +345,7 @@ class CommandsMixin:
                 return f"Habit '{desc}' created, {title}."
             return f"Please specify a habit, {title}. Say 'add habit drink water'."
         if 'list' in cmd or 'show' in cmd or 'my habits' in cmd:
-            self.habit_tracker.list_habits()
-            return f"Listing your habits, {title}."
+            return self.habit_tracker.list_habits()
         if 'check' in cmd:
             reminders = self.habit_tracker.check_reminders()
             if reminders:
@@ -419,8 +421,8 @@ class CommandsMixin:
             return (f"Here's your email summary, {title}. {result}" if isinstance(result, str)
                     else f"Summarizing your emails, {title}.")
         result = mail.get_unread_emails()   # check / read / inbox, and the default
-        return (f"Checking your inbox, {title}. {result}" if isinstance(result, str)
-                else f"Checking your emails, {title}.")
+        # The handler's reply is complete ("You have 3 unread..." / "Email is not connected")
+        return result if isinstance(result, str) and result else f"Checking your emails, {title}."
 
 
     def _cmd_pdf(self, cmd: str, command: str, title: str):

@@ -586,18 +586,22 @@ class AppLauncher:
         
     def _launch_via_powershell(self, query: str) -> bool:
         """Fallback: find and launch via PowerShell"""
+        # The name reaches PowerShell as an environment variable, never as
+        # script text: pasted into the script, a name containing a quote could
+        # run any command. Wildcard characters in it are escaped too.
+        ps_script = '''
+            $q = [System.Management.Automation.WildcardPattern]::Escape($env:JARVIS_APP_QUERY)
+            $app = Get-StartApps | Where-Object { $_.Name -like "*$q*" } | Select-Object -First 1
+            if ($app) {
+                Start-Process "shell:AppsFolder\\$($app.AppID)"
+                exit 0
+            }
+            exit 1
+        '''
         try:
-            ps_script = f'''
-                $app = Get-StartApps | Where-Object {{ $_.Name -like "*{query}*" }} | Select-Object -First 1
-                if ($app) {{
-                    Start-Process "shell:AppsFolder\\$($app.AppID)"
-                    exit 0
-                }}
-                exit 1
-            '''
             result = subprocess.run(
-                ["powershell", "-Command", ps_script],
-                capture_output=True, timeout=10
+                ["powershell", "-NoProfile", "-Command", ps_script],
+                capture_output=True, timeout=10, env={**os.environ, "JARVIS_APP_QUERY": query}
             )
             return result.returncode == 0
         except Exception:

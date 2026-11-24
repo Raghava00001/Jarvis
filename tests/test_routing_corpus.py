@@ -65,6 +65,12 @@ EXPECT = {
     "what is this": (["[screen answer]"], ["[knowledge"]),
     "set a timer for 90 seconds": (["90 seconds"], []),
     "send whatsapp message to mom saying hi": (["sent to mom"], ["message to mom"]),
+    # v2.10: found by the full feature audit
+    "calculate 25 times 4": (["100"], ["current time"]),
+    "whats the tiem": (["time"], ["[knowledge"]),
+    "close this tab": (["closed the tab"], ["closed this tab"]),
+    "open a new tab": (["new tab"], ["opening a new tab"]),
+    "show my habits": (["habit"], ["listing your habits"]),
 }
 
 HARNESS = r'''

@@ -6,6 +6,7 @@ Extracted from websocket_server.py (v2.6). `server` is the JARVISWebSocketServer
 """
 
 import logging
+import re
 _log = logging.getLogger(__name__)
 
 import threading
@@ -14,15 +15,24 @@ from datetime import datetime
 from pathlib import Path
 
 
+def _fast_path_applies(cmd: str, text: str) -> bool:
+    """Not for tab commands ("open a new tab", "close this tab": screen control)
+    or several commands at once ("open notepad and set a timer"): the open/close
+    rules took the whole sentence as an app name."""
+    from jarvis.core.screen_control import is_tab_command
+    from jarvis.gui.command_processor import split_compound_command
+    return not (is_tab_command(cmd) or len(split_compound_command(text)) > 1)
+
+
 def try_fast_path(server, text: str):
     """Instant execution for common commands — no routing chain."""
     cmd = text.lower().strip()
-    import re as _re
-    title = getattr(server, 'hud_perception', None)
-    title = title.user_title if title else 'sir'
+    if not _fast_path_applies(cmd, text):
+        return None
+    title = getattr(getattr(server, 'hud_perception', None), 'user_title', 'sir')
 
     # ── CLOSE APP (instant via taskkill) ──
-    close_match = _re.match(r'^close\s+(.+)', cmd)
+    close_match = re.match(r'^close\s+(.+)', cmd)
     if close_match:
         app = close_match.group(1).strip()
         try:
@@ -78,7 +88,7 @@ def try_fast_path(server, text: str):
                 return server.system_control.adjust(kind, cmd)
 
     # ── PLAY IN YOUTUBE (instant — prevents Spotify conflict) ──
-    yt_match = _re.search(r'play\s+(.+?)\s+(?:in|on)\s+youtube', cmd)
+    yt_match = re.search(r'play\s+(.+?)\s+(?:in|on)\s+youtube', cmd)
     if yt_match:
         query = yt_match.group(1).strip()
         try:
@@ -99,7 +109,7 @@ def try_fast_path(server, text: str):
             return None
 
     # ── OPEN APP (instant) ──
-    open_match = _re.match(r'^(?:open|launch|start)\s+(.+)', cmd)
+    open_match = re.match(r'^(?:open|launch|start)\s+(.+)', cmd)
     if open_match:
         app = open_match.group(1).strip()
         try:

@@ -416,8 +416,8 @@ class RouterMixin:
             app_name = entities.get('app', '')
             if app_name:
                 try:
-                    from jarvis.core.app_finder import AppFinder
-                    finder = shared(AppFinder)
+                    from jarvis.core.app_finder import AppManager
+                    finder = shared(AppManager, lambda: AppManager(self.hud_perception))
                     success = finder.open_app(app_name)
                     if success:
                         self.state_manager.active_app = app_name.lower()

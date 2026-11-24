@@ -48,7 +48,7 @@ from jarvis.core.ocr_handler import OCRHandler
 from jarvis.core.pdf_handler import PDFHandler
 from jarvis.core.screen_control import ScreenControlHandler
 from jarvis.core.settings_manager import SettingsManager, HelpSystem
-from jarvis.core.app_finder import AppFinder
+from jarvis.core.app_finder import AppManager
 from jarvis.core.app_switcher import AppSwitcher
 from jarvis.core.face_recognition_auth import FaceRecognition, UserType
 from jarvis.core.smart_notes import SmartNotes
@@ -146,7 +146,9 @@ class JARVISUltimate:
         self.screen_control = shared(ScreenControlHandler)
         self.settings = shared(SettingsManager, lambda: SettingsManager(self._svc_perception))
         self.help_system = HelpSystem(self.perception)
-        self.app_finder = shared(AppFinder, lambda: AppFinder(self._svc_perception))
+        # AppManager (finder + launcher): every caller uses open_app()/refresh_cache(),
+        # which the bare AppFinder doesn't have, so opening apps this way always failed
+        self.app_finder = shared(AppManager, lambda: AppManager(self._svc_perception))
         self.app_switcher = shared(AppSwitcher, lambda: AppSwitcher(self._svc_perception))
         
         # Security/Face (Deferred)

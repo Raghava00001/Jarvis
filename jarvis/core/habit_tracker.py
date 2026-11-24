@@ -140,16 +140,13 @@ class HabitTracker:
     def list_habits(self):
         """List all habits"""
         if not self.habits:
-            self.perception.speak("No habits tracked, sir.")
-            return True
-        
-        self.perception.speak(f"You have {len(self.habits)} habits, sir.")
-        for i, habit in enumerate(self.habits, 1):
-            desc = habit.get("description", "Habit")
-            interval = habit.get("interval", "daily")
-            self.perception.speak(f"Habit {i}: {desc}, reminder: {interval}")
-        
-        return True
+            text = "You aren't tracking any habits yet, sir. Say 'add habit drink water' to start."
+        else:
+            items = "; ".join(f"{h.get('description', 'habit')} ({h.get('interval', 'daily')})" for h in self.habits)
+            text = f"You're tracking {len(self.habits)} habit{'s' if len(self.habits) != 1 else ''}, sir: {items}."
+        if self.perception:
+            self.perception.speak(text)
+        return text
 
     def complete_habit(self, habit_id: str):
         """Mark a habit as complete"""

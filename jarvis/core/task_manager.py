@@ -174,7 +174,8 @@ class TaskManager:
         self.perception.speak(f"You have {len(pending)} pending tasks, {title}.")
         lines = [f"You have {len(pending)} pending tasks, {title}."]
         for i, task in enumerate(pending[:5], 1):
-            desc = task.get('description', task.get('title', f'Task {i}'))
+            # Older entries use 'task', newer ones 'description' (two formats in one file)
+            desc = task.get('description') or task.get('task') or task.get('title') or f'Task {i}'
             self.perception.speak(f"Task {i}: {desc}")
             lines.append(f"  {i}. {desc}")
 

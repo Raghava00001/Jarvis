@@ -232,12 +232,9 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     cmd = command.lower().strip()
     entities = {}
 
-    # Questions about the screen: "what is this?", "explain this error",
-    # "what's on my screen?", "translate this". Answered by looking at a
-    # screenshot (they used to reach the AI with no idea what "this" was).
-    from jarvis.core.screen_vision import is_screen_question
-    if is_screen_question(cmd):
-        return 'screen_question', {}
+    first = _rule_calculation_or_screen(cmd)
+    if first is not _NEXT:
+        return first
 
     # ── Commands that had no rule and fell through to the AI chat (v2.7) ──
     # Translation: answered by the conversation/LLM handler. "translate hello
@@ -886,6 +883,22 @@ def _rule_play_song(cmd, entities):
             entities['song'] = song
             return 'play_music', entities
     return _NEXT
+
+def _rule_calculation_or_screen(cmd):
+    """Step of classify_intent(): arithmetic and questions about the screen.
+
+    "calculate 25 times 4" used to be the time ("times"). "What is this?",
+    "explain this error" are answered from a screenshot (they used to reach the
+    AI with no idea what "this" was)."""
+    from jarvis.core.calculator import expression_from
+    from jarvis.core.screen_vision import is_screen_question
+    expr = expression_from(cmd)
+    if expr:
+        return 'calculate', {'expression': expr}
+    if is_screen_question(cmd):
+        return 'screen_question', {}
+    return _NEXT
+
 
 def _rule_recall_memory(cmd, entities):
     """Step of classify_intent(): recall memory."""

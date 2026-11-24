@@ -603,8 +603,7 @@ class FallbackProcessor:
                         self.server.habit_tracker.create_habit(desc, interval)
                         return f"Habit created, {title}."
                 elif 'list' in cmd or 'show' in cmd or 'my habits' in cmd:
-                    self.server.habit_tracker.list_habits()
-                    return f"Listing your habits, {title}."
+                    return self.server.habit_tracker.list_habits()
                 elif 'check' in cmd or 'remind' in cmd:
                     reminders = self.server.habit_tracker.check_reminders()
                     if reminders:

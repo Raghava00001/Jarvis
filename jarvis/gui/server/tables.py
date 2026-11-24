@@ -12,6 +12,8 @@ PRECISE_RULE_INTENTS = {
     'screen_question',  # "what is this", "explain this error"
     'set_timer',        # "set a timer for 10 minutes"
     'take_note', 'list_notes', 'read_clipboard', 'ocr',
+    'calculate',        # "25 times 4" (the brain guessed get_time from "times")
+    'remember', 'recall',  # "remember that ...", "what is my ..." (falls through if nothing is stored)
 }
 def _is_precise_rule(kw_intent, command: str) -> bool:
     if kw_intent in PRECISE_RULE_INTENTS:

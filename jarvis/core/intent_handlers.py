@@ -463,70 +463,44 @@ def handle_ai_search(cmd: str, entities: Dict, context: Any) -> HandlerResult:
 
 
 def handle_remember(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle remembering facts (Qdrant-style memory)"""
+    """'remember that my favourite colour is blue': keep the fact (memory_store).
+    This called knowledge.remember(), which doesn't exist: nothing was ever saved."""
+    from jarvis.core.memory_store import MemoryStore, fact_from
     title = context.get('title', 'sir') if context else 'sir'
-    ai_search = context.get('ai_search') if context else None
-    fact = entities.get('fact', '')
-    
+    fact = entities.get('fact') or fact_from(cmd)
     if not fact:
-        return HandlerResult(success=False, response=f"What should I remember, {title}?")
-    
+        return HandlerResult(success=True, response=f"What should I remember, {title}?")
     try:
-        if ai_search:
-            ai_search.remember(fact)
-            return HandlerResult(success=True, response=f"I'll remember that, {title}.")
-        
-        # Fallback to file-based memory
-        from pathlib import Path
-        import json
-        data_dir = Path(__file__).parent.parent.parent / "jarvis_data"
-        data_dir.mkdir(exist_ok=True)
-        memory_file = data_dir / "memory.json"
-        
-        memories = []
-        if memory_file.exists():
-            memories = json.loads(memory_file.read_text())
-        memories.append({"fact": fact, "timestamp": str(__import__('datetime').datetime.now())})
-        memory_file.write_text(json.dumps(memories, indent=2))
-        
-        return HandlerResult(success=True, response=f"Noted, {title}.")
+        MemoryStore().remember(fact)
     except Exception as e:
         _log.warning(f"[HANDLERS] Remember error: {e}")
-        return HandlerResult(success=False, response=f"Couldn't save that, {title}.")
+        return HandlerResult(success=True, response=f"I couldn't save that, {title}.")
+    return HandlerResult(success=True, response=f"I'll remember that, {title}: {fact}.")
+
+
+EXPLICIT_RECALL_RE = re.compile(r"\b(?:do you remember|what did i tell you|recall)\b")
 
 
 def handle_recall(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle recalling facts from memory"""
+    """'what is my favourite colour', 'do you remember my wifi name'.
+
+    When nothing matches and the user didn't explicitly ask about memory
+    ("what is my IP address"), this isn't a memory question: success=False lets
+    the router ask the AI instead."""
+    from jarvis.core.memory_store import MemoryStore
     title = context.get('title', 'sir') if context else 'sir'
-    ai_search = context.get('ai_search') if context else None
-    query = entities.get('query', '')
-    
+    query = entities.get('query') or cmd
     try:
-        if ai_search:
-            facts = ai_search.recall(query)
-            if facts:
-                response = f"I remember: {facts[0]}"
-                if len(facts) > 1:
-                    response += f" And {len(facts)-1} more related facts."
-                return HandlerResult(success=True, response=response)
-            return HandlerResult(success=True, response=f"I don't recall anything about that, {title}.")
-        
-        # Fallback to file-based memory
-        from pathlib import Path
-        import json
-        data_dir = Path(__file__).parent.parent.parent / "jarvis_data"
-        memory_file = data_dir / "memory.json"
-        
-        if memory_file.exists():
-            memories = json.loads(memory_file.read_text())
-            for mem in reversed(memories):
-                if query.lower() in mem['fact'].lower():
-                    return HandlerResult(success=True, response=f"I remember: {mem['fact']}")
-        
-        return HandlerResult(success=True, response=f"I don't recall that, {title}.")
+        facts = MemoryStore().recall(cmd if len(query.split()) < 2 else query)
     except Exception as e:
         _log.warning(f"[HANDLERS] Recall error: {e}")
-        return HandlerResult(success=True, response=f"Let me think... No, I don't remember that.")
+        facts = []
+    if facts:
+        more = f" I also remember: {'; '.join(facts[1:])}." if len(facts) > 1 else ""
+        return HandlerResult(success=True, response=f"You told me {facts[0]}.{more}")
+    if EXPLICIT_RECALL_RE.search(cmd.lower()):
+        return HandlerResult(success=True, response=f"I don't remember anything about that, {title}.")
+    return HandlerResult(success=False, response="")
 
 
 def handle_search(cmd: str, entities: Dict, context: Any) -> HandlerResult:
@@ -1221,11 +1195,9 @@ def handle_habit(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         
         cmd_lower = cmd.lower()
         if 'list' in cmd_lower or 'show' in cmd_lower or 'my habits' in cmd_lower:
-            habits = tracker.list_habits()
-            if habits:
-                habit_list = ", ".join(habits)
-                return HandlerResult(success=True, response=f"Your tracked habits: {habit_list}")
-            return HandlerResult(success=True, response=f"No habits tracked yet, {title}. Say 'add habit' to start.")
+            # list_habits() returns the full answer (it used to return True,
+            # which this joined like a list and crashed)
+            return HandlerResult(success=True, response=tracker.list_habits())
         
         if 'add' in cmd_lower or 'track' in cmd_lower or 'create' in cmd_lower:
             name = re.sub(r'(add|track|create|new)\s*(habit)?\s*', '', cmd_lower).strip()
@@ -1322,6 +1294,16 @@ def handle_take_note(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         return HandlerResult(success=False, response=f"I couldn't save that note, {title}.")
 
 
+def handle_calculate(cmd: str, entities: Dict, context: Any) -> HandlerResult:
+    """'calculate 25 times 4', 'what is 15 percent of 200' (core/calculator.py)."""
+    from jarvis.core.calculator import answer
+    title = context.get('title', 'sir') if context else 'sir'
+    result = answer(cmd)
+    if result is None:
+        return HandlerResult(success=False, response="")   # not a calculation after all: let the AI answer
+    return HandlerResult(success=True, response=f"That's {result}, {title}.")
+
+
 def handle_list_notes(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     """Read back the most recent notes."""
     title = context.get('title', 'sir') if context else 'sir'
@@ -1333,7 +1315,7 @@ def handle_list_notes(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         return HandlerResult(success=False, response=f"I couldn't open your notes, {title}.")
     if not notes:
         return HandlerResult(success=True, response=f"You have no notes yet, {title}.")
-    items = "; ".join(n.content for n in notes)
+    items = "; ".join(dict.fromkeys(n.content for n in notes))   # same note saved twice: once
     return HandlerResult(success=True, response=f"Your latest notes, {title}: {items}.")
 
 
@@ -1400,6 +1382,7 @@ HANDLER_MAP = {
     'calendar': handle_calendar,
     'lock_screen': handle_lock_screen,
     'take_note': handle_take_note,
+    'calculate': handle_calculate,
     'list_notes': handle_list_notes,
 }
 

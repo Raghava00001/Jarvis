@@ -23,6 +23,8 @@ from jarvis.gui.mood_engine import reduce_sir_usage as _reduce_sir_usage
 from jarvis.gui.server.features import jlog
 from jarvis.gui.server.tables import FEATURE_TOGGLE_RE
 
+from jarvis.core.typo_fix import fix_typos
+
 _log = logging.getLogger(__name__)
 
 # Returned by an extracted step that didn't handle the request: the
@@ -158,11 +160,9 @@ class MessageMixin:
 
         # Mood: from the user's words (face too, if a face model is
         # installed); it lasts a few minutes and the AI is told about it
+        # Typos in command words ("wether", "tiem") went to the AI chat
+        text = fix_typos(text)
         mood = self._update_mood(text)
-
-        # NOTE: Removed intermediate state(listening) broadcast
-        # The result message at the end already contains state
-
 
         # State: processing
         self.state_manager.force_state("processing")
