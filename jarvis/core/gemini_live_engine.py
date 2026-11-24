@@ -865,30 +865,13 @@ class GeminiLiveEngine:
 
         result = "Action completed."
         try:
-            context = {
-                'perception': self.perception,
-                'websocket': None,
-                'server': self.server,
-                'title': 'sir',
-                'youtube': getattr(self.server, 'youtube_downloader', None) if self.server else None,
-                'whatsapp_handler': getattr(self.server, 'whatsapp_handler', None) if self.server else None,
-                'reminder_manager': getattr(self.server, 'reminder_manager', None) if self.server else None,
-                'system_control': getattr(self.server, 'system_control', None) if self.server else None,
-                'entertainment': getattr(self.server, 'entertainment', None) if self.server else None,
-                'news_handler': getattr(self.server, 'news_handler', None) if self.server else None,
-                'alarm_manager': getattr(self.server, 'alarm_manager', None) if self.server else None,
-                'screen_control': getattr(self.server, 'screen_control', None) if self.server else None,
-                'dictionary_handler': getattr(self.server, 'dictionary_handler', None) if self.server else None,
-                'chat_history': getattr(self.server, 'chat_history', None) if self.server else None,
-                'context_memory': getattr(self.server, 'context_memory', None) if self.server else None,
-                # COORD-FIX: These were missing — caused weather/screenshot/OCR failures via voice
-                'weather_handler': getattr(self.server, 'weather_handler', None) if self.server else None,
-                'knowledge': getattr(self.server, 'knowledge', None) if self.server else None,
-                'ocr_handler': getattr(self.server, 'ocr_handler', None) if self.server else None,
-                'screenshot_handler': getattr(self.server, 'screenshot_handler', None) if self.server else None,
-                'alarm_system': getattr(self.server, 'alarm_system', None) if self.server else None,
-                'face_auth': getattr(self.server, 'face_recognition', None) if self.server else None,
-            }
+            # The same context the router gives handlers (one builder, on the
+            # server); our own perception, so a handler's speech isn't also
+            # announced to Gemini as a system notice.
+            if self.server is not None and hasattr(self.server, '_handler_context'):
+                context = {**self.server._handler_context(), 'perception': self.perception}
+            else:
+                context = {'perception': self.perception, 'server': self.server, 'title': 'sir'}
 
             if name == "open_app":
                 handler = HANDLER_MAP.get("open_app")

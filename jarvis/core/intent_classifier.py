@@ -893,6 +893,9 @@ def _rule_calculation_or_screen(cmd):
         return 'calculate', {'expression': expr}
     if is_screen_question(cmd):
         return 'screen_question', {}
+    m = re.search(r"\bsynonyms?\s+(?:for|of|to)\s+([\w-]+)", cmd)
+    if m:   # "synonym for happy": the dictionary handler (it was a copy in the HUD fallback)
+        return 'dictionary', {'word': m.group(1), 'mode': 'synonyms'}
     return _NEXT
 
 

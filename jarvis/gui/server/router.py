@@ -312,30 +312,46 @@ class RouterMixin:
             _log.warning(f"[WebSocket] MediaKey error: {e}")
         return _NEXT
 
+    def _handler_context(self, title: str = None) -> dict:
+        """What every HANDLER_MAP handler receives: the subsystems it may use.
+
+        One builder for the router, the HUD fallback and Gemini's voice tools,
+        which each used to assemble their own (and differed: weather, OCR and
+        screenshots failed by voice because the tools' copy lacked them).
+        """
+        get = lambda name: getattr(self, name, None)
+        return {
+            'title': title or getattr(self.hud_perception, 'user_title', 'sir'),
+            'server': self,
+            'websocket': None,
+            'perception': self.hud_perception,
+            'system_stats': self.get_system_stats() if hasattr(self, 'get_system_stats') else {},
+            'state_manager': get('state_manager'),
+            'alarm_system': get('alarm_system'),
+            'reminder_manager': get('reminder_manager'),
+            'screenshot_handler': get('screenshot_handler'),
+            'ocr_handler': get('ocr_handler'),
+            'knowledge': get('knowledge'),
+            'ai_search': get('knowledge'),          # KnowledgeLayer doubles as AI search
+            'weather_handler': get('weather_handler'),
+            'news_handler': get('news_handler'),
+            'entertainment': get('entertainment'),
+            'system_control': get('system_control'),
+            'screen_control': get('screen_control'),
+            'whatsapp_handler': get('whatsapp_handler'),
+            'face_auth': get('face_recognition'),
+            'youtube': get('youtube_downloader'),
+            'dictionary_handler': get('dictionary_handler'),
+            'chat_history': get('chat_history'),
+            'context_memory': get('context_memory'),
+        }
+
     def _route_handler_context(self, command, entities, intent_name, title):
         """Step of _route_through_router(): handler context."""
         try:
             handler = HANDLER_MAP[intent_name]
 
-            # Build handler context with all available subsystems
-            handler_context = {
-                'title': title,
-                'system_stats': self.get_system_stats() if hasattr(self, 'get_system_stats') else {},
-                'alarm_system': self.alarm_system,
-                'screenshot_handler': self.screenshot_handler,
-                'knowledge': self.knowledge,
-                'state_manager': self.state_manager,
-                'weather_handler': self.weather_handler,
-                'news_handler': self.news_handler,
-                'entertainment': self.entertainment,
-                'system_control': self.system_control,
-                'reminder_manager': getattr(self, 'reminder_manager', None),
-                'whatsapp_handler': getattr(self, 'whatsapp_handler', None),
-                'perception': self.hud_perception,
-                'face_auth': getattr(self, 'face_recognition', None),
-                'ai_search': self.knowledge,  # KnowledgeLayer doubles as AI search
-                'ocr_handler': self.ocr_handler,  # P2-wire: OCR via lazy property
-            }
+            handler_context = self._handler_context(title)
 
             if jlog: jlog.route('HANDLER_MAP', intent_name)
             else: _log.info(f"[WebSocket] HANDLER_MAP dispatch: {intent_name}")

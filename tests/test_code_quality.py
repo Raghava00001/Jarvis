@@ -27,7 +27,6 @@ MAX_FUNCTION_LINES = 120
 # number when you shorten one; remove the entry once it is under the limit.
 LONG_FUNCTION_BUDGET = {
     ("jarvis/core/jarvis_ultimate.py", "_process_single_command"): 463,   # console mode
-    ("jarvis/gui/fallback_processor.py", "process"): 265,                  # short rules, kept inline
     ("jarvis/core/gemini_live_engine.py", "_execute_tool"): 239,
     ("jarvis/core/intent_classifier.py", "classify_intent"): 217,          # short rules, kept inline
     ("jarvis/gui/server/messages.py", "_on_input"): 211,

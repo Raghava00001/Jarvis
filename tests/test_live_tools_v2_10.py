@@ -44,7 +44,8 @@ def test_alarm_time_from_text(text, when):
 def test_alarm_tool_sets_the_spoken_time():
     alarms = MagicMock()
     alarms.set_alarm.return_value = True
-    server = SimpleNamespace(alarm_system=alarms)
+    # Tools get the same handler context as the router (server._handler_context)
+    server = SimpleNamespace(alarm_system=alarms, _handler_context=lambda: {"alarm_system": alarms, "title": "sir"})
     out = _call(_engine(server), "set_alarm", {"time": "7 am", "label": "wake up"})
     assert out.startswith("Alarm set for 7 am")
     assert alarms.set_alarm.call_args[0][0] == "7 am"

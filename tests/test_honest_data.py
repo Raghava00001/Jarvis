@@ -104,9 +104,13 @@ class TestWeather:
         assert data["temp"] == "--"
         assert "unavailable" in data["condition"].lower()
 
-    def test_fallback_processor_admits_weather_is_down(self):
-        src = (ROOT / "jarvis/gui/fallback_processor.py").read_text(encoding="utf-8")
-        assert "if weather.get('unavailable'):" in src
+    def test_weather_handler_admits_the_service_is_down(self):
+        """One implementation now (the HUD fallback's copy is gone): the handler."""
+        from jarvis.core.intent_handlers import handle_weather
+        wh = MagicMock()
+        wh.get_weather.return_value = {"unavailable": True, "error": "timeout"}
+        res = handle_weather("weather", {}, {"title": "sir", "weather_handler": wh})
+        assert "can't reach the weather service" in res.response and "N/A" not in res.response
 
     def test_spoken_weather_uses_real_fields(self):
         from jarvis.core.intent_handlers import handle_weather

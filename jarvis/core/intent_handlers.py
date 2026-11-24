@@ -198,6 +198,9 @@ def handle_weather(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         city = entities.get('city')
         weather = weather_handler.get_weather(city) if city else weather_handler.get_weather()
         
+        if isinstance(weather, dict) and weather.get('unavailable'):
+            # The service is down: say so (never read out "N/A°C")
+            return HandlerResult(success=True, response=f"I can't reach the weather service right now, {title}.")
         if isinstance(weather, dict):
             return HandlerResult(
                 success=True,
@@ -1032,11 +1035,31 @@ def handle_conversation(cmd: str, entities: Dict, context: Any) -> HandlerResult
     return None
 
 
+
+def _synonyms(word: str, title: str) -> HandlerResult:
+    """Synonyms from dictionaryapi.dev (this was a separate copy in the HUD fallback)."""
+    import requests
+    try:
+        r = requests.get(f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}", timeout=5)
+        if r.status_code == 200 and r.json():
+            found = []
+            for meaning in r.json()[0].get("meanings", []):
+                found.extend(meaning.get("synonyms", [])[:3])
+            if found:
+                return HandlerResult(success=True, response=f"Synonyms for {word}: {', '.join(found[:5])}")
+    except Exception as e:
+        recovered("Handlers", e)
+    return HandlerResult(success=True, response=f"No synonyms found for '{word}', {title}.")
+
+
 def handle_dictionary(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     """Handle word definition requests"""
     title = context.get('title', 'sir') if context else 'sir'
     word = entities.get('word', '')
     
+    if not word:
+        m = re.search(r"\bsynonyms?\s+(?:for|of|to)\s+([\w-]+)", cmd, re.I)
+        word = m.group(1) if m else ''
     if not word:
         match = re.search(r'(?:define|meaning of|what does|what is)\s+(?:the\s+word\s+)?([\w]+)', cmd, re.I)
         if match:
@@ -1044,6 +1067,8 @@ def handle_dictionary(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     
     if not word:
         return HandlerResult(success=False, response=f"What word should I define, {title}?")
+    if entities.get('mode') == 'synonyms' or re.search(r"\bsynonyms?\b", cmd.lower()):
+        return _synonyms(word, title)
     
     # Try dictionary handler from context
     knowledge = context.get('knowledge') if context else None
