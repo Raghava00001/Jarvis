@@ -7,7 +7,6 @@ import logging
 _log = logging.getLogger(__name__)
 
 import os
-import json
 import requests
 from typing import Optional, Dict
 from datetime import datetime
@@ -117,8 +116,8 @@ class WeatherHandler:
             location = self.get_location()
             if location:
                 city = location.get("city")
-                lat = location.get("lat")
-                lon = location.get("lon")
+                location.get("lat")
+                location.get("lon")
             else:
                 self._speak(f"I couldn't determine your location, {title}. Please specify a city.")
                 return None
@@ -201,7 +200,7 @@ class WeatherHandler:
     
     def report_weather(self, city: str = None) -> bool:
         """Get and speak weather report"""
-        title = self._get_title()
+        self._get_title()
         
         weather = self.get_weather(city)
         

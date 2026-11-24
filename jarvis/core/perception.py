@@ -13,7 +13,6 @@ import speech_recognition as sr
 import pyttsx3
 import threading
 import json
-import os
 from pathlib import Path
 from typing import Optional, Callable
 from enum import Enum

@@ -13,13 +13,11 @@ _log = logging.getLogger(__name__)
 
 import requests
 import json
-import hashlib
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Set
+from datetime import datetime
+from typing import Dict, List, Optional, Set
 from dataclasses import dataclass, field
 from enum import Enum
-from collections import defaultdict
 import re
 import time
 
@@ -137,7 +135,7 @@ class ResultRanker:
         
         # Combine title and snippet for matching
         text = f"{result.title} {result.snippet}".lower()
-        text_terms = text.split()
+        text.split()
         
         # Term frequency score
         tf_score = 0

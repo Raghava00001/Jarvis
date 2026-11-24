@@ -12,7 +12,6 @@ _log = logging.getLogger(__name__)
 import os
 import re
 import requests
-import json
 from typing import Optional
 
 
@@ -303,7 +302,7 @@ CHARACTER (Iron Man's JARVIS — Paul Bettany's portrayal):
                 for msg in recent:
                     role = "User" if msg.role == "user" else "JARVIS"
                     context_lines.append(f"{role}: {msg.content}")
-                user_prompt += f"\nRECENT CONVERSATION:\n" + "\n".join(context_lines) + "\n"
+                user_prompt += "\nRECENT CONVERSATION:\n" + "\n".join(context_lines) + "\n"
         except Exception:
             _log.debug("Ignored error", exc_info=True)
         

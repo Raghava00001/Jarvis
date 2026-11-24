@@ -9,9 +9,6 @@ _log = logging.getLogger(__name__)
 import pygame
 import math
 import random
-import threading
-import queue
-from typing import List, Optional
 from collections import deque
 
 

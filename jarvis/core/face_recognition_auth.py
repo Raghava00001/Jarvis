@@ -7,12 +7,9 @@ Now with auto-install and facenet fallback!
 import logging
 _log = logging.getLogger(__name__)
 
-import os
 import json
 import threading
 import time
-import subprocess
-import sys
 from pathlib import Path
 from typing import Optional, Tuple, List
 from enum import Enum
@@ -227,7 +224,6 @@ class FaceRecognition:
     
     def _save_data(self):
         """Save face encodings and profiles — JSON format (no pickle vulnerability)"""
-        import numpy as np
         try:
             # Save encodings as JSON (numpy arrays → lists)
             json_encodings = self.data_dir / "face_encodings.json"
@@ -626,7 +622,7 @@ class FaceRecognition:
         if self.is_authenticated:
             return None  # Allow the action - user is verified
         return (
-            f"I need to verify your identity first. Please look at the camera so I can recognize you."
+            "I need to verify your identity first. Please look at the camera so I can recognize you."
         )
     
     def start_monitoring(self):

@@ -117,6 +117,25 @@ def test_server_stays_split():
     assert len(parts) == 10, parts
 
 
+# Remaining pyflakes warnings (unused imports inside "is this library
+# installed?" try blocks, multi-line imports, tuple unpacking). A ratchet:
+# lower it when you clean some up; new code adds none.
+PYFLAKES_WARNING_BUDGET = 92
+
+
+def test_pyflakes_warnings_only_go_down():
+    from pyflakes import checker
+    found = []
+    for p in sorted(JARVIS.rglob("*.py")):
+        if "__pycache__" in p.parts:
+            continue
+        tree = ast.parse(p.read_text(encoding="utf-8-sig"))
+        found += [f"{_rel(p)}:{m.lineno} {m.message % m.message_args}"
+                  for m in checker.Checker(tree, filename=str(p)).messages]
+    assert len(found) <= PYFLAKES_WARNING_BUDGET, (
+        f"{len(found)} pyflakes warnings (budget {PYFLAKES_WARNING_BUDGET}); the newest:\n" + "\n".join(found[-10:]))
+
+
 # ── the console logging itself ─────────────────────────────────────────────
 
 def _capture(level=logging.INFO, name="jarvis.test_quality"):

@@ -16,7 +16,7 @@ import subprocess
 import time
 import webbrowser
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 from dataclasses import dataclass, field
 from enum import Enum
 import json

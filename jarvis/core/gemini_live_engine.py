@@ -8,11 +8,9 @@ _log = logging.getLogger(__name__)
 
 import asyncio
 import threading
-import json
 import traceback
 import datetime
 import os
-import subprocess
 import webbrowser
 import concurrent.futures
 import re
@@ -25,7 +23,6 @@ from google.genai import types
 
 # JARVIS Integrations
 from jarvis.core.intent_handlers import HANDLER_MAP
-from jarvis.core.llm import GEMINI_TEXT_MODEL
 
 # ── Audio Constants ──────────────────────────────────────────────
 FORMAT = pyaudio.paInt16
@@ -1703,7 +1700,7 @@ class GeminiLiveEngine:
                             if not hasattr(self, '_audio_count'):
                                 self._audio_count = 0
                             if self._audio_count == 0:
-                                _log.info(f"[LIVE] Response audio started")
+                                _log.info("[LIVE] Response audio started")
                             await self.audio_in_queue.put(response.data)
                             self._audio_count += 1
                             if self._audio_count <= 3 or self._audio_count % 200 == 0:
@@ -1869,7 +1866,7 @@ class GeminiLiveEngine:
                         play_count += 1
                         continue
                     if play_count == 0:
-                        _log.info(f"[LIVE] Playback audio started")
+                        _log.info("[LIVE] Playback audio started")
                     await asyncio.to_thread(stream.write, chunk)
                     self._speaking_until = _pt.time() + 0.8   # C-04: increased from 0.4 to 0.8
                     play_count += 1

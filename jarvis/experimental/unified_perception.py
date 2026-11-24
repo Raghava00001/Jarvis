@@ -22,9 +22,8 @@ except ImportError:
     _log.info("[PERCEPTION] OpenCV not installed — vision features disabled")
 import threading
 import queue
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Any, Callable
 from dataclasses import dataclass
-from pathlib import Path
 
 try:
     from jarvis.core.gesture_controller import GestureController, get_gesture_action, get_gesture_controller

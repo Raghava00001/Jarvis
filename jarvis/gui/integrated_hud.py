@@ -7,7 +7,6 @@ import logging
 _log = logging.getLogger(__name__)
 
 import pygame
-import threading
 import queue
 import time
 import sys
@@ -298,7 +297,7 @@ def run_integrated_hud():
     pygame.init()
     
     # Get screen info for fullscreen option
-    info = pygame.display.Info()
+    pygame.display.Info()
     
     # Window mode
     screen = pygame.display.set_mode((1400, 900))

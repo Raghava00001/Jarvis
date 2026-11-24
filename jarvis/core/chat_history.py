@@ -16,7 +16,7 @@ import json
 import sqlite3
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict
 from dataclasses import dataclass, asdict
 
 

@@ -7,8 +7,6 @@ import logging
 _log = logging.getLogger(__name__)
 
 import os
-import json
-import base64
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart

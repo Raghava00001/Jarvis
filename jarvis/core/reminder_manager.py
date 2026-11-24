@@ -6,13 +6,12 @@ Manages reminders, schedules, and recurring tasks
 import logging
 _log = logging.getLogger(__name__)
 
-import json
 import sqlite3
 import threading
 import time
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional, List, Callable
+from typing import Optional, List
 from dataclasses import dataclass
 from enum import Enum
 import re
@@ -218,7 +217,7 @@ class ReminderManager:
             self.add_reminder(message, remind_at, reminder_type)
             return True
         
-        self._speak(f"I couldn't understand the reminder. Please specify when to remind you.")
+        self._speak("I couldn't understand the reminder. Please specify when to remind you.")
         return False
     
     def get_upcoming_reminders(self, count: int = 5) -> List[Reminder]:

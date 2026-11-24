@@ -12,10 +12,9 @@ _log = logging.getLogger(__name__)
 
 from jarvis.core.services import shared
 import sqlite3
-import threading
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Tuple
 from dataclasses import dataclass
 import re
 

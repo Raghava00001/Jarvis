@@ -98,7 +98,7 @@ class ClipboardIntelligence:
             return {
                 "type": "url",
                 "content": url,
-                "suggestion": f"You copied a link. Want me to open it?",
+                "suggestion": "You copied a link. Want me to open it?",
                 "action": "open_url"
             }
         
@@ -140,7 +140,7 @@ class ClipboardIntelligence:
             return {
                 "type": "phone",
                 "content": phone_match.group(),
-                "suggestion": f"You copied a phone number. Want me to save it?",
+                "suggestion": "You copied a phone number. Want me to save it?",
                 "action": "save_contact"
             }
         

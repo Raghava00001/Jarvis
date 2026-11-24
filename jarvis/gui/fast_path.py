@@ -9,8 +9,6 @@ import logging
 import re
 _log = logging.getLogger(__name__)
 
-import threading
-import time
 from datetime import datetime
 from pathlib import Path
 

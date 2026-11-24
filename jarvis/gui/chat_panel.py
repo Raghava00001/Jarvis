@@ -7,9 +7,8 @@ import logging
 _log = logging.getLogger(__name__)
 
 import pygame
-import threading
 import time
-from typing import List, Optional
+from typing import List
 from dataclasses import dataclass
 from enum import Enum
 

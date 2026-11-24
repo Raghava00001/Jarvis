@@ -16,10 +16,8 @@ _log = logging.getLogger(__name__)
 import re
 import time
 import threading
-from pathlib import Path
 from typing import Optional
 from urllib.request import Request, urlopen
-from urllib.error import URLError
 from xml.etree import ElementTree as ET
 
 # ── Cache ──────────────────────────────────────────────────────────────────

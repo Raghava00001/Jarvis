@@ -12,7 +12,6 @@ import webbrowser
 import os
 import sys
 import threading
-import asyncio
 from pathlib import Path
 
 # Fix module imports by adding project root to path
@@ -102,14 +101,14 @@ def main():
         return
     
     # Start WebSocket server
-    ws_server = start_websocket_server()
+    start_websocket_server()
     
     _log.info("")
     _log.info("=" * 60)
     _log.info("  JARVIS HUD ONLINE")
     _log.info("=" * 60)
     _log.info(f"  Web Interface: http://localhost:{http_port}")
-    _log.info(f"  WebSocket:     ws://localhost:8765")
+    _log.info("  WebSocket:     ws://localhost:8765")
     _log.info("")
     _log.info("  Press Ctrl+C to stop all servers")
     _log.info("=" * 60)

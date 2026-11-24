@@ -3,7 +3,6 @@ _log = logging.getLogger(__name__)
 
 import time
 import queue
-import threading
 import contextvars
 from contextlib import contextmanager
 from dataclasses import dataclass

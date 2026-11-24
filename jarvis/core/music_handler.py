@@ -17,9 +17,7 @@ _log = logging.getLogger(__name__)
 
 from jarvis.core.services import shared
 import os
-import subprocess
 import webbrowser
-import time
 import json
 from pathlib import Path
 from typing import Optional, Dict, Tuple
@@ -354,7 +352,7 @@ class MusicHandler:
         - If query: search and play that song
         - If no query: resume current playback
         """
-        title = self._get_title()
+        self._get_title()
         
         # Try Spotify first
         if self.spotify.available:

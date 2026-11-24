@@ -10,7 +10,7 @@ _log = logging.getLogger(__name__)
 
 import time
 import re
-from typing import List, Dict, Any, Callable, Optional
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -325,7 +325,7 @@ class WorkflowManager:
             )
             return self.execute_workflow(workflow)
         
-        self._speak(f"I don't know that workflow template.")
+        self._speak("I don't know that workflow template.")
         return False
     
     def handle(self, command: str) -> str:

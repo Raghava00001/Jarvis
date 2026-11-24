@@ -13,10 +13,6 @@ _NEXT = object()
 
 from typing import Tuple, Dict, Any, List, Optional
 from dataclasses import dataclass, field
-try:
-    from jarvis.core.intent_router import Intent
-except ImportError:
-    from jarvis.core.intent_router import Intent
 import re
 from functools import lru_cache
 

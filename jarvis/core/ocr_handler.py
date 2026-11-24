@@ -39,7 +39,7 @@ class OCRHandler:
                     self.tesseract_path = path
                     break
             
-            _log.info(f"[OCR] pytesseract available")
+            _log.info("[OCR] pytesseract available")
             if self.tesseract_path:
                 _log.info(f"[OCR] Tesseract found at: {self.tesseract_path}")
         except ImportError:

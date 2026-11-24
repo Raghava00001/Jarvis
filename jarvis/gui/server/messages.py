@@ -205,7 +205,7 @@ class MessageMixin:
             if jlog: jlog.error('Command processing failed', e)
             else: _log.warning(f"[WebSocket] CRITICAL: process_command failed: {e}")
             self.state_manager.force_state("idle")
-            response = f"I encountered an error processing that command. Please try again."
+            response = "I encountered an error processing that command. Please try again."
             await self._send_to(websocket, json.dumps({
                 'type': 'error',
                 'message': str(e)
@@ -315,7 +315,7 @@ class MessageMixin:
                 recovered("WebSocket", _err)
 
         # Return to idle after speaking
-        words = len(response.split()) if response else 1
+        len(response.split()) if response else 1
         await asyncio.sleep(0.3)  # Brief pause before idle
         self.state_manager.force_state("idle")
 

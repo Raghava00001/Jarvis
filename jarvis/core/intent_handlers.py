@@ -16,7 +16,7 @@ import re
 try:
     from jarvis.core.intent_router import HandlerResult, Intent
 except ImportError:
-    from jarvis.core.intent_router import HandlerResult, Intent
+    from jarvis.core.intent_router import HandlerResult
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -59,7 +59,7 @@ def handle_greeting(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             f"Loud and clear, {title}. All systems operational.",
             f"I can hear you perfectly, {title}. Voice recognition at full capacity.",
             f"For you, {title}, always. What do you need?",
-            f"Present and accounted for. How may I assist?",
+            "Present and accounted for. How may I assist?",
         ]
         return HandlerResult(success=True, response=random.choice(responses))
     
@@ -446,7 +446,7 @@ def handle_ai_search(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     ai_search = context.get('ai_search') if context else None
     query = entities.get('query', '')
     mode = entities.get('mode', 'balanced')
-    source = entities.get('source', 'web')
+    entities.get('source', 'web')
     
     if not query:
         return HandlerResult(success=False, response=f"What would you like me to research, {title}?")
@@ -612,7 +612,7 @@ def handle_set_reminder(cmd: str, entities: Dict, context: Any) -> HandlerResult
             if result:
                 message, remind_at, reminder_type = result
                 # Use silent=True since handler returns response (prevents double-speak)
-                reminder_id = reminder_manager.add_reminder(message, remind_at, reminder_type, silent=True)
+                reminder_manager.add_reminder(message, remind_at, reminder_type, silent=True)
                 
                 # Format time for response
                 time_str = remind_at.strftime("%I:%M %p")
@@ -997,7 +997,7 @@ EXPLAINER_SYSTEM = ("You are JARVIS, a knowledgeable assistant explaining things
 
 def handle_conversation(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     """Handle casual conversation / small talk"""
-    title = context.get('title', 'sir') if context else 'sir'
+    context.get('title', 'sir') if context else 'sir'
     
     cmd_lower = cmd.lower()
     

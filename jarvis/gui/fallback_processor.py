@@ -12,7 +12,6 @@ import re
 import os
 import random
 import subprocess
-import time
 import webbrowser
 from datetime import datetime
 from jarvis.gui.data_providers import maybe_title
@@ -1000,7 +999,7 @@ class FallbackProcessor:
                         return poem
                 except Exception as e:
                     _log.warning(f"[WebSocket] Poem generation error: {e}")
-            return f"Roses are red, violets are blue, I'm an AI here to help you."
+            return "Roses are red, violets are blue, I'm an AI here to help you."
         return _NEXT
 
     def _cmd_smart_notes(self, cmd, title):

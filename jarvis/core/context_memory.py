@@ -14,11 +14,10 @@ import sqlite3
 import json
 import re
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Dict, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from collections import deque
-import hashlib
 import threading
 
 # Embedding support: check availability without importing torch at module load

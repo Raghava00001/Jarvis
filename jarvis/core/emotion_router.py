@@ -8,7 +8,6 @@ Wrapper around existing emotion detection.
 import logging
 _log = logging.getLogger(__name__)
 
-import re
 from typing import Optional
 from .state_manager import StateManager, UserMood
 

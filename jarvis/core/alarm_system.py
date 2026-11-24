@@ -101,7 +101,7 @@ class CrossPlatformAudio:
             
     def _play_macos(self, duration: float):
         """macOS audio"""
-        os.system(f'afplay /System/Library/Sounds/Ping.aiff &')
+        os.system('afplay /System/Library/Sounds/Ping.aiff &')
         
     def _play_linux(self, duration: float):
         """Linux audio"""
@@ -110,7 +110,7 @@ class CrossPlatformAudio:
             os.system('paplay /usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga &')
         except Exception:
             # Fallback to speaker-test
-            os.system(f'speaker-test -t sine -f 880 -l 1 &')
+            os.system('speaker-test -t sine -f 880 -l 1 &')
             
     def _play_fallback(self):
         """Fallback: print bell character"""
@@ -214,7 +214,7 @@ class AlarmScheduler:
                 
     def _reschedule_recurring(self, alarm: Alarm):
         """Reschedule recurring alarm for next occurrence"""
-        now = datetime.datetime.now()
+        datetime.datetime.now()
         
         if alarm.alarm_type == AlarmType.DAILY:
             # Same time tomorrow

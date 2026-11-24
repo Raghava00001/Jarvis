@@ -15,9 +15,8 @@ _log = logging.getLogger(__name__)
 
 import json
 import datetime
-import os
 from pathlib import Path
-from typing import Optional, Dict, List, Any
+from typing import Dict, Any
 
 
 class StartupOrchestrator:

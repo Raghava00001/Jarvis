@@ -9,7 +9,7 @@ _log = logging.getLogger(__name__)
 import numpy as np
 import time as _time
 import threading
-from typing import Optional, Tuple
+from typing import Optional
 from dataclasses import dataclass
 from enum import Enum
 
@@ -180,7 +180,7 @@ class VoiceEmotionAnalyzer:
         
         # Pitch analysis
         pitches, magnitudes = librosa.piptrack(y=y, sr=sr)
-        pitch_mean = np.mean(pitches[pitches > 0]) if np.any(pitches > 0) else 0
+        np.mean(pitches[pitches > 0]) if np.any(pitches > 0) else 0
         pitch_std = np.std(pitches[pitches > 0]) if np.any(pitches > 0) else 0
         
         # Classify based on features

@@ -9,7 +9,7 @@ import logging
 _log = logging.getLogger(__name__)
 
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 
@@ -259,7 +259,7 @@ class DecisionEngine:
         NOTE: Only challenges genuinely dangerous/destructive actions.
         Does NOT lecture about sleep, breaks, or habits (sir is the boss).
         """
-        now = datetime.now()
+        datetime.now()
                 
         # Challenge setting lots of alarms (possible mistake)
         s = self.state.get()

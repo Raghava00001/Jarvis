@@ -8,8 +8,6 @@ _log = logging.getLogger(__name__)
 
 import threading
 import speech_recognition as sr
-import os
-import sys
 
 # Try to import keyboard library for global hotkeys
 KEYBOARD_AVAILABLE = False

@@ -16,7 +16,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Optional, Dict, List, Any
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 import json
 
@@ -464,7 +464,6 @@ class ImmersiveStoryteller:
         
     def tell_story(self, theme: str, genre: str) -> bool:
         """Tell a story with sound effects"""
-        import random
         
         # Map string to genre
         genre_map = {

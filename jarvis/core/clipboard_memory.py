@@ -245,7 +245,7 @@ class ClipboardMemory:
     def handle(self, command: str) -> str:
         """Handle clipboard commands"""
         command_lower = command.lower()
-        title = self._get_title()
+        self._get_title()
         
         # Save current
         if "save this" in command_lower or "save clipboard" in command_lower:

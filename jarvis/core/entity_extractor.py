@@ -12,7 +12,7 @@ import logging
 _log = logging.getLogger(__name__)
 
 import re
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
 from datetime import datetime, timedelta
 
 # Try spaCy (optional but recommended)

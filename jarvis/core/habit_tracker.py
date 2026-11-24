@@ -10,7 +10,6 @@ import json
 import datetime
 import uuid
 from pathlib import Path
-import re
 
 
 class HabitTracker:

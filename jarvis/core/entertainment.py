@@ -7,7 +7,6 @@ import logging
 _log = logging.getLogger(__name__)
 
 import random
-from typing import Optional
 from enum import Enum
 
 

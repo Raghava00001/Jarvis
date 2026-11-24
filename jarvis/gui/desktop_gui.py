@@ -124,7 +124,7 @@ class OrbCanvas(tk.Canvas):
         # Outer glow
         for i in range(3):
             r = 85 - i * 5 + int(pulse * 3)
-            alpha = hex(int(30 + i * 15))[2:].zfill(2)
+            hex(int(30 + i * 15))[2:].zfill(2)
             self.create_oval(
                 self.cx - r, self.cy - r, self.cx + r, self.cy + r,
                 outline=dark, width=1
@@ -449,7 +449,7 @@ class JARVISDesktopApp(ctk.CTk):
 
         for i in range(3):
             ctk.CTkLabel(
-                self.news_frame, text=f"Loading headlines...",
+                self.news_frame, text="Loading headlines...",
                 font=("Consolas", 10), text_color=C["text_dim"],
                 wraplength=180, justify="left", anchor="w"
             ).pack(fill="x", pady=3)
@@ -504,7 +504,7 @@ class JARVISDesktopApp(ctk.CTk):
             return
 
         is_jarvis = sender.lower() in ("jarvis", "friday")
-        is_user = sender.lower() == "user"
+        sender.lower() == "user"
 
         # Color scheme matches CSS
         if is_jarvis:
@@ -868,7 +868,7 @@ class JARVISDesktopApp(ctk.CTk):
     def _on_face_update(self, data):
         """Step of _handle_ws_message(): Face_update."""
         user = data.get("user", "")
-        confidence = data.get("confidence", 0)
+        data.get("confidence", 0)
         if user and "Face ID" in self.feature_indicators:
             self.feature_indicators["Face ID"].configure(
                 text=f"{user.upper()}", text_color=C["green"]
@@ -879,7 +879,7 @@ class JARVISDesktopApp(ctk.CTk):
         briefing = data.get("briefing", {})
 
         # Auto-enable all feature indicators
-        features = briefing.get("features_enabled", {})
+        briefing.get("features_enabled", {})
         for name, indicator in self.feature_indicators.items():
             indicator.configure(text="ACTIVE", text_color=C["green"])
 

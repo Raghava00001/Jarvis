@@ -378,7 +378,7 @@ class JARVISWebSocketServer(MessageMixin, RouterMixin, CommandsMixin, PendingMix
                             'type': 'error',
                             'message': 'Still working on your earlier commands. Try again in a moment.'})
                 except json.JSONDecodeError:
-                    _log.warning(f"[WebSocket] Invalid JSON")
+                    _log.warning("[WebSocket] Invalid JSON")
                 except Exception as e:
                     _log.warning(f"[WebSocket] Error: {e}")
 
@@ -437,7 +437,7 @@ class JARVISWebSocketServer(MessageMixin, RouterMixin, CommandsMixin, PendingMix
         _log.info(f"  {self.hud_perception.assistant_name} WebSocket Server")
         _log.info(f"{'='*55}")
         _log.info(f"  Address: ws://{self.host}:{self.port}")
-        _log.info(f"  Status:  Online")
+        _log.info("  Status:  Online")
         _log.info(f"  Voice:   {self.hud_perception.assistant_name}")
         _log.info(f"  Full JARVIS: {'Yes' if self.jarvis else 'Fallback Mode'}")
         _log.info(f"  Gesture: {'Available' if self.gesture_controller else 'Not Available'}")

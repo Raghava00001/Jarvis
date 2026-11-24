@@ -15,7 +15,6 @@ from jarvis.core.services import shared
 import sys
 import time
 import threading
-from pathlib import Path
 
 from jarvis.core.perception import PerceptionLayer
 from jarvis.core.understanding import UnderstandingLayer
@@ -50,7 +49,7 @@ from jarvis.core.screen_control import ScreenControlHandler
 from jarvis.core.settings_manager import SettingsManager, HelpSystem
 from jarvis.core.app_finder import AppManager
 from jarvis.core.app_switcher import AppSwitcher
-from jarvis.core.face_recognition_auth import FaceRecognition, UserType
+from jarvis.core.face_recognition_auth import FaceRecognition
 from jarvis.core.smart_notes import SmartNotes
 from jarvis.core.reminder_manager import ReminderManager
 from jarvis.core.calendar_manager import CalendarManager
@@ -620,7 +619,7 @@ class JARVISUltimate:
             if "confirm" in command_lower or "yes" in command_lower:
                 success = self.system_control.sleep_system(confirm=True)
             else:
-                self.perception.speak(f"Say 'sleep confirm' to put the system to sleep, sir.")
+                self.perception.speak("Say 'sleep confirm' to put the system to sleep, sir.")
                 success = True
 
         # STRICT shutdown check - require explicit keywords to prevent "shut up" confusion
@@ -628,14 +627,14 @@ class JARVISUltimate:
             if "confirm" in command_lower or "yes" in command_lower:
                 success = self.system_control.shutdown_system(confirm=True)
             else:
-                self.perception.speak(f"Say 'shutdown confirm' to shut down, sir.")
+                self.perception.speak("Say 'shutdown confirm' to shut down, sir.")
                 success = True
 
         elif intent == "restart" or ("restart" in command_lower and any(w in command_lower for w in ["computer", "system", "pc", "confirm"])):
             if "confirm" in command_lower or "yes" in command_lower:
                 success = self.system_control.restart_system(confirm=True)
             else:
-                self.perception.speak(f"Say 'restart confirm' to restart, sir.")
+                self.perception.speak("Say 'restart confirm' to restart, sir.")
                 success = True
 
         # ========== HABITS ==========
@@ -1003,7 +1002,7 @@ class JARVISUltimate:
         # ========== FALLBACK TO LLM ==========
         if not success:
             # Use context for better LLM responses
-            context_prompt = self.context_memory.get_context_prompt()
+            self.context_memory.get_context_prompt()
             answer = self.knowledge.answer_question(command)
             self.perception.speak(answer)
             

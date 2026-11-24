@@ -9,7 +9,7 @@ import logging
 _log = logging.getLogger(__name__)
 
 from jarvis.core.services import shared
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Callable
 from dataclasses import dataclass
 from .state_manager import StateManager, get_state_manager
 from .personality import JARVISPersonalityCore, get_personality
@@ -236,7 +236,7 @@ class IntentRouter:
     # Handler implementations
     def _handle_music_play(self, entities: Dict) -> str:
         song = entities.get("song")
-        app = entities.get("app", "spotify")
+        entities.get("app", "spotify")
         
         if "music" in self.handlers:
             try:
@@ -365,8 +365,8 @@ class IntentRouter:
         
     def _handle_create_event(self, entities: Dict) -> str:
         if "calendar" in self.handlers:
-            title = entities.get("title", "New Event")
-            time = entities.get("time")
+            entities.get("title", "New Event")
+            entities.get("time")
             # TODO: parse and create
             return "Event creation not fully implemented yet"
         return "Calendar not connected"

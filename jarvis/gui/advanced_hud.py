@@ -13,8 +13,6 @@ import pygame
 import math
 import random
 import webbrowser
-from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass
 from enum import Enum
 from collections import deque
 import psutil

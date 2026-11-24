@@ -12,7 +12,6 @@ import webbrowser
 from datetime import datetime
 import random
 import subprocess
-import time
 import urllib.parse
 
 try:

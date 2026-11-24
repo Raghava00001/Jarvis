@@ -9,11 +9,11 @@ import logging
 _log = logging.getLogger(__name__)
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -446,7 +446,7 @@ class ProactiveAssistant:
                     sleep_h = alarm_h - now.hour if alarm_h > now.hour else (24 - now.hour) + alarm_h
                     if sleep_h < 5:
                         self._mark_suggested("tactical_insight")
-                        return f"Noted. I'll keep the morning briefing short given the limited sleep window."
+                        return "Noted. I'll keep the morning briefing short given the limited sleep window."
                 except Exception:
                     _log.debug("Ignored error", exc_info=True)
         

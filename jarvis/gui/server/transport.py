@@ -224,7 +224,7 @@ class TransportMixin:
 
             # CRITICAL: Duplicate response check
             if self.state_manager.is_duplicate_response(text):
-                _log.info(f"[WebSocket] Skipping duplicate response")
+                _log.info("[WebSocket] Skipping duplicate response")
                 return
 
             _should_speak = action.payload.get("speak", True) and not self._live_ready()

@@ -11,9 +11,8 @@ import logging
 _log = logging.getLogger(__name__)
 
 from jarvis.core.services import shared
-import time
-from typing import Optional, List, Dict, Tuple
-from dataclasses import dataclass, field
+from typing import Optional, List
+from dataclasses import dataclass
 from collections import deque
 
 # Windows-specific imports

@@ -248,7 +248,7 @@ class HolographicGlobe:
         
         for i, base_angle in enumerate(self.ring_angles):
             angle = base_angle + self.rotation_angle * (0.5 + i * 0.3)
-            angle_rad = math.radians(angle)
+            math.radians(angle)
             
             # Ring tilt based on index
             tilt = 15 + i * 20
@@ -376,7 +376,7 @@ class HolographicGlobe:
         panel_x = self.width - 100
         
         status_text = self.state.value.upper()
-        self._draw_panel_item(panel_x, panel_y, f"STATUS:", font)
+        self._draw_panel_item(panel_x, panel_y, "STATUS:", font)
         self._draw_panel_item(panel_x, panel_y + 25, status_text, font, self._get_state_color())
         
         # Bottom status bar

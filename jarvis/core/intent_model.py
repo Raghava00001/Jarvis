@@ -13,7 +13,7 @@ _log = logging.getLogger(__name__)
 
 import numpy as np
 from pathlib import Path
-from typing import Tuple, Optional, Dict, List, Union
+from typing import Tuple, Optional, Dict, List
 import json
 import re
 
