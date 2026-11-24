@@ -42,8 +42,9 @@ class FallbackProcessor:
             return _r
 
         # Features with no HANDLER_MAP handler (server subsystems)
-        for step in (self._cmd_youtube_download, self._cmd_tasks, self._cmd_wellness_check,
-                     self._cmd_chat_history_search, self._cmd_go_back, self._cmd_features_status,
+        # (tasks, wellness and chat-history search are the server's local steps,
+        # which run before the router; copies here could never be reached)
+        for step in (self._cmd_youtube_download, self._cmd_go_back, self._cmd_features_status,
                      self._cmd_verify_face):
             _r = step(cmd, title)
             if _r is not _NEXT:
@@ -130,69 +131,6 @@ class FallbackProcessor:
                     return f"Opening YouTube downloads folder, {title}."
                 else:
                     return f"Please provide a YouTube URL for me to download, {title}."
-        return _NEXT
-
-    def _cmd_tasks(self, cmd, title):
-        """Step of process(): tasks."""
-        # TASKS - add, list, complete tasks
-        if self.server.task_manager_obj:
-            if 'task' in cmd or 'to do' in cmd or 'todo' in cmd:
-                if 'add' in cmd or 'create' in cmd or 'new' in cmd:
-                    match = re.search(r'(?:add|create|new)\s+(?:a\s+)?task\s+(.+)', cmd, re.I)
-                    if match:
-                        desc = match.group(1).strip()
-                        self.server.task_manager_obj.add_task(desc)
-                        return f"Task added, {title}."
-                elif 'list' in cmd or 'show' in cmd or 'my tasks' in cmd:
-                    self.server.task_manager_obj.list_tasks()
-                    return f"Listing your tasks, {title}."
-                elif 'complete' in cmd or 'done' in cmd:
-                    match = re.search(r'(?:complete|done)\s+task\s+(\d+)', cmd, re.I)
-                    if match:
-                        index = int(match.group(1))
-                        self.server.task_manager_obj.complete_task_by_index(index)
-                        return f"Task marked complete, {title}."
-        return _NEXT
-
-    def _cmd_wellness_check(self, cmd, title):
-        """Step of process(): wellness check."""
-        # WELLNESS - check wellness, session duration
-        if self.server.wellness_monitor:
-            if 'wellness' in cmd or 'health' in cmd or 'break' in cmd:
-                if 'summary' in cmd or 'status' in cmd:
-                    summary = self.server.wellness_monitor.get_wellness_summary()
-                    return summary
-                elif 'check' in cmd:
-                    reminder = self.server.wellness_monitor.check_wellness()
-                    if reminder:
-                        return reminder
-                    return f"You're doing well, {title}."
-                elif 'reset' in cmd or 'took a break' in cmd:
-                    self.server.wellness_monitor.reset_session()
-                    return f"Session reset. Good on you for taking a break, {title}."
-        return _NEXT
-
-    def _cmd_chat_history_search(self, cmd, title):
-        """Step of process(): chat history search."""
-        # CHAT HISTORY - search conversations, recent chat
-        if self.server.chat_history:
-            if 'history' in cmd or 'conversation' in cmd or 'what did' in cmd:
-                if 'search' in cmd:
-                    match = re.search(r'search\s+(?:for\s+)?(.+)', cmd, re.I)
-                    if match:
-                        query = match.group(1).strip()
-                        results = self.server.chat_history.search(query)
-                        if results:
-                            return f"Found {len(results)} conversations matching '{query}', {title}."
-                        return f"No conversations found matching '{query}', {title}."
-                elif 'recent' in cmd or 'last' in cmd:
-                    messages = self.server.chat_history.get_recent(5)
-                    if messages:
-                        return f"Here are your last {len(messages)} messages, {title}."
-                    return f"No chat history yet, {title}."
-                elif 'clear' in cmd or 'delete' in cmd:
-                    self.server.chat_history.clear_history()
-                    return f"Chat history cleared, {title}."
         return _NEXT
 
     def _cmd_go_back(self, cmd, title):

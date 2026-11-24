@@ -240,8 +240,10 @@ class CommandsMixin:
 
     def _cmd_chat_history(self, cmd: str, command: str, title: str):
         # The classifier thinks this is 'story'
-        if not (('chat history' in cmd or 'show history' in cmd or 'conversation history' in cmd)
-                and self.chat_history):
+        # (one implementation: the HUD fallback had a copy with "what did we ...")
+        asks = ('chat history' in cmd or 'show history' in cmd or 'conversation history' in cmd
+                or 'what did we talk about' in cmd or 'what did we discuss' in cmd)
+        if not (asks and self.chat_history):
             return None
         if 'search' in cmd:
             match = re.search(r'search\s+(?:for\s+)?(.+)', cmd, re.I)
@@ -382,7 +384,8 @@ class CommandsMixin:
 
     def _cmd_wellness(self, cmd: str, command: str, title: str):
         # The classifier thinks this is 'conversation'
-        if 'wellness' not in cmd or not self.wellness_monitor:
+        # (one implementation: the HUD fallback had a copy that also took "my health")
+        if not ('wellness' in cmd or 'my health' in cmd) or not self.wellness_monitor:
             return None
         if 'summary' in cmd or 'status' in cmd:
             summary = self.wellness_monitor.get_wellness_summary()
