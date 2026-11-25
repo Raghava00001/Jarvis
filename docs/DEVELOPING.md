@@ -42,7 +42,7 @@ is no `print()`. Set `JARVIS_LOG_LEVEL` in `.env`:
 python -m pytest tests -q
 ```
 
-About 670 tests, ~2 minutes. CI runs the same suite on Windows for every pull request.
+About 670 tests, 2-3 minutes. CI runs the same suite on Windows for every pull request.
 
 Some tests boot the real server in a subprocess (`test_architecture.py`,
 `test_routing_corpus.py`) and send real commands through it, with every side
@@ -78,8 +78,10 @@ unless you stop it. Stub, at least:
   `screen_vision.capture_screen_png` / `ask_about_screen`
 - audio: `hud_perception.voice_out`; media keys: `MediaKeyController`
 - your data: alarms, reminders, tasks, notes (`SmartNotes.add_note`), chat history,
-  habit learning (`PatternLearner._save`), memory (`memory_store.MEMORY_FILE`),
-  gesture preference (`GESTURE_PREFS`), workflows
+  habit learning (`PatternLearner._save`, `jarvis/data/patterns.json`), habits
+  (`HabitTracker`, `jarvis_data/habits.json`), the learning engine
+  (`jarvis_data/learning.json`), memory (`memory_store.MEMORY_FILE`), gesture
+  preference (`GESTURE_PREFS`), saved screenshots (`jarvis_data/screenshots`), workflows
 
 And back up `jarvis/data` and `jarvis_data` first, then compare afterwards.
 `tests/test_routing_corpus.py` shows a complete harness.

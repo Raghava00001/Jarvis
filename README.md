@@ -180,7 +180,7 @@ About 110 typed commands and all 36 Gemini voice tools were sent through the rea
 | Email by voice | Said "sent" whatever happened | Reports what really happened |
 | Tasks, habits, notes, calendar, news topics, system status | Placeholders, crashes, ignored topics, 0% readings | Real content |
 
-**Code quality:** no `print()` (module loggers; `JARVIS_LOG_LEVEL`), no silent `except`, `websocket_server.py` split into 12 focused parts, long rule chains turned into named steps, 133 lint warnings removed; tests enforce all of it with ratchets that only go down.
+**Code quality and architecture:** every feature has one implementation (its `HANDLER_MAP` handler; ~780 lines of duplicate copies removed); no `print()` (module loggers; `JARVIS_LOG_LEVEL`); no silent `except`; `websocket_server.py` split into 12 focused parts; Gemini's voice tools are a dispatch table; no function over 120 lines (the longest was 773); lint warnings 224 → 29. Tests enforce all of it with budgets that only go down. See [docs/DEVELOPING.md](docs/DEVELOPING.md).
 
 ---
 
@@ -315,7 +315,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-**665 tests pass:**
+**667 tests pass:**
 - smoke tests: boot, Gemini Live dedup and echo gate, BrainAdapter, persona switching
 - NLP and router unit tests
 - 67 security and regression tests
