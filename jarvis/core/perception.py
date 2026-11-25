@@ -356,7 +356,7 @@ class PerceptionLayer:
                         return text
         except (sr.WaitTimeoutError, sr.UnknownValueError):
             _log.debug("Ignored error", exc_info=True)
-        except Exception as e:
+        except Exception:
             _log.debug("Ignored error", exc_info=True)
         
         return None

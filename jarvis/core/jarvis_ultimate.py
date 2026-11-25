@@ -359,6 +359,61 @@ class JARVISUltimate:
         
         command_lower = command.lower()
 
+        _r = self._do_quick_commands(command, command_lower)
+        if _r is not _NEXT:
+            return _r
+
+        # ========== CLOSE APP ==========
+        if "close " in command_lower and any(w in command_lower for w in ["close app", "close chrome", "close notepad", "close spotify", "close window"]):
+            app_name = command_lower.split("close ")[-1].strip()
+            if app_name:
+                try:
+                    self.app_switcher.close_app(app_name)
+                    return True
+                except Exception:
+                    _log.debug("Ignored error", exc_info=True)
+
+        # Classify intent
+        intent, confidence = self.understanding.classify(command)
+        entities = self.understanding.extract_entities(command)
+
+        # Log command
+        self.learning.log_command(command, intent, confidence, False)
+
+        success = False
+        
+        # ========== SMART APP DETECTION ==========
+        # Catch app-opening commands even if intent is wrong
+        app_keywords = ["open", "launch", "start", "run"]
+        is_open_command = any(word in command_lower for word in app_keywords)
+        
+        if is_open_command and intent not in ["open_app", "youtube_search"]:
+            # Force app opening if command starts with open/launch/etc
+            for keyword in app_keywords:
+                if keyword in command_lower:
+                    app_name = command_lower.split(keyword)[-1].strip()
+                    if app_name and app_name not in ["jarvis", ""]:
+                        # Override intent to open_app
+                        intent = "open_app"
+                        entities["apps"] = [app_name]
+                        _log.info(f"  [OVERRIDE] Detected app open command: {app_name}")
+                        break
+
+        success = self._do_handle_intent(command, command_lower, entities, intent, success)
+
+        success = self._do_fallback_llm(command, intent, success)
+        
+        # Log successful commands to context
+        if success and intent:
+            self.context_memory.add_exchange(command, "Command executed successfully", intent)
+
+        # Update learning with success status
+        self.learning.log_command(command, intent, confidence, success)
+
+        return True
+
+    def _do_quick_commands(self, command, command_lower):
+        """Step of _process_single_command(): Quick commands before intent classification."""
         # Exit commands - use word boundaries to prevent "perplexity" matching "exit"
         exit_words = ["exit jarvis", "quit jarvis", "goodbye jarvis", "bye jarvis", "close jarvis", "stop jarvis", "jarvis stop"]
         _r = self._do_exit(command_lower, exit_words)
@@ -456,55 +511,8 @@ class JARVISUltimate:
         _r = self._do_workflows_multi_action_morning(_r, command, command_lower)
         if _r is not _NEXT:
             return _r
+        return _NEXT
 
-        # ========== CLOSE APP ==========
-        if "close " in command_lower and any(w in command_lower for w in ["close app", "close chrome", "close notepad", "close spotify", "close window"]):
-            app_name = command_lower.split("close ")[-1].strip()
-            if app_name:
-                try:
-                    self.app_switcher.close_app(app_name)
-                    return True
-                except Exception:
-                    _log.debug("Ignored error", exc_info=True)
-
-        # Classify intent
-        intent, confidence = self.understanding.classify(command)
-        entities = self.understanding.extract_entities(command)
-
-        # Log command
-        self.learning.log_command(command, intent, confidence, False)
-
-        success = False
-        
-        # ========== SMART APP DETECTION ==========
-        # Catch app-opening commands even if intent is wrong
-        app_keywords = ["open", "launch", "start", "run"]
-        is_open_command = any(word in command_lower for word in app_keywords)
-        
-        if is_open_command and intent not in ["open_app", "youtube_search"]:
-            # Force app opening if command starts with open/launch/etc
-            for keyword in app_keywords:
-                if keyword in command_lower:
-                    app_name = command_lower.split(keyword)[-1].strip()
-                    if app_name and app_name not in ["jarvis", ""]:
-                        # Override intent to open_app
-                        intent = "open_app"
-                        entities["apps"] = [app_name]
-                        _log.info(f"  [OVERRIDE] Detected app open command: {app_name}")
-                        break
-
-        success = self._do_handle_intent(command, command_lower, entities, intent, success)
-
-        success = self._do_fallback_llm(command, intent, success)
-        
-        # Log successful commands to context
-        if success and intent:
-            self.context_memory.add_exchange(command, "Command executed successfully", intent)
-
-        # Update learning with success status
-        self.learning.log_command(command, intent, confidence, success)
-
-        return True
 
     def _do_handle_intent(self, command, command_lower, entities, intent, success):
         # Tried in order; each group returns _NEXT if none of its commands matched

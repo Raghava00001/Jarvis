@@ -433,7 +433,7 @@ class SystemControl:
             self.perception.speak(f"Shutting down in 5 seconds, {title}.")
             os.system("shutdown /s /t 5")
             return True
-        except Exception as e:
+        except Exception:
             self.perception.speak(f"Failed to shutdown, {title}.")
             return False
     
@@ -449,6 +449,6 @@ class SystemControl:
             self.perception.speak(f"Restarting in 5 seconds, {title}.")
             os.system("shutdown /r /t 5")
             return True
-        except Exception as e:
+        except Exception:
             self.perception.speak(f"Failed to restart, {title}.")
             return False

@@ -48,7 +48,7 @@ def get_system_stats() -> Dict[str, Any]:
             'charging': charging,
             'disk': round(disk)
         }
-    except Exception as e:
+    except Exception:
         return {'type': 'status', 'cpu': 0, 'memory': 0, 'battery': 100}
 
 

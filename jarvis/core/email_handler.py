@@ -246,7 +246,7 @@ class EmailHandler:
                 self._smtp_conn.login(self.smtp_email, self.smtp_password)
             try:
                 self._smtp_conn.send_message(msg)
-            except Exception as e:
+            except Exception:
                 # Connection dropped? Reconnect.
                 self._smtp_conn = smtplib.SMTP('smtp.gmail.com', 587)
                 self._smtp_conn.starttls()

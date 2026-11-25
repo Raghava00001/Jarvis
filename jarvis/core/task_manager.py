@@ -157,7 +157,7 @@ class TaskManager:
 
             if reminders_to_save:
                 self._save()
-        except Exception as e:
+        except Exception:
             # Silently handle errors to prevent spam
             _log.debug("Ignored error", exc_info=True)
 

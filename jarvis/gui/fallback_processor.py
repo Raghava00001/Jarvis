@@ -140,7 +140,7 @@ class FallbackProcessor:
                 import pyautogui
                 pyautogui.hotkey('alt', 'tab')
                 return f"Switched to the previous window, {title}."
-            except Exception as e:
+            except Exception:
                 return f"Couldn't switch windows, {title}."
         return _NEXT
 

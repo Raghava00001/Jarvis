@@ -122,7 +122,7 @@ class HotkeySystem:
                         _log.debug("Ignored error", exc_info=True)
                 except sr.WaitTimeoutError:
                     _log.debug("Ignored error", exc_info=True)
-                except Exception as e:
+                except Exception:
                     if self.listening:
                         pass  # Suppress errors during normal operation
         

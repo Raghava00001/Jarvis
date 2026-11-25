@@ -1647,7 +1647,6 @@ class GeminiLiveEngine:
     async def _receive_audio(self):
         _log.info("[LIVE] Receiver started")
         # Mo-01: import time once before loop — not inside hot path
-        import time as _recv_time
         in_buf = []
         out_buf = []
         _recv_errors = 0  # consecutive receive failures (see the except below)
@@ -1695,79 +1694,7 @@ class GeminiLiveEngine:
 
                         # Transcription logging (like Mark-XXX)
                         if response.server_content:
-                            sc = response.server_content
-                            if sc.input_transcription and sc.input_transcription.text:
-                                txt = sc.input_transcription.text.strip()
-                                if txt:
-
-                                    # Mo-01: use pre-imported time for echo suppression
-                                    if _recv_time.time() < self._speaking_until:
-                                        pass  # echo — discard
-                                    else:
-                                        # C-04: Drain stale audio when new user input starts
-                                        if not in_buf:
-                                            self._current_turn_id += 1
-                                            while not self.audio_in_queue.empty():
-                                                try: self.audio_in_queue.get_nowait()
-                                                except Exception: break
-                                        in_buf.append(txt)
-                                        self._raw_in += sc.input_transcription.text
-                                        # Wake-word gate on the raw joined fragments
-                                        if self.note_user_speech(self._raw_in):
-                                            self._turn_addressed = True
-                            if sc.output_transcription and sc.output_transcription.text:
-                                txt = sc.output_transcription.text.strip()
-                                if txt:
-                                    out_buf.append(txt)
-                            if sc.turn_complete:
-                                current_turn = self._current_turn_id
-                                try:
-                                    if in_buf and self._wake_gate and not self._turn_addressed:
-                                        # Background speech: keep it out of the HUD chat
-                                        safe = (self._raw_in or " ".join(in_buf)).strip().encode('ascii', errors='replace').decode()
-                                        _log.info(f"[WAKE] Heard, not addressed: {safe[:80]}")
-                                        in_buf = []
-                                    if in_buf:
-                                        full_in = (self._raw_in or " ".join(in_buf)).strip()
-                                        # Mo-01: use pre-imported time
-                                        _now = _recv_time.time()
-                                        _last_in = getattr(self, '_last_in_text', '')
-                                        _last_in_t = getattr(self, '_last_in_time', 0)
-                                        if full_in and (full_in != _last_in or (_now - _last_in_t) > 3):
-                                            safe = full_in.encode('ascii', errors='replace').decode()
-                                            _log.info(f"[YOU]    {safe}")
-                                            self._push_to_chat(full_in, role='user', turn_id=current_turn)
-                                            self._last_in_text = full_in
-                                            self._last_in_time = _now
-                                        in_buf = []
-                                    if out_buf and self._turn_suppressed:
-                                        safe = " ".join(out_buf).encode('ascii', errors='replace').decode()
-                                        _log.info(f"[WAKE] Muted reply: {safe[:80]}")
-                                        out_buf = []
-                                    elif out_buf and getattr(self, '_sleep_after_reply', False):
-                                        self.sleep()        # "good night" answered: now sleep
-                                    elif out_buf and self.is_awake():
-                                        self.wake("reply")  # allow a follow-up after JARVIS answers
-                                    if out_buf:
-                                        full_out = " ".join(out_buf).strip()
-                                        # Deduplicate: skip if same as last output within 3s
-                                        _last_out = getattr(self, '_last_out_text', '')
-                                        _last_out_t = getattr(self, '_last_out_time', 0)
-                                        if full_out and (full_out != _last_out or (_now - _last_out_t) > 3):
-                                            safe = full_out.encode('ascii', errors='replace').decode()
-                                            _log.info(f"[JARVIS] {safe}")
-                                            # C-02: Don't push to chat if muted (but still log)
-                                            if not self._muted:
-                                                self._push_to_chat(full_out, role='jarvis', turn_id=current_turn)
-                                            self._last_out_text = full_out
-                                            self._last_out_time = _now
-                                        out_buf = []
-                                except Exception:
-                                    in_buf = []
-                                    out_buf = []
-                                self._turn_suppressed = False
-                                self._turn_addressed = False
-                                self._raw_in = ""
+                            self._on_server_content(response.server_content, in_buf, out_buf)
                         
                             # Mo-10: Removed duplicate interrupted handler —
                             # already handled at L1165 above
@@ -1775,34 +1702,7 @@ class GeminiLiveEngine:
                         # Tool calls — run in executor, non-blocking
                         if response.tool_call:
 
-                            turn_id = self._current_turn_id
-
-                            async def _handle_tools(tool_call, session):
-                                fn_responses = []
-                                loop = asyncio.get_event_loop()
-
-                                # Mo-09: Process ALL tool calls (not just first) for multi-tool workflows
-                                for fc in tool_call.function_calls:
-                                    if not self.is_awake():
-                                        # Wake-word gate: never act on background speech
-                                        _log.info(f"[WAKE] Blocked tool {fc.name} (not addressed)")
-                                        fn_responses.append(types.FunctionResponse(
-                                            id=fc.id, name=fc.name,
-                                            response={"result": NOT_ADDRESSED_RESULT}))
-                                        continue
-                                    fr = await loop.run_in_executor(
-                                        self._tool_executor, self._execute_tool, fc
-                                    )
-                                    fn_responses.append(fr)
-
-                                if turn_id != self._current_turn_id:
-                                    _log.info("[TURN] Dropping stale response")
-                                    return
-
-                                await session.send_tool_response(function_responses=fn_responses)
-
-                            async with self._tool_lock:
-                                await _handle_tools(response.tool_call, self.session)
+                            await self._on_tool_call(response.tool_call)
 
                     _recv_errors = 0  # a full turn arrived: the session is healthy
                 except StopAsyncIteration:
@@ -1828,6 +1728,118 @@ class GeminiLiveEngine:
         except Exception as e:
             _log.warning(f"[LIVE] Receiver error: {e}")
             traceback.print_exc()
+
+    def _on_server_content(self, sc, in_buf, out_buf):
+        """One server message: what the user said, what JARVIS said, and the end
+        of a turn (wake-word gate, chat, follow-up window). Called by
+        _receive_audio; the buffers carry a turn's fragments across messages."""
+        if sc.input_transcription and sc.input_transcription.text:
+            txt = sc.input_transcription.text.strip()
+            if txt:
+
+                # Mo-01: use pre-imported time for echo suppression
+                if _time.time() < self._speaking_until:
+                    pass  # echo — discard
+                else:
+                    # C-04: Drain stale audio when new user input starts
+                    if not in_buf:
+                        self._current_turn_id += 1
+                        while not self.audio_in_queue.empty():
+                            try: self.audio_in_queue.get_nowait()
+                            except Exception: break
+                    in_buf.append(txt)
+                    self._raw_in += sc.input_transcription.text
+                    # Wake-word gate on the raw joined fragments
+                    if self.note_user_speech(self._raw_in):
+                        self._turn_addressed = True
+        if sc.output_transcription and sc.output_transcription.text:
+            txt = sc.output_transcription.text.strip()
+            if txt:
+                out_buf.append(txt)
+        if sc.turn_complete:
+            current_turn = self._current_turn_id
+            # Set here for both branches below (it was only set when the user's
+            # speech was transcribed: a reply to typed input raised NameError and
+            # never reached the HUD chat)
+            _now = _time.time()
+            try:
+                if in_buf and self._wake_gate and not self._turn_addressed:
+                    # Background speech: keep it out of the HUD chat
+                    safe = (self._raw_in or " ".join(in_buf)).strip().encode('ascii', errors='replace').decode()
+                    _log.info(f"[WAKE] Heard, not addressed: {safe[:80]}")
+                    in_buf.clear()
+                if in_buf:
+                    full_in = (self._raw_in or " ".join(in_buf)).strip()
+                    # Mo-01: use pre-imported time
+                    _last_in = getattr(self, '_last_in_text', '')
+                    _last_in_t = getattr(self, '_last_in_time', 0)
+                    if full_in and (full_in != _last_in or (_now - _last_in_t) > 3):
+                        safe = full_in.encode('ascii', errors='replace').decode()
+                        _log.info(f"[YOU]    {safe}")
+                        self._push_to_chat(full_in, role='user', turn_id=current_turn)
+                        self._last_in_text = full_in
+                        self._last_in_time = _now
+                    in_buf.clear()
+                if out_buf and self._turn_suppressed:
+                    safe = " ".join(out_buf).encode('ascii', errors='replace').decode()
+                    _log.info(f"[WAKE] Muted reply: {safe[:80]}")
+                    out_buf.clear()
+                elif out_buf and getattr(self, '_sleep_after_reply', False):
+                    self.sleep()        # "good night" answered: now sleep
+                elif out_buf and self.is_awake():
+                    self.wake("reply")  # allow a follow-up after JARVIS answers
+                if out_buf:
+                    full_out = " ".join(out_buf).strip()
+                    # Deduplicate: skip if same as last output within 3s
+                    _last_out = getattr(self, '_last_out_text', '')
+                    _last_out_t = getattr(self, '_last_out_time', 0)
+                    if full_out and (full_out != _last_out or (_now - _last_out_t) > 3):
+                        safe = full_out.encode('ascii', errors='replace').decode()
+                        _log.info(f"[JARVIS] {safe}")
+                        # C-02: Don't push to chat if muted (but still log)
+                        if not self._muted:
+                            self._push_to_chat(full_out, role='jarvis', turn_id=current_turn)
+                        self._last_out_text = full_out
+                        self._last_out_time = _now
+                    out_buf.clear()
+            except Exception:
+                in_buf.clear()
+                out_buf.clear()
+            self._turn_suppressed = False
+            self._turn_addressed = False
+            self._raw_in = ""
+
+    async def _on_tool_call(self, tool_call):
+        """Run Gemini's tool calls off the event loop (the wake-word gate blocks
+        them for background speech) and send the results back."""
+        turn_id = self._current_turn_id
+
+        async def _handle_tools(tool_call, session):
+            fn_responses = []
+            loop = asyncio.get_event_loop()
+
+            # Mo-09: Process ALL tool calls (not just first) for multi-tool workflows
+            for fc in tool_call.function_calls:
+                if not self.is_awake():
+                    # Wake-word gate: never act on background speech
+                    _log.info(f"[WAKE] Blocked tool {fc.name} (not addressed)")
+                    fn_responses.append(types.FunctionResponse(
+                        id=fc.id, name=fc.name,
+                        response={"result": NOT_ADDRESSED_RESULT}))
+                    continue
+                fr = await loop.run_in_executor(
+                    self._tool_executor, self._execute_tool, fc
+                )
+                fn_responses.append(fr)
+
+            if turn_id != self._current_turn_id:
+                _log.info("[TURN] Dropping stale response")
+                return
+
+            await session.send_tool_response(function_responses=fn_responses)
+
+        async with self._tool_lock:
+            await _handle_tools(tool_call, self.session)
 
     async def _play_audio(self):
         _log.info("[LIVE] Playback started")

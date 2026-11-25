@@ -155,7 +155,7 @@ class ClipboardMemory:
                     consecutive_errors = 0
                 elif content is None:
                     consecutive_errors += 1
-            except Exception as e:
+            except Exception:
                 consecutive_errors += 1
             
             # Backoff on repeated errors (Access denied = another process holds clipboard)

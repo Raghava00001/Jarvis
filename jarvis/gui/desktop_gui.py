@@ -677,7 +677,7 @@ class JARVISDesktopApp(ctk.CTk):
                         except json.JSONDecodeError:
                             _log.debug("Ignored error", exc_info=True)
 
-            except Exception as e:
+            except Exception:
                 self.ws_connected = False
                 self.after(0, self._set_connected, False)
                 retry += 1

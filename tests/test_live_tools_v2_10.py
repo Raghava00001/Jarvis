@@ -196,3 +196,21 @@ def test_every_declared_tool_has_a_method_and_vice_versa():
     declared = {d["name"] for d in g.TOOL_DECLARATIONS}
     table = set(_engine()._tools())
     assert declared == table, {"declared, no method": declared - table, "method, not declared": table - declared}
+
+
+# ── a reply with no spoken input (typed in the HUD) never reached the chat ──
+
+def test_reply_to_typed_input_reaches_the_chat():
+    """_now was set only when the user's speech was transcribed; with typed
+    input the reply branch raised NameError, swallowed by an except."""
+    eng = _engine()
+    eng._current_turn_id, eng._wake_gate, eng._turn_addressed = 1, False, False
+    eng._turn_suppressed, eng._muted, eng._raw_in = False, False, ""
+    eng.is_awake = lambda: False
+    sc = SimpleNamespace(input_transcription=None, turn_complete=True,
+                         output_transcription=SimpleNamespace(text="It's 4 PM, sir."))
+    in_buf, out_buf = [], []
+    eng._on_server_content(sc, in_buf, out_buf)
+    eng._push_to_chat.assert_called_once()
+    assert eng._push_to_chat.call_args[0][0] == "It's 4 PM, sir." and eng._push_to_chat.call_args.kwargs["role"] == "jarvis"
+    assert out_buf == []

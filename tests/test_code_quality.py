@@ -23,12 +23,8 @@ JARVIS = ROOT / "jarvis"
 
 MAX_FUNCTION_LINES = 120
 
-# Long functions that predate the limit, with their current length. Lower a
-# number when you shorten one; remove the entry once it is under the limit.
-LONG_FUNCTION_BUDGET = {
-    ("jarvis/core/jarvis_ultimate.py", "_process_single_command"): 161,   # console mode
-    ("jarvis/core/gemini_live_engine.py", "_receive_audio"): 184,
-}
+# Functions allowed over the limit, with their length (only ever shrink them).
+LONG_FUNCTION_BUDGET = {}   # every function is under the limit (v2.10); keep it that way
 
 MAX_SERVER_FILE_LINES = 550
 
@@ -113,7 +109,7 @@ def test_server_stays_split():
 # Remaining pyflakes warnings (unused imports inside "is this library
 # installed?" try blocks, multi-line imports, tuple unpacking). A ratchet:
 # lower it when you clean some up; new code adds none.
-PYFLAKES_WARNING_BUDGET = 92
+PYFLAKES_WARNING_BUDGET = 29
 
 
 def test_pyflakes_warnings_only_go_down():

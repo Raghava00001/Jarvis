@@ -114,7 +114,7 @@ class IntentRouter:
                               ["not available", "couldn't", "failed", "error"]):
                 raise Exception(response)
             return response
-        except Exception as e:
+        except Exception:
             # Try fallback strategies
             fallbacks = self.FALLBACK_STRATEGIES.get(intent, [])
             for fallback_intent in fallbacks:

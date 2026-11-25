@@ -94,7 +94,7 @@ class GlobeController:
                         memory=mem.get("percent", 0) if mem else 0,
                         battery=bat.get("percent", 100) if bat else 100
                     )
-            except Exception as e:
+            except Exception:
                 _log.debug("Ignored error", exc_info=True)
             
             time.sleep(2)  # Update every 2 seconds

@@ -313,7 +313,7 @@ class AppFinder:
                             path=str(lnk_file),
                             app_type=AppType.DESKTOP
                         )
-                except Exception as e:
+                except Exception:
                     _log.debug("Ignored error", exc_info=True)  # Skip problematic shortcuts
                     
     def _scan_registry(self):

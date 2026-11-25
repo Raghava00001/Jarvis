@@ -87,7 +87,7 @@ class FaceEmotionDetector:
                 confidence=0.8  # face is usually reliable
             )
             
-        except Exception as e:
+        except Exception:
             return None
 
 
@@ -143,7 +143,7 @@ class VoiceEmotionDetector:
                 confidence=0.6  # voice is less reliable
             )
             
-        except Exception as e:
+        except Exception:
             return None
             
     def detect_from_features(self, pitch: float, energy: float) -> EmotionSignal:
@@ -222,7 +222,7 @@ class TextEmotionDetector:
                 confidence=0.7
             )
             
-        except Exception as e:
+        except Exception:
             return self._keyword_fallback(text)
             
     def _keyword_fallback(self, text: str) -> EmotionSignal:

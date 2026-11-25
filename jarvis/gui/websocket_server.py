@@ -95,6 +95,13 @@ from jarvis.gui.command_rules import (  # noqa: E402,F401
 from jarvis.gui.server.features import MISSING_IMPORTS  # noqa: E402,F401
 from jarvis.gui.server.tables import FEATURE_TOGGLE_RE, _is_precise_rule  # noqa: E402,F401
 
+__all__ = [
+    "JARVISWebSocketServer", "HUDPerception",
+    # importable from here, as before the split
+    "MISSING_IMPORTS", "FEATURE_TOGGLE_RE", "_is_precise_rule",
+    "normalize_command", "is_jarvis_exit_command", "detect_pc_power_action",
+]
+
 
 def _display_time(ts) -> str:
     """'Nov 23, 11:23 AM' from a datetime or an ISO string (chat history stores
