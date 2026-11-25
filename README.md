@@ -331,6 +331,8 @@ python -m pytest tests/ -q
 
 CI runs the same suite on `windows-latest`.
 
+Working on JARVIS: [docs/DEVELOPING.md](docs/DEVELOPING.md) (setup, console logging, the rules the tests enforce, and how to test with real commands without touching your data). Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ---
 
 ## Project structure

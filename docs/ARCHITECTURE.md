@@ -130,21 +130,41 @@ flowchart LR
 ```
 HUD text / voice
    │
-   ├─ Gemini Live on? ── wake word gate (gemini_live_engine) ── Gemini tools ─┐
+   ├─ Gemini Live on? ── wake word gate ── Gemini voice tools (_tools table) ──┐
    │                                                                          │
    ▼                                                                          │
-command_rules.py   wake word, exit JARVIS, PC power → always confirmed        │
-fast_path.py       instant rules: open/close app, volume, screenshot, time    │
-process_command    pending confirmations, keyword overrides                   │
+messages.py        typo correction (core/typo_fix.py), mood, dedupe of speech │
+fast_path.py       instant rules: open/close app, volume, pause, time         │
+commands.py        one command = one turn: pending answers, PC power (always  │
+                   confirmed), server-level steps (tasks, wellness, habits …) │
    ▼                                                                          │
-Understanding      BrainAdapter: IntentModel (embeddings + whole-word         │
-                   keyword fallback) → EntityExtractor → DecisionEngine       │
-                   + keyword classifier: corroborates, fills missing entities │
+router.py          BrainAdapter (embeddings + entities + decision) and the    │
+                   keyword classifier (rule sections); precise rules win      │
    ▼                                                                          │
-Action             HANDLER_MAP in intent_handlers.py  ◄───────────────────────┘
+HANDLER_MAP        intent_handlers.py: ONE implementation per feature  ◄──────┘
+   ▼                    (router, HUD fallback and voice tools all call it,
+   │                     with one context: server._handler_context())
+fallback_processor HUD-only commands, then the keyword classifier's handler
    ▼
-Output             HUDPerception → HUD chat + TTS (Edge TTS, offline fallback)
+AI                 Groq → OpenRouter → Gemini (core/knowledge.py, core/llm.py)
+   ▼
+Output             one voice per reply (speech.py): server voice, or Gemini
 ```
+
+**One implementation per feature.** A feature lives in its `HANDLER_MAP` handler.
+The router, the HUD fallback and Gemini's voice tools call that handler, and all
+of them build the handler's context the same way (`_handler_context`). Before
+v2.10 the fallback held a second copy of ~30 features; an audit of 100 commands
+showed the router answering 71 and the copies 1, and the copies were where
+several bugs hid (one copy fixed, the other not). They were removed.
+
+**Voice tools are a table.** `GeminiLiveEngine._tools()` maps each tool name in
+`TOOL_DECLARATIONS` to a method `(args, context, result) -> result`. A test
+checks that every declared tool has a method and every method is declared.
+
+**The keyword classifier is ordered rule sections** (`_rule_news`,
+`_rule_set_alarm`, `_rule_calculation_or_screen` …), each returning
+`(intent, entities)` or `_NEXT`.
 
 ### Service registry: one instance of every subsystem
 
@@ -208,15 +228,25 @@ An error that is deliberately ignored is still logged at debug level, never `pas
 | No `print()`, no silent `except: pass`, no bare `except:` | `tests/test_code_quality.py` |
 | No function over 120 lines; the few older ones may only get shorter | `tests/test_code_quality.py` |
 | No server file over 550 lines; the server keeps its 10 parts | `tests/test_code_quality.py` |
+| pyflakes warnings only go down (a budget); no control characters in source | `tests/test_code_quality.py` |
+| Every declared Gemini tool has a method, and every method is declared | `tests/test_live_tools_v2_10.py` |
+| The weather, calendar, email … handlers report failures honestly | `tests/test_honest_data.py`, `tests/test_live_tools_v2_10.py` |
 
 ### Adding a feature
 
-1. Write the handler in `jarvis/core/intent_handlers.py` and register it in `HANDLER_MAP`.
-2. Add example phrases under the **same name** in `jarvis/core/intent_definitions.py`.
-   The embedding cache rebuilds itself when examples change.
-3. If it needs a long-lived object, get it with `shared(MyClass, lambda: MyClass(...))`.
-4. If Gemini Live should use it, call the handler from its tool in `gemini_live_engine.py`.
+1. Write the handler in `jarvis/core/intent_handlers.py` and register it in
+   `HANDLER_MAP`. This is the only implementation: don't add a copy anywhere else.
+2. Add example phrases under the **same name** in `jarvis/core/intent_definitions.py`
+   (the embedding cache rebuilds itself). If the phrasing is precise, add a keyword
+   rule in `intent_classifier.py` and, if it must beat the ML guess, list the intent
+   in `PRECISE_RULE_INTENTS` (`jarvis/gui/server/tables.py`).
+3. If it needs a long-lived object, get it with `shared(MyClass, lambda: MyClass(...))`,
+   and add it to `_handler_context()` if handlers should receive it.
+4. If Gemini Live should use it, declare the tool in `TOOL_DECLARATIONS` and add one
+   entry to `_tools()` that calls the handler.
 5. Add a line to `tests/test_routing_corpus.py`.
+
+See [DEVELOPING.md](DEVELOPING.md) for running, testing and the rules the tests enforce.
 
 ## File Structure
 
@@ -224,6 +254,7 @@ An error that is deliberately ignored is still logged at debug level, never `pas
 jarvis/
 ├── __init__.py               # one module identity (maps legacy core.X imports)
 ├── logging_setup.py          # console logging for every module (JARVIS_LOG_LEVEL)
+├── core/calculator.py, typo_fix.py, memory_store.py, youtube_play.py   (v2.10)
 ├── core/
 │   ├── services.py           # service registry (composition root)
 │   ├── brain_adapter.py      # understanding pipeline

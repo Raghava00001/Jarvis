@@ -507,241 +507,232 @@ class JARVISUltimate:
         return True
 
     def _do_handle_intent(self, command, command_lower, entities, intent, success):
-        self._do_handle_intent_2()
+        # Tried in order; each group returns _NEXT if none of its commands matched
+        for group in (
+            self._do_actions_messages_alarms,
+            self._do_tasks_news_devices,
+            self._do_power_habits_weather,
+            self._do_status_voices_media,
+            self._do_help_notes_reminders,
+            self._do_settings,
+        ):
+            result = group(command, command_lower, entities, intent, success)
+            if result is not _NEXT:
+                return result
+        return success
+
+    def _do_actions_messages_alarms(self, command, command_lower, entities, intent, success):
+        """Console commands: Basic Actions, Whatsapp Messaging, Calendar, Email, Questions (Llm), Alarms. Returns _NEXT if none of them matched."""
         # ========== BASIC ACTIONS ==========
         if intent in ["open_app", "time", "date", "joke", "search", "greeting", "thank", "new_tab", "close_tab", "youtube_search"]:
             success = self.action.execute(intent, entities, command)
-
         # ========== WHATSAPP MESSAGING ==========
         elif intent == "send_message" or "send message" in command_lower or "whatsapp message" in command_lower:
             success = self.whatsapp.send_message()
-        
         elif intent == "read_messages" or "read message" in command_lower or "check message" in command_lower:
             success = self.whatsapp.read_messages()
-
         # ========== CALENDAR ==========
         elif intent == "calendar_events" or "calendar" in command_lower or "my events" in command_lower:
             success = self.calendar_integration.get_upcoming_events()
-        
         elif intent == "today_events" or "today's events" in command_lower or "events today" in command_lower:
             success = self.calendar.get_today_events()
-
         # ========== EMAIL ==========
         elif intent == "read_email" or "check email" in command_lower or "my emails" in command_lower:
             success = self.email.get_unread_emails()
-        
         elif intent == "summarize_email" or "summarize email" in command_lower:
             success = self.email.summarize_emails()
-
         # ========== QUESTIONS (LLM) ==========
         elif intent == "question" or intent == "uncertain":
             # Use knowledge layer for questions
             success = self._do_question_uncertain(command, success)
-
         # ========== ALARMS ==========
         elif intent == "set_alarm":
             success = self.alarm_system.set_alarm(command, "Alarm")
-        
         elif intent == "list_alarms":
             success = self.alarm_system.list_alarms()
-        
         elif intent == "cancel_alarm":
             success = self.alarm_system.cancel_alarm()
-        
         elif intent == "snooze_alarm" or "snooze" in command_lower:
             success = self.alarm_system.snooze_alarm()
+        else:
+            return _NEXT
+        return success
 
+
+    def _do_tasks_news_devices(self, command, command_lower, entities, intent, success):
+        """Console commands: Tasks & Reminders, News, Volume Control, Brightness Control, Bluetooth. Returns _NEXT if none of them matched."""
         # ========== TASKS & REMINDERS ==========
-        elif intent in ["task", "reminder"] or "task" in command_lower or "remind me" in command_lower:
+        if intent in ["task", "reminder"] or "task" in command_lower or "remind me" in command_lower:
             success = self._do_tasks(command, command_lower, success)
-
         elif intent == "list_tasks":
             success = self.task_manager.list_tasks()
-
         # ========== NEWS ==========
         elif intent == "news" or "news" in command_lower or "headline" in command_lower:
             success = self._do_news(command_lower, entities, success)
-
         # ========== VOLUME CONTROL ==========
         elif intent == "volume_up" or ("volume" in command_lower and "up" in command_lower):
             success = self._say_result(self.system_control.volume_up())
-
         elif intent == "volume_down" or ("volume" in command_lower and "down" in command_lower):
             success = self._say_result(self.system_control.volume_down())
-
         elif intent == "set_volume" or ("volume" in command_lower and entities.get("numbers")):
             success = self._do_set_volume(entities, success)
-
         elif intent == "mute" or "mute" in command_lower:
             success = self._say_result(self.system_control.mute_volume())
-
         # ========== BRIGHTNESS CONTROL ==========
         elif intent == "brightness_up" or ("brightness" in command_lower and ("up" in command_lower or "increase" in command_lower)):
             success = self._say_result(self.system_control.brightness_up())
-
         elif intent == "brightness_down" or ("brightness" in command_lower and ("down" in command_lower or "decrease" in command_lower)):
             success = self._say_result(self.system_control.brightness_down())
-
         elif intent == "set_brightness" or ("brightness" in command_lower and entities.get("numbers")):
             success = self._do_set_brightness(entities, success)
-
         # ========== BLUETOOTH ==========
         elif intent == "bluetooth_on" or ("bluetooth" in command_lower and "on" in command_lower):
             success = self.system_control.bluetooth_on()
-
         elif intent == "bluetooth_off" or ("bluetooth" in command_lower and "off" in command_lower):
             success = self.system_control.bluetooth_off()
+        else:
+            return _NEXT
+        return success
 
+
+    def _do_power_habits_weather(self, command, command_lower, entities, intent, success):
+        """Console commands: Stop Talking, System Power (With Stricter Check), Habits, Weather, Entertainment, Dictionary, Screenshot. Returns _NEXT if none of them matched."""
         # ========== STOP TALKING ==========
-        elif intent == "stop_talking":
+        if intent == "stop_talking":
             # Already handled above, but in case it comes through intent
             self.perception.speak("Understood.")
             success = True
-
         # ========== SYSTEM POWER (with stricter check) ==========
         elif intent == "sleep" or ("sleep" in command_lower and "computer" in command_lower):
             success = self._do_sleep(command_lower, success)
-
         # STRICT shutdown check - require explicit keywords to prevent "shut up" confusion
         elif intent == "shutdown" or ("shutdown" in command_lower and any(w in command_lower for w in ["computer", "system", "pc", "confirm"])):
             success = self._do_shutdown(command_lower, success)
-
         elif intent == "restart" or ("restart" in command_lower and any(w in command_lower for w in ["computer", "system", "pc", "confirm"])):
             success = self._do_restart(command_lower, success)
-
         # ========== HABITS ==========
         elif intent == "habit" or ("remind" in command_lower and "every" in command_lower):
             success = self._do_habits(command_lower, success)
-
         elif intent == "list_habits" or ("habits" in command_lower and ("show" in command_lower or "list" in command_lower)):
             success = self.habit_tracker.list_habits()
-
         # ========== WEATHER ==========
         elif "weather" in command_lower or "temperature" in command_lower:
             # Extract city if mentioned
             success = self._do_weather_temperature(command_lower, success)
-
         # ========== ENTERTAINMENT ==========
         elif any(word in command_lower for word in ["sing", "song", "story", "joke", "poem", "riddle", "make me laugh"]):
             success = self.entertainment.entertain(command)
-
         # ========== DICTIONARY ==========
         elif any(phrase in command_lower for phrase in ["define ", "meaning of ", "what is ", "what does ", "definition"]):
             # Extract word
             success = self._do_define_meaning_what_what(command_lower, success)
-        
         elif "synonym" in command_lower:
             success = self._do_synonym(command_lower, success)
-
         # ========== SCREENSHOT ==========
         elif "screenshot" in command_lower or "screen capture" in command_lower:
             success = self._do_screenshot_screen_capture(command_lower, success)
+        else:
+            return _NEXT
+        return success
 
+
+    def _do_status_voices_media(self, command, command_lower, entities, intent, success):
+        """Console commands: System Status, Voice Switching (Jarvis/Friday), Youtube Download, Ocr (Read Text From Screen/Image), Pdf Summarization. Returns _NEXT if none of them matched."""
         # ========== SYSTEM STATUS ==========
-        elif "system status" in command_lower or "system report" in command_lower:
+        if "system status" in command_lower or "system report" in command_lower:
             success = self.system_status.full_system_report()
-        
         elif "cpu" in command_lower and ("usage" in command_lower or "status" in command_lower):
             success = self.system_status.report_cpu()
-        
         elif "memory" in command_lower or "ram" in command_lower:
             success = self.system_status.report_memory()
-        
         elif "battery" in command_lower and not "save" in command_lower:
             success = self.system_status.report_battery()
-        
         elif "disk" in command_lower or "storage" in command_lower:
             success = self.system_status.report_disk()
-
         # ========== VOICE SWITCHING (JARVIS/FRIDAY) ==========
         elif "switch to friday" in command_lower or "activate friday" in command_lower:
             self.perception.switch_to_friday()
             success = True
-        
         elif "switch to jarvis" in command_lower or "activate jarvis" in command_lower:
             self.perception.switch_to_jarvis()
             success = True
-        
         elif "who are you" in command_lower or "what's your name" in command_lower:
             success = self._do_identity(success)
-
         # ========== YOUTUBE DOWNLOAD ==========
         elif "download" in command_lower and ("youtube" in command_lower or "video" in command_lower):
             success = self._do_download_youtube_video(command, command_lower, success)
-        
         elif "youtube downloads" in command_lower or "open youtube folder" in command_lower:
             success = self.youtube.open_downloads_folder()
-
         # ========== OCR (Read Text from Screen/Image) ==========
         elif any(phrase in command_lower for phrase in ["read screen", "read text", "ocr", "extract text"]):
             success = self._do_read_screen_read_ocr(command_lower, success)
-
         # ========== PDF SUMMARIZATION ==========
         elif any(phrase in command_lower for phrase in ["summarize pdf", "summarize this pdf", "summarize the pdf", "pdf summary", "read pdf"]):
             # Try to find the active PDF or ask user
             success = self._do_summarize_pdf(success)
+        else:
+            return _NEXT
+        return success
 
+
+    def _do_help_notes_reminders(self, command, command_lower, entities, intent, success):
+        """Console commands: Help System, Smart Notes & Memory, Smart Reminders. Returns _NEXT if none of them matched."""
         # ========== HELP SYSTEM ==========
-        elif "help" in command_lower:
+        if "help" in command_lower:
             success = self._do_help(command_lower, success)
-        
         elif "quick reference" in command_lower or "command list" in command_lower:
             self.help_system.quick_reference()
             success = True
-
         # ========== SMART NOTES & MEMORY ==========
         elif "remember that" in command_lower or "remember my" in command_lower:
             success = self.smart_notes.extract_remembrance_from_command(command)
-        
         elif "what is my" in command_lower or "what's my" in command_lower:
             # Recall a memory - extract key
             success = self._do_whats_my(command_lower, success)
-        
         elif "take a note" in command_lower or "note that" in command_lower:
             success = self._do_take_note(command_lower, success)
-        
         elif "my notes" in command_lower or "read notes" in command_lower:
             self.smart_notes.read_notes()
             success = True
-        
         elif "search notes" in command_lower:
             success = self._do_search_notes(command_lower, success)
-
         # ========== SMART REMINDERS ==========
         elif any(phrase in command_lower for phrase in ["remind me", "reminder to", "set a reminder"]):
             success = self.smart_reminders.set_reminder_from_command(command)
-        
         elif "my reminders" in command_lower or "show reminders" in command_lower or "list reminders" in command_lower:
             self.smart_reminders.read_reminders()
             success = True
+        else:
+            return _NEXT
+        return success
 
+
+    def _do_settings(self, command, command_lower, entities, intent, success):
+        """Console commands: Settings Commands. Returns _NEXT if none of them matched."""
         # ========== SETTINGS COMMANDS ==========
-        elif "my settings" in command_lower or "current settings" in command_lower or "what are my settings" in command_lower:
+        if "my settings" in command_lower or "current settings" in command_lower or "what are my settings" in command_lower:
             self.settings.report_settings()
             success = True
-        
         elif "reset settings" in command_lower or "restore defaults" in command_lower:
             self.settings.reset_to_defaults()
             success = True
-        
         elif "speak faster" in command_lower:
             success = self._do_speak_faster(success)
-        
         elif "speak slower" in command_lower:
             success = self._do_speak_slower(success)
-        
         elif "turn off wellness" in command_lower or "disable wellness" in command_lower:
             self.settings.toggle_wellness(False)
             success = True
-        
         elif "turn on wellness" in command_lower or "enable wellness" in command_lower:
             self.settings.toggle_wellness(True)
             success = True
-        
         elif "refresh apps" in command_lower or "rescan apps" in command_lower:
             self.app_finder.refresh_cache()
             success = True
+        else:
+            return _NEXT
         return success
+
 
     def _do_define_meaning_what_what(self, command_lower, success):
         """Step of _do_handle_intent(): Define meaning of what is what does definition."""
@@ -753,12 +744,6 @@ class JARVISUltimate:
         if word:
             success = self.dictionary.define_word(word)
         return success
-
-
-    def _do_handle_intent_2(self):
-        """Step of _do_handle_intent(): Handle the intent."""
-        """Step of _process_single_command(): Handle the intent."""
-
 
 
     def _do_stop_talking_safety_check(self, _r, command, command_lower):

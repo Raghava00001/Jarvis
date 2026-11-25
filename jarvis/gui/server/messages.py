@@ -256,8 +256,7 @@ class MessageMixin:
         await self._on_send_result(action, confidence, live, mood, response, server_spoke, silent, websocket)
 
     def _on_speak_reply(self, _live_active, response):
-        """Step of _on_speak_send_result(): State speaking."""
-        """Step of _on_input(): Speak and send the result."""
+        """Speak the reply once (the server voice; Gemini in live mode), muting the mic first."""
         # State: speaking
         self.state_manager.force_state("speaking")
 

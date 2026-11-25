@@ -296,7 +296,6 @@ Give a 1-2 sentence take with signature JARVIS dry humor. Use probability framin
 
 
 def handle_search_news(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle news search by keyword"""
     """A briefing on a topic: background and past figures, the current picture
     from recent headlines, and what to watch. ("diabetes" used to return the
     general headlines: the topic was dropped on the way to the handler.)"""
