@@ -163,6 +163,27 @@ Every fix has a regression test in `tests/test_security_regressions.py`.
 
 ---
 
+## What's new in v2.10: code quality, and every feature checked
+
+About 110 typed commands and all 36 Gemini voice tools were sent through the real server (side effects stubbed), and everything that misbehaved was fixed:
+
+| Feature | Before | After |
+|---|---|---|
+| Voice alarms | Gemini passed "7 am" as text: every alarm rang at **midnight** | Set for the time you said |
+| "calculate 25 times 4" | Answered with the time ("times") | A safe calculator (no eval): "That's 100" |
+| Typos | "wats the wether", "whats the tiem" went to the AI | Command words are corrected; real words never are |
+| Memory | "remember that..." crashed; recall was never used | Facts are kept and recalled by keyword |
+| Opening apps outside the fast path | Always failed (wrong class); its fallback was injectable | Works; the app name reaches PowerShell as data |
+| Tabs, multi-step commands | "open a new tab" launched an app called "a new tab" | Key presses; "open X and set a timer" does both |
+| Music / video pause, next, previous | Space / Ctrl+Right typed into whatever window had focus | Media keys, which every player handles |
+| "Play X on YouTube" | Pressed Tab x8 + Enter, blind, 3.5 s later | Opens the first video directly; no key presses |
+| Email by voice | Said "sent" whatever happened | Reports what really happened |
+| Tasks, habits, notes, calendar, news topics, system status | Placeholders, crashes, ignored topics, 0% readings | Real content |
+
+**Code quality and architecture:** every feature has one implementation (its `HANDLER_MAP` handler; ~780 lines of duplicate copies removed); no `print()` (module loggers; `JARVIS_LOG_LEVEL`); no silent `except`; `websocket_server.py` split into 12 focused parts; Gemini's voice tools are a dispatch table; no function over 120 lines (the longest was 773); lint warnings 224 → 29. Tests enforce all of it with budgets that only go down. See [docs/DEVELOPING.md](docs/DEVELOPING.md).
+
+---
+
 ## What's new in v2.9: gestures, WhatsApp drafts, mood, and fixes from real use
 
 | Area | Before | After |
@@ -294,7 +315,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-**593 tests pass:**
+**667 tests pass:**
 - smoke tests: boot, Gemini Live dedup and echo gate, BrainAdapter, persona switching
 - NLP and router unit tests
 - 67 security and regression tests
@@ -306,8 +327,11 @@ python -m pytest tests/ -q
 - routing corpus: real commands through the real pipeline, side effects stubbed
 - v2.8: one voice per reply, WebSocket backpressure and task cleanup, whole-word understanding, topic news, screen vision, tabs, timers, stories; every `self.method()` call must exist
 - v2.9: gesture recogniser and server wiring, WhatsApp drafts, mood, the real Gemini Live voice-tool code with only the speaker, screen and keyboard faked
+- code-quality rules: no `print()`, no silent `except`, function-length ratchet, the server stays split
 
 CI runs the same suite on `windows-latest`.
+
+Working on JARVIS: [docs/DEVELOPING.md](docs/DEVELOPING.md) (setup, console logging, the rules the tests enforce, and how to test with real commands without touching your data). Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
@@ -317,7 +341,8 @@ CI runs the same suite on `windows-latest`.
 jarvis/
 ├── core/        # ~70 modules: Gemini Live engine, BrainAdapter, intent model, handlers,
 │                #   system control, reminders, notes, news, weather, face, gestures …
-├── gui/         # websocket_server (gateway), desktop_gui (entry), web_hud_launcher,
+├── gui/         # websocket_server (gateway; its parts are in gui/server/), desktop_gui (entry),
+│   │            #   web_hud_launcher,
 │   │            #   state_controller, mood_engine, command_processor, fallback_processor
 │   └── web_hud/index.html   # the HUD (single-file app)
 ├── data/        # intent embedding cache, small runtime JSON (databases are gitignored)
@@ -330,8 +355,7 @@ docs/            # architecture notes, screenshots, demo recorder
 
 ## Known limitations / future work
 
-- **`websocket_server.py` is still large** (~3,070 lines, down from 3,240). Command rules and the fast path now have their own modules, but some features are still implemented in more than one path (`process_command` keyword overrides, `fallback_processor`, Gemini tools). Next step: have those call the `HANDLER_MAP` handlers.
-- **Logging is mostly `print()`.** A structured logger exists (`core/logger.py`) but isn't used everywhere yet.
+- **Some features are still implemented in more than one path** (`fallback_processor`, Gemini tools, `HANDLER_MAP`). The server is split by responsibility (`jarvis/gui/server/`), and long rule chains are named steps; the next step is having every path call the `HANDLER_MAP` handler.
 - **Runtime data lives in two folders,** `jarvis/data/` and `jarvis_data/`, and the two `tasks.json` files use different formats (`task` vs `description`).
 - **Windows only:** system control uses Windows APIs.
 - **Gemini API key required:** no offline LLM fallback.

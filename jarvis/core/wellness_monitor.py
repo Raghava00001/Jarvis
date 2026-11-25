@@ -3,6 +3,9 @@ Wellness Monitor - Health and wellbeing reminders
 JARVIS cares about your health
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import datetime
 import json
 from pathlib import Path
@@ -13,7 +16,7 @@ class WellnessMonitor:
     """Monitors user wellness and provides health reminders"""
     
     def __init__(self, perception=None):
-        print("[WELLNESS] Initializing Wellness Monitor...")
+        _log.info("[WELLNESS] Initializing Wellness Monitor...")
         self.perception = perception
         
         # Session tracking
@@ -37,7 +40,7 @@ class WellnessMonitor:
         self.data_path = Path(__file__).parent.parent / "data" / "wellness_data.json"
         self.preferences = self._load_preferences()
         
-        print("[WELLNESS] Wellness Monitor Ready")
+        _log.info("[WELLNESS] Wellness Monitor Ready")
     
     def _get_title(self) -> str:
         """Get user title from perception layer"""
@@ -52,7 +55,7 @@ class WellnessMonitor:
                 with open(self.data_path, 'r') as f:
                     return json.load(f)
         except Exception as e:
-            print(f"[WELLNESS] Could not load preferences: {e}")
+            _log.warning(f"[WELLNESS] Could not load preferences: {e}")
         
         return {
             "water_reminders": True,
@@ -69,7 +72,7 @@ class WellnessMonitor:
             with open(self.data_path, 'w') as f:
                 json.dump(self.preferences, f, indent=2)
         except Exception as e:
-            print(f"[WELLNESS] Could not save preferences: {e}")
+            _log.warning(f"[WELLNESS] Could not save preferences: {e}")
     
     def record_activity(self):
         """Record user activity (called on each command)"""

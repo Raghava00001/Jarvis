@@ -12,6 +12,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
+from _server_src import server_source  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -236,5 +238,5 @@ def test_ocr_unavailable_is_an_answer_not_a_fallthrough():
 
 
 def test_router_has_no_duplicate_ocr_branch():
-    src = (ROOT / "jarvis/gui/websocket_server.py").read_text(encoding="utf-8")
+    src = server_source()
     assert "if intent_name == 'ocr':" not in src

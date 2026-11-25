@@ -3,12 +3,12 @@ Audio Waveform Visualizer - Real-time voice waveform display
 Shows audio input levels and animated waveforms during speech
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import pygame
 import math
 import random
-import threading
-import queue
-from typing import List, Optional
 from collections import deque
 
 
@@ -25,7 +25,7 @@ class AudioWaveformVisualizer:
     """Real-time audio waveform visualization"""
     
     def __init__(self, width: int = 400, height: int = 100):
-        print("[WAVEFORM] Initializing Waveform Visualizer...")
+        _log.info("[WAVEFORM] Initializing Waveform Visualizer...")
         
         self.width = width
         self.height = height
@@ -53,7 +53,7 @@ class AudioWaveformVisualizer:
         self.current_level = 0
         self.target_level = 0
         
-        print("[WAVEFORM] Visualizer Ready")
+        _log.info("[WAVEFORM] Visualizer Ready")
     
     def set_audio_level(self, level: float):
         """Set current audio input level (0.0 to 1.0)"""
@@ -205,7 +205,7 @@ class CircularWaveform:
     """Circular waveform that pulses around the globe"""
     
     def __init__(self, center_x: int, center_y: int, radius: int):
-        print("[WAVEFORM] Initializing Circular Waveform...")
+        _log.info("[WAVEFORM] Initializing Circular Waveform...")
         
         self.cx = center_x
         self.cy = center_y

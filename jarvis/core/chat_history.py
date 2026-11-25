@@ -8,12 +8,15 @@ Chat History - Production Grade
 - Privacy-conscious (no external calls)
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
 import json
 import sqlite3
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict
 from dataclasses import dataclass, asdict
 
 
@@ -37,7 +40,7 @@ class ChatHistory:
     """
     
     def __init__(self, perception=None):
-        print("[CHAT] Initializing Chat History...")
+        _log.info("[CHAT] Initializing Chat History...")
         self.perception = perception
         
         # Database — M-04: add lock for thread safety
@@ -58,7 +61,7 @@ class ChatHistory:
         # Retention policy
         self.retention_days = 90  # Keep 90 days by default
         
-        print("[CHAT] Chat History Ready")
+        _log.info("[CHAT] Chat History Ready")
         
     def _init_db(self):
         """Initialize SQLite with FTS5 and handle schema migrations"""
@@ -72,11 +75,11 @@ class ChatHistory:
             
             if 'id' in columns and 'turn_id' not in columns:
                 # Migrate old schema - add new columns
-                print("[CHAT] Migrating database schema...")
+                _log.info("[CHAT] Migrating database schema...")
                 cursor.execute('ALTER TABLE messages ADD COLUMN turn_id INTEGER')
                 cursor.execute('ALTER TABLE messages ADD COLUMN tokens INTEGER')
                 self.conn.commit()
-                print("[CHAT] Migration complete")
+                _log.info("[CHAT] Migration complete")
             elif 'id' not in columns:
                 # Create fresh table
                 cursor.execute('''
@@ -146,7 +149,7 @@ class ChatHistory:
             self.conn.commit()
             
         except Exception as e:
-            print(f"[CHAT] Database init error: {e}")
+            _log.warning(f"[CHAT] Database init error: {e}")
             
     def _load_turn_counter(self):
         """Load the last turn ID"""
@@ -203,7 +206,7 @@ class ChatHistory:
             return message_id
             
         except Exception as e:
-            print(f"[CHAT] Error adding message: {e}")
+            _log.warning(f"[CHAT] Error adding message: {e}")
             return None
             
     def add_user_message(self, content: str, emotion: str = None) -> Optional[int]:
@@ -234,7 +237,7 @@ class ChatHistory:
             return messages
             
         except Exception as e:
-            print(f"[CHAT] Error getting messages: {e}")
+            _log.warning(f"[CHAT] Error getting messages: {e}")
             return []
             
     def search(self, query: str, limit: int = 20) -> List[ChatMessage]:
@@ -262,7 +265,7 @@ class ChatHistory:
             return [ChatMessage(*row) for row in rows]
             
         except Exception as e:
-            print(f"[CHAT] FTS search error: {e}, falling back to LIKE")
+            _log.warning(f"[CHAT] FTS search error: {e}, falling back to LIKE")
             # Fallback to LIKE
             try:
                 with self._db_lock:
@@ -296,7 +299,7 @@ class ChatHistory:
             return [ChatMessage(*row) for row in rows]
             
         except Exception as e:
-            print(f"[CHAT] Date query error: {e}")
+            _log.warning(f"[CHAT] Date query error: {e}")
             return []
             
     def get_conversation(self, turn_id: int) -> List[ChatMessage]:
@@ -315,7 +318,7 @@ class ChatHistory:
             return [ChatMessage(*row) for row in rows]
             
         except Exception as e:
-            print(f"[CHAT] Turn query error: {e}")
+            _log.warning(f"[CHAT] Turn query error: {e}")
             return []
             
     def get_context_window(self, max_tokens: int = 4000) -> str:
@@ -372,7 +375,7 @@ class ChatHistory:
             return stats
             
         except Exception as e:
-            print(f"[CHAT] Statistics error: {e}")
+            _log.warning(f"[CHAT] Statistics error: {e}")
             return {}
             
     def apply_retention(self) -> int:
@@ -393,7 +396,7 @@ class ChatHistory:
                     with self._db_lock:
                         self.conn.execute('VACUUM')
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
             t = threading.Thread(target=_vacuum, daemon=False)
             t.start()
             t.join(timeout=10)  # Wait up to 10s for VACUUM to complete
@@ -401,7 +404,7 @@ class ChatHistory:
             return deleted
             
         except Exception as e:
-            print(f"[CHAT] Retention error: {e}")
+            _log.warning(f"[CHAT] Retention error: {e}")
             return 0
             
     def clear_history(self) -> bool:
@@ -415,7 +418,7 @@ class ChatHistory:
             self.current_turn = 0
             return True
         except Exception as e:
-            print(f"[CHAT] Clear error: {e}")
+            _log.warning(f"[CHAT] Clear error: {e}")
             return False
             
     def export_history(self, filepath: str = None) -> Optional[str]:
@@ -442,7 +445,7 @@ class ChatHistory:
             return filepath
             
         except Exception as e:
-            print(f"[CHAT] Export error: {e}")
+            _log.warning(f"[CHAT] Export error: {e}")
             return None
             
     def close(self):

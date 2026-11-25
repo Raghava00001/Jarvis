@@ -2,7 +2,7 @@
 ## AI Voice Assistant Project Documentation
 
 **Creator:** Raghava  
-**Date:** January 2026 – November 2026 (v2.9.1)  
+**Date:** January 2026 – November 2026 (v2.10)  
 **Platform:** Windows 10/11 (Python 3.12)
 
 ---
@@ -273,13 +273,14 @@ Verification:
 - **Speed:** startup 15.5 s → 4.8 s
 - **Stability (v2.8):** one voice per reply, no WebSocket task leaks or event-loop blocking, Gemini Live reconnects
 - **Features (v2.9):** hand gestures, WhatsApp drafts sent only on a spoken "send", mood-aware replies; fixes from real use (honest volume/brightness, conversation follow-ups, English replies, stories told aloud)
-- **Tests:** 90 → 593, including architecture invariants and a real-pipeline command corpus
+- **Quality (v2.10):** logging instead of print, no silent excepts, the server split into parts, every feature audited end to end
+- **Tests:** 90 → 665, including architecture invariants and a real-pipeline command corpus
 
 ---
 
 ## 7. Features Summary
 
-Status as verified in November 2026 (v2.9.1) by running real commands through the
+Status as verified in November 2026 (v2.10: ~110 commands and all 36 voice tools run through the real server) by running real commands through the
 pipeline and live sessions. ⚠️ = works, with a dependency or a part not verified live.
 
 | Feature | Status |
@@ -296,6 +297,9 @@ pipeline and live sessions. ⚠️ = works, with a dependency or a part not veri
 | Laptop shutdown/restart (with confirmation) | ✅ Working |
 | Alarm, timer, reminders, tasks | ✅ Working |
 | Notes ("take a note…", "show my notes") | ✅ Working |
+| Calculator ("25 times 4", "15 percent of 200") | ✅ Working |
+| Memory ("remember that…", "what is my…") | ✅ Working |
+| Typo correction for command words | ✅ Working |
 | Clipboard reading | ✅ Working |
 | News (real headlines by category, topic briefings) | ✅ Working |
 | Weather (any city) | ✅ Working |
@@ -323,4 +327,4 @@ pipeline and live sessions. ⚠️ = works, with a dependency or a part not veri
 
 ---
 
-*Last updated: November 2026 (v2.9.1). Current setup and architecture: README.md and docs/ARCHITECTURE.md.*
+*Last updated: November 2026 (v2.10). Current setup and architecture: README.md and docs/ARCHITECTURE.md.*

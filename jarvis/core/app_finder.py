@@ -7,13 +7,16 @@ App Finder - Production Grade
 - Clean caching with validation
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
 import os
 import subprocess
 import time
 import webbrowser
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 from dataclasses import dataclass, field
 from enum import Enum
 import json
@@ -62,7 +65,7 @@ class ShortcutResolver:
             # Fallback: use PowerShell
             return ShortcutResolver._resolve_via_powershell(lnk_path)
         except Exception as e:
-            print(f"[APP] Error resolving shortcut: {e}")
+            _log.warning(f"[APP] Error resolving shortcut: {e}")
             return None
             
     @staticmethod
@@ -81,7 +84,7 @@ class ShortcutResolver:
             if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip()
         except Exception as e:
-            print(f"[APP] PowerShell resolve error: {e}")
+            _log.warning(f"[APP] PowerShell resolve error: {e}")
         return None
 
 
@@ -178,7 +181,7 @@ class AppFinder:
     }
     
     def __init__(self, perception=None):
-        print("[APP FINDER] Initializing...")
+        _log.info("[APP FINDER] Initializing...")
         self.perception = perception
         self.resolver = ShortcutResolver()
         
@@ -191,7 +194,7 @@ class AppFinder:
         if not self.app_cache or self._is_cache_stale():
             self._scan_apps()
             
-        print(f"[APP FINDER] {len(self.app_cache)} apps indexed")
+        _log.info(f"[APP FINDER] {len(self.app_cache)} apps indexed")
         
     def _get_title(self) -> str:
         if self.perception:
@@ -202,7 +205,7 @@ class AppFinder:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[APP FINDER] {text}")
+            _log.info(f"[APP FINDER] {text}")
             
     def _is_cache_stale(self) -> bool:
         """Check if cache is older than 24 hours"""
@@ -212,7 +215,7 @@ class AppFinder:
                 age_hours = (time.time() - mtime) / 3600
                 return age_hours > 24
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         return True
         
     def _load_cache(self):
@@ -229,7 +232,7 @@ class AppFinder:
                             aliases=info.get("aliases", []),
                         )
         except Exception as e:
-            print(f"[APP FINDER] Cache load error: {e}")
+            _log.warning(f"[APP FINDER] Cache load error: {e}")
             
     def _save_cache(self):
         """Save app cache"""
@@ -246,11 +249,11 @@ class AppFinder:
             with open(self.cache_path, 'w') as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            print(f"[APP FINDER] Cache save error: {e}")
+            _log.warning(f"[APP FINDER] Cache save error: {e}")
             
     def _scan_apps(self):
         """Scan system for applications"""
-        print("[APP FINDER] Scanning for apps...")
+        _log.info("[APP FINDER] Scanning for apps...")
         
         # 1. System apps
         for name, cmd in self.SYSTEM_APPS.items():
@@ -310,8 +313,8 @@ class AppFinder:
                             path=str(lnk_file),
                             app_type=AppType.DESKTOP
                         )
-                except Exception as e:
-                    pass  # Skip problematic shortcuts
+                except Exception:
+                    _log.debug("Ignored error", exc_info=True)  # Skip problematic shortcuts
                     
     def _scan_registry(self):
         """Scan registry for installed apps"""
@@ -340,12 +343,12 @@ class AppFinder:
                                             app_type=AppType.DESKTOP
                                         )
                                 except Exception:
-                                    pass
+                                    _log.debug("Ignored error", exc_info=True)
                             i += 1
                         except OSError:
                             break
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
                 
     def _scan_common_paths(self):
         """Scan common installation directories (excludes LOCALAPPDATA - too slow)"""
@@ -374,7 +377,7 @@ class AppFinder:
                             app_type=AppType.DESKTOP
                         )
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
                     
     def _deduplicate(self):
         """Remove duplicates and rank apps"""
@@ -473,7 +476,7 @@ class AppFinder:
                     best_dist = dist
                     best_match = name
             if best_match:
-                print(f"[APP FINDER] Typo corrected: '{query}' -> '{best_match}'")
+                _log.info(f"[APP FINDER] Typo corrected: '{query}' -> '{best_match}'")
                 return self.find(best_match, _depth + 1)
                         
         # 6. Fuzzy substring match
@@ -545,7 +548,7 @@ class AppLauncher:
             elif app.app_type == AppType.UWP:
                 return self._launch_uwp(app, title)
         except Exception as e:
-            print(f"[APP LAUNCHER] Error: {e}")
+            _log.warning(f"[APP LAUNCHER] Error: {e}")
             self._speak(f"Error opening {app_name}, {title}.")
             return False
             
@@ -583,18 +586,22 @@ class AppLauncher:
         
     def _launch_via_powershell(self, query: str) -> bool:
         """Fallback: find and launch via PowerShell"""
+        # The name reaches PowerShell as an environment variable, never as
+        # script text: pasted into the script, a name containing a quote could
+        # run any command. Wildcard characters in it are escaped too.
+        ps_script = '''
+            $q = [System.Management.Automation.WildcardPattern]::Escape($env:JARVIS_APP_QUERY)
+            $app = Get-StartApps | Where-Object { $_.Name -like "*$q*" } | Select-Object -First 1
+            if ($app) {
+                Start-Process "shell:AppsFolder\\$($app.AppID)"
+                exit 0
+            }
+            exit 1
+        '''
         try:
-            ps_script = f'''
-                $app = Get-StartApps | Where-Object {{ $_.Name -like "*{query}*" }} | Select-Object -First 1
-                if ($app) {{
-                    Start-Process "shell:AppsFolder\\$($app.AppID)"
-                    exit 0
-                }}
-                exit 1
-            '''
             result = subprocess.run(
-                ["powershell", "-Command", ps_script],
-                capture_output=True, timeout=10
+                ["powershell", "-NoProfile", "-Command", ps_script],
+                capture_output=True, timeout=10, env={**os.environ, "JARVIS_APP_QUERY": query}
             )
             return result.returncode == 0
         except Exception:

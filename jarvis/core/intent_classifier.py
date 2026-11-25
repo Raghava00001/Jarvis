@@ -4,12 +4,15 @@ Simple keyword-based intent classification
 With multi-command support and context-aware disambiguation
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
+# Returned by an extracted step that didn't handle the request: the
+# caller carries on with its next step.
+_NEXT = object()
+
 from typing import Tuple, Dict, Any, List, Optional
 from dataclasses import dataclass, field
-try:
-    from jarvis.core.intent_router import Intent
-except ImportError:
-    from jarvis.core.intent_router import Intent
 import re
 from functools import lru_cache
 
@@ -225,12 +228,9 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     cmd = command.lower().strip()
     entities = {}
 
-    # Questions about the screen: "what is this?", "explain this error",
-    # "what's on my screen?", "translate this". Answered by looking at a
-    # screenshot (they used to reach the AI with no idea what "this" was).
-    from jarvis.core.screen_vision import is_screen_question
-    if is_screen_question(cmd):
-        return 'screen_question', {}
+    first = _rule_calculation_or_screen(cmd)
+    if first is not _NEXT:
+        return first
 
     # ── Commands that had no rule and fell through to the AI chat (v2.7) ──
     # Translation: answered by the conversation/LLM handler. "translate hello
@@ -265,6 +265,55 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
                         # Found context-aware match!
                         return intent, entities
     
+    _r = _rule_keyword_overrides(cmd, command, entities)
+    if _r is not _NEXT:
+        return _r
+    
+    # ═══════════════════════════════════════════════════════════
+    # TIME & DATE
+    # ═══════════════════════════════════════════════════════════
+    if has(cmd, 'time') and not has(cmd, 'timer'):
+        return 'time', {}
+    
+    if has(cmd, 'date') or (has(cmd, 'what') and has(cmd, 'day')):
+        return 'date', {}
+    
+    _r = _rule_system_status(cmd, entities)
+    if _r is not _NEXT:
+        return _r
+    
+    _r = _rule_news(_r, cmd, command, entities)
+    if _r is not _NEXT:
+        return _r
+    
+    # ═══════════════════════════════════════════════════════════
+    # P2-02: HABIT TRACKING
+    # ═══════════════════════════════════════════════════════════
+    if has(cmd, *['my habits', 'list habits', 'show habits', 'track habit',
+                                         'add habit', 'create habit', 'habit check', 'habit status']):
+        return 'habit', {}
+    
+    # ═══════════════════════════════════════════════════════════
+    # P2-02: EMAIL
+    # ═══════════════════════════════════════════════════════════
+    if has(cmd, *['send email', 'check email', 'read email', 'compose email',
+                                         'write email', 'inbox', 'new email']):
+        return 'email', {}
+    
+    # ═══════════════════════════════════════════════════════════
+    # P2-02: CALENDAR
+    # ═══════════════════════════════════════════════════════════
+    if has(cmd, *['calendar', 'events today', 'my schedule', 'today\'s schedule',
+                                         'upcoming events', 'what\'s on my calendar']):
+        return 'calendar', {}
+    
+    # ═══════════════════════════════════════════════════════════
+    # FALLBACK TO CONVERSATION (AI will handle it)
+    # ═══════════════════════════════════════════════════════════
+    return 'conversation', {}
+
+def _rule_keyword_overrides(cmd, command, entities):
+    """Step of classify_intent(): KEYWORD OVERRIDES common commands that should always work These override even without."""
     # ═══════════════════════════════════════════════════════════
     # KEYWORD OVERRIDES (common commands that should always work)
     # ═══════════════════════════════════════════════════════════
@@ -297,77 +346,17 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         app_name = cmd.replace("close ", "").strip() if cmd.startswith("close ") else None
         return "close_app", {"app": app_name} if app_name else {}
     
-    # ═══════════════════════════════════════════════════════════
-    # VOICE SWITCHING (highest priority)
-    # ═══════════════════════════════════════════════════════════
-    if has(cmd, 'switch to friday') or has(cmd, 'activate friday'):
-        return 'switch_to_friday', {}
-    if has(cmd, 'switch to jarvis') or has(cmd, 'activate jarvis'):
-        return 'switch_to_jarvis', {}
+    _r = _rule_voice_switching(cmd)
+    if _r is not _NEXT:
+        return _r
+    
+    _r = _rule_identity(cmd)
+    if _r is not _NEXT:
+        return _r
+    return _NEXT
 
-    
-    # ═══════════════════════════════════════════════════════════
-    # GREETINGS & SOCIAL
-    # ═══════════════════════════════════════════════════════════
-    # Only when the whole command is a greeting. "text priya saying hello" and
-    # "hello jarvis, what's the weather" contain one but aren't greetings.
-    if _GREETING_RE.match(cmd):
-        return 'greeting', {}
-    
-    if has(cmd, *['bye', 'goodbye', 'see you', 'goodnight']):
-        return 'farewell', {}
-    
-    if has(cmd, 'thank'):
-        return 'thanks', {}
-    
-    if has(cmd, 'how are you'):
-        return 'how_are_you', {}
-    
-    # ═══════════════════════════════════════════════════════════
-    # IDENTITY
-    # ═══════════════════════════════════════════════════════════
-    if has(cmd, 'who are you') or has(cmd, 'your name'):
-        return 'identity', {}
-    
-    if has(cmd, *['who made you', 'who created you', 'your creator', 'who built you']):
-        return 'creator', {}
-    
-    # ═══════════════════════════════════════════════════════════
-    # TIME & DATE
-    # ═══════════════════════════════════════════════════════════
-    if has(cmd, 'time') and not has(cmd, 'timer'):
-        return 'time', {}
-    
-    if has(cmd, 'date') or (has(cmd, 'what') and has(cmd, 'day')):
-        return 'date', {}
-    
-    # ═══════════════════════════════════════════════════════════
-    # SYSTEM & STATUS
-    # ═══════════════════════════════════════════════════════════
-    if has(cmd, 'system status') or has(cmd, 'system report'):
-        return 'system_status', {}
-    
-    if cmd == 'help' or has(cmd, 'what can you do') or has(cmd, 'capabilities'):
-        return 'help', {}
-    
-    # ═══════════════════════════════════════════════════════════
-    # WEATHER
-    # ═══════════════════════════════════════════════════════════
-    if has(cmd, 'weather'):
-        # Try to extract city
-        city_patterns = [
-            r"weather (?:like )?(?:in|for|at) ([a-z][a-z .'-]*?)(?:\s+(?:today|now|tomorrow|right now|please))?[?.!]*$",
-            r'(\w+) weather'
-        ]
-        for pattern in city_patterns:
-            match = re.search(pattern, cmd)
-            if match:
-                city = match.group(1)
-                if city not in ['the', 'today', 'now', 'current']:
-                    entities['city'] = city
-                    break
-        return 'weather', entities
-    
+def _rule_news(_r, cmd, command, entities):
+    """Step of classify_intent(): NEWS Enhanced with Hacker News News about a topic news about diabetes."""
     # ═══════════════════════════════════════════════════════════
     # NEWS (Enhanced with Hacker News)
     # ═══════════════════════════════════════════════════════════
@@ -406,6 +395,141 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
                 break
         return 'news', entities
     
+    _r = _rule_entertainment(_r, cmd, entities)
+    if _r is not _NEXT:
+        return _r
+    
+    _r = _rule_screenshots_ocr(cmd)
+    if _r is not _NEXT:
+        return _r
+    
+    _r = _rule_dictionary(cmd, entities)
+    if _r is not _NEXT:
+        return _r
+    
+    _r = _rule_face_gesture(cmd)
+    if _r is not _NEXT:
+        return _r
+    
+    _r = _rule_notes_alarms(_r, cmd, command, entities)
+    if _r is not _NEXT:
+        return _r
+    
+    _r = _rule_screen_control(_r, cmd, command, entities)
+    if _r is not _NEXT:
+        return _r
+    
+    _r = _rule_music_control(_r, cmd, entities)
+    if _r is not _NEXT:
+        return _r
+    
+    _r = _rule_ai_search(_r, cmd, entities)
+    if _r is not _NEXT:
+        return _r
+    
+    _r = _rule_emotion_detection(_r, cmd)
+    if _r is not _NEXT:
+        return _r
+    return _NEXT
+
+
+def _rule_identity(cmd):
+    """Step of classify_intent(): IDENTITY."""
+    # ═══════════════════════════════════════════════════════════
+    # IDENTITY
+    # ═══════════════════════════════════════════════════════════
+    if has(cmd, 'who are you') or has(cmd, 'your name'):
+        return 'identity', {}
+    
+    if has(cmd, *['who made you', 'who created you', 'your creator', 'who built you']):
+        return 'creator', {}
+    return _NEXT
+
+def _rule_emotion_detection(_r, cmd):
+    """Step of classify_intent(): EMOTION DETECTION."""
+    # ═══════════════════════════════════════════════════════════
+    # EMOTION DETECTION
+    # ═══════════════════════════════════════════════════════════
+    if has(cmd, 'enable emotion') or has(cmd, 'mood detection'):
+        return 'enable_emotion', {}
+    
+    if has(cmd, 'disable emotion'):
+        return 'disable_emotion', {}
+    
+    _r = _rule_features_status(_r, cmd)
+    if _r is not _NEXT:
+        return _r
+    return _NEXT
+
+
+def _rule_voice_switching(cmd):
+    """Step of classify_intent(): voice switching."""
+    # ═══════════════════════════════════════════════════════════
+    # VOICE SWITCHING (highest priority)
+    # ═══════════════════════════════════════════════════════════
+    if has(cmd, 'switch to friday') or has(cmd, 'activate friday'):
+        return 'switch_to_friday', {}
+    if has(cmd, 'switch to jarvis') or has(cmd, 'activate jarvis'):
+        return 'switch_to_jarvis', {}
+
+    
+    _r = _rule_greetings(cmd)
+    if _r is not _NEXT:
+        return _r
+    return _NEXT
+
+def _rule_features_status(_r, cmd):
+    """Step of classify_intent(): FEATURES STATUS."""
+    # ═══════════════════════════════════════════════════════════
+    # FEATURES STATUS
+    # ═══════════════════════════════════════════════════════════
+    if has(cmd, 'features') or (has(cmd, 'status') and not has(cmd, 'system')):
+        return 'features', {}
+    
+    _r = _rule_gesture_face_help(cmd)
+    if _r is not _NEXT:
+        return _r
+    return _NEXT
+
+
+def _rule_greetings(cmd):
+    """Step of classify_intent(): greetings."""
+    # ═══════════════════════════════════════════════════════════
+    # GREETINGS & SOCIAL
+    # ═══════════════════════════════════════════════════════════
+    # Only when the whole command is a greeting. "text priya saying hello" and
+    # "hello jarvis, what's the weather" contain one but aren't greetings.
+    if _GREETING_RE.match(cmd):
+        return 'greeting', {}
+    
+    if has(cmd, *['bye', 'goodbye', 'see you', 'goodnight']):
+        return 'farewell', {}
+    
+    if has(cmd, 'thank'):
+        return 'thanks', {}
+    
+    if has(cmd, 'how are you'):
+        return 'how_are_you', {}
+    return _NEXT
+
+def _rule_system_status(cmd, entities):
+    """Step of classify_intent(): SYSTEM & STATUS."""
+    # ═══════════════════════════════════════════════════════════
+    # SYSTEM & STATUS
+    # ═══════════════════════════════════════════════════════════
+    if has(cmd, 'system status') or has(cmd, 'system report'):
+        return 'system_status', {}
+    
+    if cmd == 'help' or has(cmd, 'what can you do') or has(cmd, 'capabilities'):
+        return 'help', {}
+    
+    _r = _rule_weather(cmd, entities)
+    if _r is not _NEXT:
+        return _r
+    return _NEXT
+
+def _rule_entertainment(_r, cmd, entities):
+    """Step of classify_intent(): ENTERTAINMENT."""
     # ═══════════════════════════════════════════════════════════
     # ENTERTAINMENT
     # ═══════════════════════════════════════════════════════════
@@ -416,24 +540,19 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     if has(cmd, 'chat history') or has(cmd, 'conversation history') or has(cmd, 'show history'):
         return 'chat_history', {}
     
-    if has(cmd, 'story'):
-        # Extract genre
-        if has(cmd, 'horror') or has(cmd, 'scary'):
-            entities['genre'] = 'horror'
-        elif has(cmd, 'funny') or has(cmd, 'comedy'):
-            entities['genre'] = 'comedy'
-        elif has(cmd, 'romance'):
-            entities['genre'] = 'romance'
-        elif has(cmd, 'bedtime'):
-            entities['genre'] = 'bedtime'
-        return 'story', entities
+    _r = _rule_story(cmd, entities)
+    if _r is not _NEXT:
+        return _r
     
     if has(cmd, 'poem') or has(cmd, 'recite'):
         return 'poem', {}
     
     if has(cmd, 'riddle'):
         return 'riddle', {}
-    
+    return _NEXT
+
+def _rule_screenshots_ocr(cmd):
+    """Step of classify_intent(): SCREENSHOTS & OCR."""
     # ═══════════════════════════════════════════════════════════
     # SCREENSHOTS & OCR
     # ═══════════════════════════════════════════════════════════
@@ -447,7 +566,10 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     
     if has(cmd, 'read clipboard'):
         return 'read_clipboard', {}
-    
+    return _NEXT
+
+def _rule_dictionary(cmd, entities):
+    """Step of classify_intent(): DICTIONARY."""
     # ═══════════════════════════════════════════════════════════
     # DICTIONARY
     # ═══════════════════════════════════════════════════════════
@@ -460,7 +582,10 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         word = cmd.replace('synonym for ', '').replace('synonym of ', '').replace('synonyms of ', '').replace('synonym', '').strip()
         entities['word'] = word
         return 'synonym', entities
-    
+    return _NEXT
+
+def _rule_face_gesture(cmd):
+    """Step of classify_intent(): FACE & GESTURE."""
     # ═══════════════════════════════════════════════════════════
     # FACE & GESTURE
     # ═══════════════════════════════════════════════════════════
@@ -475,7 +600,10 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     
     if has(cmd, *['disable gesture', 'stop gesture', 'gesture off']):
         return 'disable_gesture', {}
-    
+    return _NEXT
+
+def _rule_notes_alarms(_r, cmd, command, entities):
+    """Step of classify_intent(): NOTES & ALARMS."""
     # ═══════════════════════════════════════════════════════════
     # NOTES & ALARMS
     # ═══════════════════════════════════════════════════════════
@@ -487,69 +615,33 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     if has(cmd, *['list notes', 'show notes', 'my notes']):
         return 'list_notes', {}
     
-    if has(cmd, *['set alarm', 'alarm for', 'alarm in', 'set an alarm', 'wake me']):
-        # Check for relative time first: "5 min from now", "in 10 minutes"
-        relative_match = re.search(r'(\d+)\s*(min|minute|minutes|hour|hours|hr|hrs)', cmd)
-        if relative_match:
-            entities['relative_amount'] = int(relative_match.group(1))
-            entities['relative_unit'] = relative_match.group(2)
-            return 'set_alarm', entities
-        
-        # Absolute time: "7:30 am"
-        time_match = re.search(r'(\d{1,2}):?(\d{2})?\s*(am|pm)?', cmd)
-        if time_match:
-            entities['hour'] = int(time_match.group(1))
-            entities['minute'] = int(time_match.group(2) or 0)
-            entities['period'] = time_match.group(3)
-        return 'set_alarm', entities
+    _r = _rule_set_alarm(cmd, entities)
+    if _r is not _NEXT:
+        return _r
     
     if has(cmd, *['list alarm', 'show alarm', 'my alarm']):
         return 'list_alarms', {}
     
-    # ═══════════════════════════════════════════════════════════
-    # REMINDERS
-    # ═══════════════════════════════════════════════════════════
-    if has(cmd, *['remind me', 'reminder', 'set reminder']):
-        # Pass the full command, ReminderManager will parse the time + message
-        entities['raw_command'] = command
-        if has(cmd, *['list reminder', 'show reminder', 'my reminder']):
-            return 'list_reminders', {}
-        return 'set_reminder', entities
+    _r = _rule_reminders(cmd, command, entities)
+    if _r is not _NEXT:
+        return _r
     
     
-    # ═══════════════════════════════════════════════════════════
-    # VOLUME & BRIGHTNESS
-    # ═══════════════════════════════════════════════════════════
-    if has(cmd, 'volume'):
-        if has(cmd, 'up') or has(cmd, 'increase'):
-            entities['action'] = 'up'
-        elif has(cmd, 'down') or has(cmd, 'decrease'):
-            entities['action'] = 'down'
-        elif has(cmd, 'mute'):
-            entities['action'] = 'mute'
-        else:
-            match = re.search(r'(\d+)\s*%?', cmd)
-            if match:
-                entities['level'] = int(match.group(1))
-                entities['action'] = 'set'
-        return 'volume', entities
+    _r = _rule_volume_brightness(cmd, entities)
+    if _r is not _NEXT:
+        return _r
     
     # Standalone "mute" without "volume" keyword
     if cmd in ('mute', 'unmute') or has(cmd, 'mute the') or has(cmd, 'mute audio') or has(cmd, 'mute sound'):
         return 'volume', {'action': 'mute'}
     
-    if has(cmd, 'brightness'):
-        if has(cmd, 'up') or has(cmd, 'increase'):
-            entities['action'] = 'up'
-        elif has(cmd, 'down') or has(cmd, 'decrease'):
-            entities['action'] = 'down'
-        else:
-            match = re.search(r'(\d+)\s*%?', cmd)
-            if match:
-                entities['level'] = int(match.group(1))
-                entities['action'] = 'set'
-        return 'brightness', entities
-    
+    _r = _rule_brightness(cmd, entities)
+    if _r is not _NEXT:
+        return _r
+    return _NEXT
+
+def _rule_screen_control(_r, cmd, command, entities):
+    """Step of classify_intent(): SCREEN CONTROL."""
     # ═══════════════════════════════════════════════════════════
     # SCREEN CONTROL
     # ═══════════════════════════════════════════════════════════
@@ -569,36 +661,13 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         entities['raw_text'] = command  # Pass original for parsing
         return 'screen_control', entities
     
-    # ═══════════════════════════════════════════════════════════
-    # WHATSAPP / COMMUNICATION
-    # ═══════════════════════════════════════════════════════════
-    # "open whatsapp and text hena saying hi"
-    # "send whatsapp to john message what's up"
-    if (has(cmd, 'whatsapp') or re.match(r"^(?:please\s+)?(?:send\s+(?:a\s+)?(?:message|msg|text)|message|text|msg)\s", cmd)):
-        contact, message = parse_message_command(cmd)
-        if contact:
-            entities['contact'] = contact
-        if message:
-            entities['message'] = message
-        return 'send_message', entities
+    _r = _rule_whatsapp(cmd, entities)
+    if _r is not _NEXT:
+        return _r
 
-    # ═══════════════════════════════════════════════════════════
-    # APPS & SEARCH
-    # ═══════════════════════════════════════════════════════════
-    if cmd.startswith('open '):
-        app = cmd.replace('open ', '').strip()
-        
-        # Special case: "open youtube search for X" → should search YouTube, not open app
-        if 'youtube' in app and ('search' in app or 'find' in app or 'look' in app):
-            # Extract the search query after youtube + search/find/look keywords
-            query_match = re.sub(r'youtube\s*(and\s+)?(search|find|look)\s*(for|up)?\s*', '', app).strip()
-            if query_match:
-                # Don't open browser here — let the handler do it
-                entities['query'] = query_match
-                return 'youtube_search', entities
-        
-        entities['app'] = app
-        return 'open_app', entities
+    _r = _rule_apps_search(cmd, entities)
+    if _r is not _NEXT:
+        return _r
     
     # "switch to X" / "go to X" (app switching)
     if cmd.startswith('switch to ') or cmd.startswith('go to '):
@@ -606,7 +675,10 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         if app and app not in ('friday', 'jarvis'):  # Don't override voice switching
             entities['app'] = app
             return 'open_app', entities
-    
+    return _NEXT
+
+def _rule_music_control(_r, cmd, entities):
+    """Step of classify_intent(): music control."""
     # ═══════════════════════════════════════════════════════════
     # MUSIC CONTROL - Direct responses
     # ═══════════════════════════════════════════════════════════
@@ -626,18 +698,13 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     if has(cmd, *['play music', 'play songs', 'play some music', 'spotify']):
         return 'play_music', {}
     
-    # Play specific song — but NOT if YouTube is the target
-    if cmd.startswith('play '):
-        song = cmd.replace('play ', '').strip()
-        # "play X in youtube" / "play X on youtube" → YouTube search, NOT Spotify
-        if has(cmd, *['in youtube', 'on youtube', 'youtube', 'in yt', 'on yt']):
-            query = re.sub(r'\s*(in|on)\s*(youtube|yt)\s*$', '', song, flags=re.I).strip()
-            entities['query'] = query
-            return 'youtube_search', entities
-        if len(song) > 2:
-            entities['song'] = song
-            return 'play_music', entities
-    
+    _r = _rule_play_song(cmd, entities)
+    if _r is not _NEXT:
+        return _r
+    return _NEXT
+
+def _rule_ai_search(_r, cmd, entities):
+    """Step of classify_intent(): ai search."""
     # ═══════════════════════════════════════════════════════════
     # AI SEARCH (Perplexica/Scira-inspired)
     # ═══════════════════════════════════════════════════════════
@@ -648,16 +715,9 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         entities['mode'] = 'quality'
         return 'ai_search', entities
     
-    # Recall facts from memory — MUST be before 'remember' block
-    # so "do you remember my X" goes to recall, not remember
-    if has(cmd, *['recall ', 'what did i tell you about', 'do you remember',
-                                         "what's my ", "whats my ", "what is my ", "do you know my"]):
-        query = cmd
-        for strip in ['recall ', 'what did i tell you about', 'do you remember',
-                      "what's my ", "whats my ", "what is my ", "do you know my "]:
-            query = query.replace(strip, '')
-        entities['query'] = query.strip()
-        return 'recall', entities
+    _r = _rule_recall_memory(cmd, entities)
+    if _r is not _NEXT:
+        return _r
     
     if has(cmd, *['remember that', 'remember this', 'save this',
                                          'remember my', 'remember i', 'remember the']):
@@ -677,22 +737,10 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
         query = cmd.replace('search for', '').replace('search', '').replace('google', '').strip()
         entities['query'] = query
         return 'search', entities
-    
-    # ═══════════════════════════════════════════════════════════
-    # EMOTION DETECTION
-    # ═══════════════════════════════════════════════════════════
-    if has(cmd, 'enable emotion') or has(cmd, 'mood detection'):
-        return 'enable_emotion', {}
-    
-    if has(cmd, 'disable emotion'):
-        return 'disable_emotion', {}
-    
-    # ═══════════════════════════════════════════════════════════
-    # FEATURES STATUS
-    # ═══════════════════════════════════════════════════════════
-    if has(cmd, 'features') or (has(cmd, 'status') and not has(cmd, 'system')):
-        return 'features', {}
-    
+    return _NEXT
+
+def _rule_gesture_face_help(cmd):
+    """Step of classify_intent(): gesture face help."""
     # ═══════════════════════════════════════════════════════════
     # GESTURE & FACE HELP (so JARVIS tells user how to use these)
     # ═══════════════════════════════════════════════════════════
@@ -704,32 +752,197 @@ def classify_intent(command: str, context: ClassificationContext = None) -> Tupl
     
     if has(cmd, *['improve you', 'where should i improve', 'what needs improvement', 'improve jarvis']):
         return 'improvement_suggestions', {}
-    
+    return _NEXT
+
+
+def _rule_weather(cmd, entities):
+    """Step of classify_intent(): WEATHER."""
     # ═══════════════════════════════════════════════════════════
-    # P2-02: HABIT TRACKING
+    # WEATHER
     # ═══════════════════════════════════════════════════════════
-    if has(cmd, *['my habits', 'list habits', 'show habits', 'track habit',
-                                         'add habit', 'create habit', 'habit check', 'habit status']):
-        return 'habit', {}
-    
+    if has(cmd, 'weather'):
+        # Try to extract city
+        city_patterns = [
+            r"weather (?:like )?(?:in|for|at) ([a-z][a-z .'-]*?)(?:\s+(?:today|now|tomorrow|right now|please))?[?.!]*$",
+            r'(\w+) weather'
+        ]
+        for pattern in city_patterns:
+            match = re.search(pattern, cmd)
+            if match:
+                city = match.group(1)
+                if city not in ['the', 'today', 'now', 'current']:
+                    entities['city'] = city
+                    break
+        return 'weather', entities
+    return _NEXT
+
+def _rule_story(cmd, entities):
+    """Step of classify_intent(): Story."""
+    if has(cmd, 'story'):
+        # Extract genre
+        if has(cmd, 'horror') or has(cmd, 'scary'):
+            entities['genre'] = 'horror'
+        elif has(cmd, 'funny') or has(cmd, 'comedy'):
+            entities['genre'] = 'comedy'
+        elif has(cmd, 'romance'):
+            entities['genre'] = 'romance'
+        elif has(cmd, 'bedtime'):
+            entities['genre'] = 'bedtime'
+        return 'story', entities
+    return _NEXT
+
+def _rule_set_alarm(cmd, entities):
+    """Step of classify_intent(): set alarm."""
+    if has(cmd, *['set alarm', 'alarm for', 'alarm in', 'set an alarm', 'wake me']):
+        # Check for relative time first: "5 min from now", "in 10 minutes"
+        relative_match = re.search(r'(\d+)\s*(min|minute|minutes|hour|hours|hr|hrs)', cmd)
+        if relative_match:
+            entities['relative_amount'] = int(relative_match.group(1))
+            entities['relative_unit'] = relative_match.group(2)
+            return 'set_alarm', entities
+        
+        # Absolute time: "7:30 am"
+        time_match = re.search(r'(\d{1,2}):?(\d{2})?\s*(am|pm)?', cmd)
+        if time_match:
+            entities['hour'] = int(time_match.group(1))
+            entities['minute'] = int(time_match.group(2) or 0)
+            entities['period'] = time_match.group(3)
+        return 'set_alarm', entities
+    return _NEXT
+
+def _rule_reminders(cmd, command, entities):
+    """Step of classify_intent(): REMINDERS."""
     # ═══════════════════════════════════════════════════════════
-    # P2-02: EMAIL
+    # REMINDERS
     # ═══════════════════════════════════════════════════════════
-    if has(cmd, *['send email', 'check email', 'read email', 'compose email',
-                                         'write email', 'inbox', 'new email']):
-        return 'email', {}
-    
+    if has(cmd, *['remind me', 'reminder', 'set reminder']):
+        # Pass the full command, ReminderManager will parse the time + message
+        entities['raw_command'] = command
+        if has(cmd, *['list reminder', 'show reminder', 'my reminder']):
+            return 'list_reminders', {}
+        return 'set_reminder', entities
+    return _NEXT
+
+def _rule_volume_brightness(cmd, entities):
+    """Step of classify_intent(): VOLUME & BRIGHTNESS."""
     # ═══════════════════════════════════════════════════════════
-    # P2-02: CALENDAR
+    # VOLUME & BRIGHTNESS
     # ═══════════════════════════════════════════════════════════
-    if has(cmd, *['calendar', 'events today', 'my schedule', 'today\'s schedule',
-                                         'upcoming events', 'what\'s on my calendar']):
-        return 'calendar', {}
-    
+    if has(cmd, 'volume'):
+        if has(cmd, 'up') or has(cmd, 'increase'):
+            entities['action'] = 'up'
+        elif has(cmd, 'down') or has(cmd, 'decrease'):
+            entities['action'] = 'down'
+        elif has(cmd, 'mute'):
+            entities['action'] = 'mute'
+        else:
+            match = re.search(r'(\d+)\s*%?', cmd)
+            if match:
+                entities['level'] = int(match.group(1))
+                entities['action'] = 'set'
+        return 'volume', entities
+    return _NEXT
+
+def _rule_brightness(cmd, entities):
+    """Step of classify_intent(): Brightness."""
+    if has(cmd, 'brightness'):
+        if has(cmd, 'up') or has(cmd, 'increase'):
+            entities['action'] = 'up'
+        elif has(cmd, 'down') or has(cmd, 'decrease'):
+            entities['action'] = 'down'
+        else:
+            match = re.search(r'(\d+)\s*%?', cmd)
+            if match:
+                entities['level'] = int(match.group(1))
+                entities['action'] = 'set'
+        return 'brightness', entities
+    return _NEXT
+
+def _rule_whatsapp(cmd, entities):
+    """Step of classify_intent(): whatsapp."""
     # ═══════════════════════════════════════════════════════════
-    # FALLBACK TO CONVERSATION (AI will handle it)
+    # WHATSAPP / COMMUNICATION
     # ═══════════════════════════════════════════════════════════
-    return 'conversation', {}
+    # "open whatsapp and text hena saying hi"
+    # "send whatsapp to john message what's up"
+    if (has(cmd, 'whatsapp') or re.match(r"^(?:please\s+)?(?:send\s+(?:a\s+)?(?:message|msg|text)|message|text|msg)\s", cmd)):
+        contact, message = parse_message_command(cmd)
+        if contact:
+            entities['contact'] = contact
+        if message:
+            entities['message'] = message
+        return 'send_message', entities
+    return _NEXT
+
+def _rule_apps_search(cmd, entities):
+    """Step of classify_intent(): APPS & SEARCH."""
+    # ═══════════════════════════════════════════════════════════
+    # APPS & SEARCH
+    # ═══════════════════════════════════════════════════════════
+    if cmd.startswith('open '):
+        app = cmd.replace('open ', '').strip()
+        
+        # Special case: "open youtube search for X" → should search YouTube, not open app
+        if 'youtube' in app and ('search' in app or 'find' in app or 'look' in app):
+            # Extract the search query after youtube + search/find/look keywords
+            query_match = re.sub(r'youtube\s*(and\s+)?(search|find|look)\s*(for|up)?\s*', '', app).strip()
+            if query_match:
+                # Don't open browser here — let the handler do it
+                entities['query'] = query_match
+                return 'youtube_search', entities
+        
+        entities['app'] = app
+        return 'open_app', entities
+    return _NEXT
+
+def _rule_play_song(cmd, entities):
+    """Step of classify_intent(): play song."""
+    # Play specific song — but NOT if YouTube is the target
+    if cmd.startswith('play '):
+        song = cmd.replace('play ', '').strip()
+        # "play X in youtube" / "play X on youtube" → YouTube search, NOT Spotify
+        if has(cmd, *['in youtube', 'on youtube', 'youtube', 'in yt', 'on yt']):
+            query = re.sub(r'\s*(in|on)\s*(youtube|yt)\s*$', '', song, flags=re.I).strip()
+            entities['query'] = query
+            return 'youtube_search', entities
+        if len(song) > 2:
+            entities['song'] = song
+            return 'play_music', entities
+    return _NEXT
+
+def _rule_calculation_or_screen(cmd):
+    """Step of classify_intent(): arithmetic and questions about the screen.
+
+    "calculate 25 times 4" used to be the time ("times"). "What is this?",
+    "explain this error" are answered from a screenshot (they used to reach the
+    AI with no idea what "this" was)."""
+    from jarvis.core.calculator import expression_from
+    from jarvis.core.screen_vision import is_screen_question
+    expr = expression_from(cmd)
+    if expr:
+        return 'calculate', {'expression': expr}
+    if is_screen_question(cmd):
+        return 'screen_question', {}
+    m = re.search(r"\bsynonyms?\s+(?:for|of|to)\s+([\w-]+)", cmd)
+    if m:   # "synonym for happy": the dictionary handler (it was a copy in the HUD fallback)
+        return 'dictionary', {'word': m.group(1), 'mode': 'synonyms'}
+    return _NEXT
+
+
+def _rule_recall_memory(cmd, entities):
+    """Step of classify_intent(): recall memory."""
+    # Recall facts from memory — MUST be before 'remember' block
+    # so "do you remember my X" goes to recall, not remember
+    if has(cmd, *['recall ', 'what did i tell you about', 'do you remember',
+                                         "what's my ", "whats my ", "what is my ", "do you know my"]):
+        query = cmd
+        for strip in ['recall ', 'what did i tell you about', 'do you remember',
+                      "what's my ", "whats my ", "what is my ", "do you know my "]:
+            query = query.replace(strip, '')
+        entities['query'] = query.strip()
+        return 'recall', entities
+    return _NEXT
+
 
 
 # Quick test
@@ -749,4 +962,4 @@ if __name__ == "__main__":
     
     for cmd in test_commands:
         intent, entities = classify_intent(cmd)
-        print(f"'{cmd}' -> {intent} {entities if entities else ''}")
+        _log.info(f"'{cmd}' -> {intent} {entities if entities else ''}")

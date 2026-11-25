@@ -3,13 +3,15 @@ Reminder Manager - Intelligent reminder system for JARVIS
 Manages reminders, schedules, and recurring tasks
 """
 
-import json
+import logging
+_log = logging.getLogger(__name__)
+
 import sqlite3
 import threading
 import time
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional, List, Callable
+from typing import Optional, List
 from dataclasses import dataclass
 from enum import Enum
 import re
@@ -38,7 +40,7 @@ class ReminderManager:
     """Manages reminders and scheduled notifications"""
     
     def __init__(self, perception=None):
-        print("[REMINDER] Initializing Reminder Manager...")
+        _log.info("[REMINDER] Initializing Reminder Manager...")
         self.perception = perception
         
         # Database — C-02: single persistent connection + lock
@@ -63,7 +65,7 @@ class ReminderManager:
             r'tonight': lambda m: self._until_tonight(),
         }
         
-        print("[REMINDER] Reminder Manager Ready")
+        _log.info("[REMINDER] Reminder Manager Ready")
     
     def _get_title(self) -> str:
         if self.perception:
@@ -74,7 +76,7 @@ class ReminderManager:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[REMINDER] {text}")
+            _log.info(f"[REMINDER] {text}")
     
     def _init_db(self):
         """Initialize database using persistent connection"""
@@ -215,7 +217,7 @@ class ReminderManager:
             self.add_reminder(message, remind_at, reminder_type)
             return True
         
-        self._speak(f"I couldn't understand the reminder. Please specify when to remind you.")
+        self._speak("I couldn't understand the reminder. Please specify when to remind you.")
         return False
     
     def get_upcoming_reminders(self, count: int = 5) -> List[Reminder]:
@@ -300,7 +302,7 @@ class ReminderManager:
             try:
                 self._check_due_reminders()
             except Exception as e:
-                print(f"[REMINDER] Check error: {e}")
+                _log.warning(f"[REMINDER] Check error: {e}")
             
             time.sleep(30)  # Check every 30 seconds
     
@@ -312,7 +314,7 @@ class ReminderManager:
         self.running = True
         self.check_thread = threading.Thread(target=self._check_loop, daemon=True)
         self.check_thread.start()
-        print("[REMINDER] Background checker started")
+        _log.info("[REMINDER] Background checker started")
     
     def stop(self):
         """Stop the reminder checker and close DB"""
@@ -323,8 +325,8 @@ class ReminderManager:
             try:
                 self._conn.close()
             except Exception:
-                pass
-        print("[REMINDER] Background checker stopped")
+                _log.debug("Ignored error", exc_info=True)
+        _log.info("[REMINDER] Background checker stopped")
     
     def delete_reminder(self, reminder_id: int) -> bool:
         """Delete a reminder — C-02: uses persistent conn + lock"""

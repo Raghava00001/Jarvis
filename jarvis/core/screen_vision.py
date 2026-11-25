@@ -11,6 +11,9 @@ command was typed there), focus goes back to the previous window first, so the
 screenshot shows the user's app rather than JARVIS.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import io
 import re
 from typing import Optional
@@ -74,7 +77,7 @@ def ask_about_screen(question: str, system: str = SCREEN_SYSTEM) -> Optional[str
         return None
     focused = focus_away_from_jarvis()
     if focused:
-        print(f"[VISION] Looking at '{focused[:50]}' (moved focus off the HUD)")
+        _log.info(f"[VISION] Looking at '{focused[:50]}' (moved focus off the HUD)")
     png = capture_screen_png()
     return ask_gemini(question, system=system, images=[png])
 

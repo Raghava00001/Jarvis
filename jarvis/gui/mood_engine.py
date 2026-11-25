@@ -7,6 +7,9 @@ response adaptation, and text-processing utilities.
 All functions are pure (no WebSocket state dependency).
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import re
 import time
 from typing import Dict, Any
@@ -223,7 +226,7 @@ def _face_mood(emotion_detector) -> str:
         mood = getattr(state, 'value', None) or 'neutral'
         return mood if mood in MOOD_HOLD_S else 'neutral'
     except Exception as e:
-        print(f"[MoodEngine] Face mood error: {e}")
+        _log.warning(f"[MoodEngine] Face mood error: {e}")
         return 'neutral'
 
 

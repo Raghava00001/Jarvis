@@ -8,9 +8,12 @@ Uses sentence-transformers with:
 - Domain weighting
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import numpy as np
 from pathlib import Path
-from typing import Tuple, Optional, Dict, List, Union
+from typing import Tuple, Optional, Dict, List
 import json
 import re
 
@@ -32,7 +35,7 @@ def _get_model():
         _ST_MODEL = get_shared_embedding_model("all-MiniLM-L6-v2")
         return _ST_MODEL
     except ImportError as e:
-        print(f"[INTENT] sentence-transformers not available: {e}")
+        _log.warning(f"[INTENT] sentence-transformers not available: {e}")
         return None
 
 
@@ -91,7 +94,7 @@ class IntentModel:
     }
     
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", lazy: bool = True):
-        print("[INTENT] Initializing Intent Model...")
+        _log.info("[INTENT] Initializing Intent Model...")
         
         self.model_name = model_name
         self.model = None
@@ -107,7 +110,7 @@ class IntentModel:
         if not lazy:
             self._ensure_loaded()
             
-        print("[INTENT] Intent Model Ready (lazy mode)")
+        _log.info("[INTENT] Intent Model Ready (lazy mode)")
         
     def _ensure_loaded(self):
         """Ensure model and embeddings are loaded"""
@@ -126,7 +129,7 @@ class IntentModel:
         
     def _compute_embeddings(self):
         """Compute embeddings for all intents"""
-        print("[INTENT] Computing intent embeddings...")
+        _log.info("[INTENT] Computing intent embeddings...")
         
         for intent, examples in INTENT_EXAMPLES.items():
             # Store all example embeddings for kNN
@@ -137,7 +140,7 @@ class IntentModel:
             self.intent_embeddings[intent] = np.mean(embeddings, axis=0)
             
         self._save_cache()
-        print(f"[INTENT] Computed {len(self.intent_embeddings)} intent embeddings")
+        _log.info(f"[INTENT] Computed {len(self.intent_embeddings)} intent embeddings")
         
     def _cache_fingerprint(self) -> str:
         """Hash of the model name and every example, so any edit invalidates the cache."""
@@ -153,7 +156,7 @@ class IntentModel:
         try:
             with np.load(str(self.cache_path), allow_pickle=False) as data:
                 if str(data["__fingerprint__"]) != self._cache_fingerprint():
-                    print("[INTENT] Embedding cache is stale; recomputing")
+                    _log.info("[INTENT] Embedding cache is stale; recomputing")
                     return False
                 centroids, examples = {}, {}
                 for key in data.files:
@@ -162,12 +165,12 @@ class IntentModel:
                     elif key.startswith("e::"):
                         examples[key[3:]] = list(data[key])
         except Exception as e:
-            print(f"[INTENT] Embedding cache unreadable ({type(e).__name__}); recomputing")
+            _log.info(f"[INTENT] Embedding cache unreadable ({type(e).__name__}); recomputing")
             return False
         if set(centroids) != set(INTENT_EXAMPLES):
             return False
         self.intent_embeddings, self.example_embeddings = centroids, examples
-        print("[INTENT] Loaded cached embeddings")
+        _log.info("[INTENT] Loaded cached embeddings")
         return True
 
     def _save_cache(self):
@@ -179,7 +182,7 @@ class IntentModel:
                 arrays[f"e::{intent}"] = np.asarray(self.example_embeddings[intent], dtype=np.float32)
             np.savez_compressed(str(self.cache_path), **arrays)
         except Exception as e:
-            print(f"[INTENT] Cache save error: {e}")
+            _log.warning(f"[INTENT] Cache save error: {e}")
             
     def embed(self, text: str) -> Optional[np.ndarray]:
         """Get embedding for text"""

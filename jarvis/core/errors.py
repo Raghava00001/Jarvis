@@ -7,6 +7,9 @@ feature that was broken looked merely slow, or silently fell back forever.
 Call recovered() instead: the fallback still happens, and the reason is shown.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import traceback
 
 _seen = set()
@@ -18,11 +21,11 @@ def recovered(where: str, err: BaseException) -> None:
     One line every time; the file and line it came from the first time it is
     seen at that spot.
     """
-    print(f"[{where}] recovered from {type(err).__name__}: {err}")
+    _log.warning(f"[{where}] recovered from {type(err).__name__}: {err}")
     frames = traceback.extract_tb(err.__traceback__) if err.__traceback__ else []
     if frames:
         last = frames[-1]
         key = (where, type(err).__name__, last.filename, last.lineno)
         if key not in _seen:
             _seen.add(key)
-            print(f"[{where}]   at {last.filename}:{last.lineno} in {last.name}")
+            _log.warning(f"[{where}]   at {last.filename}:{last.lineno} in {last.name}")

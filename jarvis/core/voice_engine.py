@@ -10,6 +10,9 @@ Usage:
     text = engine.listen(timeout=10)      # Uses Whisper STT
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import os
 import io
 import queue
@@ -50,9 +53,9 @@ class EdgeTTSBackend:
             import edge_tts
             self._edge_tts = edge_tts
             self.available = True
-            print("[VOICE ENGINE] Edge TTS available")
+            _log.info("[VOICE ENGINE] Edge TTS available")
         except ImportError:
-            print("[VOICE ENGINE] Edge TTS not available (pip install edge-tts)")
+            _log.warning("[VOICE ENGINE] Edge TTS not available (pip install edge-tts)")
 
         # Start a persistent event loop for async edge-tts
         if self.available:
@@ -85,9 +88,9 @@ class EdgeTTSBackend:
                         if age > 300:  # Older than 5 minutes
                             f.unlink()
                     except (OSError, PermissionError):
-                        pass  # File in use or already deleted
+                        _log.debug("Ignored error", exc_info=True)  # File in use or already deleted
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
 
     def set_voice(self, voice_key: str):
         """Set voice by key (jarvis, friday, jarvis_uk, friday_uk)."""
@@ -139,7 +142,7 @@ class EdgeTTSBackend:
             tmp.close()
             return tmp.name
         except Exception as e:
-            print(f"[VOICE ENGINE] Edge TTS error: {e}")
+            _log.warning(f"[VOICE ENGINE] Edge TTS error: {e}")
             return None
 
     def speak_blocking(self, text: str, cancelled=None) -> bool:
@@ -161,7 +164,7 @@ class EdgeTTSBackend:
             try:
                 os.unlink(audio_path)
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
 
     def _play_audio(self, path: str):
         """Play an MP3 file using pygame.mixer (already in the project)."""
@@ -186,7 +189,7 @@ class EdgeTTSBackend:
                 os.system(f'xdg-open "{path}"')
             time.sleep(3)
         except Exception as e:
-            print(f"[VOICE ENGINE] Playback error: {e}")
+            _log.warning(f"[VOICE ENGINE] Playback error: {e}")
 
     def stop(self):
         """Stop current playback."""
@@ -195,7 +198,7 @@ class EdgeTTSBackend:
             if pygame.mixer.get_init():
                 pygame.mixer.music.stop()
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -214,17 +217,17 @@ class WhisperSTTBackend:
         import importlib.util
         if importlib.util.find_spec("whisper") is not None:
             self.available = True
-            print(f"[VOICE ENGINE] Whisper STT available (model: {model_size})")
+            _log.info(f"[VOICE ENGINE] Whisper STT available (model: {model_size})")
         else:
-            print("[VOICE ENGINE] Whisper not available (pip install openai-whisper)")
+            _log.warning("[VOICE ENGINE] Whisper not available (pip install openai-whisper)")
 
     def load_model(self):
         """Lazy-load the Whisper model (saves startup time)."""
         if self._model is None and self.available:
-            print(f"[VOICE ENGINE] Loading Whisper {self._model_size} model...")
+            _log.info(f"[VOICE ENGINE] Loading Whisper {self._model_size} model...")
             import whisper
             self._model = whisper.load_model(self._model_size)
-            print("[VOICE ENGINE] Whisper model loaded")
+            _log.info("[VOICE ENGINE] Whisper model loaded")
 
     def transcribe_file(self, audio_path: str) -> Optional[str]:
         """Transcribe an audio file to text."""
@@ -239,7 +242,7 @@ class WhisperSTTBackend:
             )
             return result["text"].strip()
         except Exception as e:
-            print(f"[VOICE ENGINE] Whisper error: {e}")
+            _log.warning(f"[VOICE ENGINE] Whisper error: {e}")
             return None
 
     def transcribe_audio_data(self, audio_data: bytes, sample_rate: int = 16000) -> Optional[str]:
@@ -258,7 +261,7 @@ class WhisperSTTBackend:
             )
             return result["text"].strip()
         except Exception as e:
-            print(f"[VOICE ENGINE] Whisper transcribe error: {e}")
+            _log.warning(f"[VOICE ENGINE] Whisper transcribe error: {e}")
             return None
 
 
@@ -277,13 +280,13 @@ class VoiceEngine:
 
     def __init__(self, use_edge_tts: bool = True, use_whisper: bool = True,
                  whisper_model: str = "base"):
-        print("[VOICE ENGINE] Initializing Voice Engine...")
+        _log.info("[VOICE ENGINE] Initializing Voice Engine...")
 
         # Allow disabling Edge TTS via env var (set JARVIS_USE_EDGE_TTS=0 to revert to pyttsx3)
         env_edge = os.environ.get("JARVIS_USE_EDGE_TTS", "1")
         if env_edge == "0":
             use_edge_tts = False
-            print("[VOICE ENGINE] Edge TTS disabled via JARVIS_USE_EDGE_TTS=0")
+            _log.info("[VOICE ENGINE] Edge TTS disabled via JARVIS_USE_EDGE_TTS=0")
 
         # TTS
         self.edge_tts = EdgeTTSBackend() if use_edge_tts else None
@@ -311,7 +314,7 @@ class VoiceEngine:
 
         tts_name = "Edge TTS" if self.use_edge_tts else "pyttsx3"
         stt_name = "Whisper" if self.use_whisper else "Google STT"
-        print(f"[VOICE ENGINE] Ready | TTS: {tts_name} | STT: {stt_name}")
+        _log.info(f"[VOICE ENGINE] Ready | TTS: {tts_name} | STT: {stt_name}")
 
     def set_voice(self, voice_key: str):
         """Set the TTS voice (jarvis, friday, jarvis_uk, friday_uk)."""
@@ -352,7 +355,7 @@ class VoiceEngine:
             try:
                 self.speak_with_fallback(text)
             except Exception as e:
-                print(f"[VOICE ENGINE] Speech error: {e}")
+                _log.warning(f"[VOICE ENGINE] Speech error: {e}")
 
     def clear_queue(self) -> None:
         """Drop lines that haven't been spoken yet."""
@@ -360,7 +363,7 @@ class VoiceEngine:
             while True:
                 self._speech_queue.get_nowait()
         except queue.Empty:
-            pass
+            _log.debug("Ignored error", exc_info=True)
 
     def speak(self, text: str) -> bool:
         """Speak text using the best available TTS. Returns True if Edge TTS was used."""
@@ -387,7 +390,7 @@ class VoiceEngine:
         self._edge_failures += 1
         if self._edge_failures >= self.EDGE_FAILURE_LIMIT and self.use_edge_tts:
             self.use_edge_tts = False
-            print(f"[VOICE ENGINE] Edge TTS failed {self._edge_failures} times in a row; "
+            _log.warning(f"[VOICE ENGINE] Edge TTS failed {self._edge_failures} times in a row; "
                   f"switching to offline pyttsx3 for this session")
 
     def speak_with_fallback(self, text: str) -> str:
@@ -406,7 +409,7 @@ class VoiceEngine:
             engine.stop()
             return "pyttsx3"
         except Exception as e:
-            print(f"[VOICE ENGINE] pyttsx3 fallback failed: {e}")
+            _log.warning(f"[VOICE ENGINE] pyttsx3 fallback failed: {e}")
             return "none"
 
     def speak_to_file(self, text: str) -> Optional[str]:
@@ -464,10 +467,10 @@ def get_voice_engine(**kwargs) -> VoiceEngine:
 if __name__ == "__main__":
     # Quick test
     engine = VoiceEngine()
-    print(f"\nEdge TTS: {engine.has_edge_tts}")
-    print(f"Whisper:  {engine.has_whisper}")
+    _log.info(f"\nEdge TTS: {engine.has_edge_tts}")
+    _log.info(f"Whisper:  {engine.has_whisper}")
     
     if engine.has_edge_tts:
-        print("\nTesting Edge TTS...")
+        _log.info("\nTesting Edge TTS...")
         engine.speak("Hello sir. JARVIS voice engine online. All systems nominal.")
-        print("Done!")
+        _log.info("Done!")

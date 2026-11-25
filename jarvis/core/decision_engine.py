@@ -5,8 +5,11 @@ Sits above the router. Makes decisions about HOW to handle intents.
 Not just dispatch - actual reasoning.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 
@@ -50,11 +53,11 @@ class DecisionEngine:
     """
     
     def __init__(self, state_manager: StateManager = None):
-        print("[DECISION] Initializing Decision Engine...")
+        _log.info("[DECISION] Initializing Decision Engine...")
         self.state = state_manager or get_state_manager()
         # Tactical: track recent intents for repetition/rapid-fire detection
         self._recent_intents = []  # (timestamp, intent) — last 10
-        print("[DECISION] Decision Engine Ready")
+        _log.info("[DECISION] Decision Engine Ready")
         
     def decide(self, intent: str, entities: Dict[str, Any], 
                confidence: float) -> Decision:
@@ -119,7 +122,7 @@ class DecisionEngine:
                             message="Maximum output reached. Beyond this is distortion, not volume."
                         )
                 except (ValueError, TypeError):
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
         
         # Brightness at floor
         if intent == "brightness":
@@ -133,7 +136,7 @@ class DecisionEngine:
                             message="That's near-zero visibility. Your eyes will compensate poorly."
                         )
                 except (ValueError, TypeError):
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
         
         # Very late night alarms
         if intent == "set_alarm":
@@ -148,7 +151,7 @@ class DecisionEngine:
                             message=f"Setting alarm for {time_str} — this will severely impact tomorrow's performance."
                         )
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
                     
         return None
         
@@ -256,7 +259,7 @@ class DecisionEngine:
         NOTE: Only challenges genuinely dangerous/destructive actions.
         Does NOT lecture about sleep, breaks, or habits (sir is the boss).
         """
-        now = datetime.now()
+        datetime.now()
                 
         # Challenge setting lots of alarms (possible mistake)
         s = self.state.get()

@@ -20,6 +20,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
+from _server_src import server_source  # noqa: E402
 
 
 # ─── synthetic hands (MediaPipe layout, hand pointing up, y grows down) ────
@@ -271,7 +273,7 @@ def test_gestures_cannot_be_switched_on_without_a_working_model(tmp_path):
 
 
 def test_gesture_wiring_in_server_source():
-    src = (ROOT / "jarvis/gui/websocket_server.py").read_text(encoding="utf-8")
+    src = server_source()
     assert "import GestureController, GestureType" not in src      # the import that always failed
     assert "No gesture controller - gesture thread disabled" not in src
     assert 'cam.unregister("gesture")' in src                       # camera off while gestures are off

@@ -3,13 +3,15 @@ Action Layer - Command Execution
 Handles: Opening apps, time/date, jokes, web search, browser control, YouTube
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import os
 import re
 import webbrowser
 from datetime import datetime
 import random
 import subprocess
-import time
 import urllib.parse
 
 try:
@@ -23,7 +25,7 @@ class ActionLayer:
     """Executes actions based on intent"""
 
     def __init__(self, perception):
-        print("[ACTION] Initializing Action Layer...")
+        _log.info("[ACTION] Initializing Action Layer...")
         self.perception = perception
 
         username = os.getenv("USERNAME")
@@ -119,7 +121,7 @@ class ActionLayer:
         
         self.joke_index = 0
 
-        print("[ACTION] Layer Ready")
+        _log.info("[ACTION] Layer Ready")
 
     def execute(self, intent, entities, raw_text):
         """Central dispatcher - executes action based on intent"""
@@ -210,7 +212,7 @@ class ActionLayer:
         app_name = app_name.replace("what's app", "whatsapp")
         app_name = app_name.replace("whats app", "whatsapp")
         
-        print(f"[ACTION] Attempting to open: {app_name}")
+        _log.info(f"[ACTION] Attempting to open: {app_name}")
 
         try:
             # Check desktop apps first
@@ -230,7 +232,7 @@ class ActionLayer:
                         self.perception.speak(f"Opening {app_name}, {title}.")
                         return True
                     except Exception as e:
-                        print(f"[ACTION] Direct command failed: {e}")
+                        _log.warning(f"[ACTION] Direct command failed: {e}")
                 
                 # Check if full path file exists
                 if os.path.exists(path):
@@ -251,7 +253,7 @@ class ActionLayer:
                 self.perception.speak(f"Opening {app_name}, {title}.")
                 return True
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
             
             # App not found - search for it online
             self.perception.speak(f"{title}, it seems you don't have {app_name} installed. Let me search for it online.")
@@ -260,7 +262,7 @@ class ActionLayer:
             return True
 
         except Exception as e:
-            print(f"ERROR: Open app error: {e}")
+            _log.warning(f"ERROR: Open app error: {e}")
             self.perception.speak(f"I could not open {app_name}, {title}.")
             return False
 

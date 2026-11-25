@@ -3,8 +3,10 @@ Integrated JARVIS HUD - Combines all visual elements with JARVIS core
 Full holographic interface with real-time voice integration
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import pygame
-import threading
 import queue
 import time
 import sys
@@ -21,7 +23,7 @@ class IntegratedJARVISHUD:
     """Integrated JARVIS HUD with all visual elements"""
     
     def __init__(self, width: int = 1400, height: int = 900):
-        print("[INTEGRATED HUD] Initializing...")
+        _log.info("[INTEGRATED HUD] Initializing...")
         
         self.width = width
         self.height = height
@@ -65,7 +67,7 @@ class IntegratedJARVISHUD:
             "neutral": (0, 200, 240),    # Cyan (default)
         }
         
-        print("[INTEGRATED HUD] Ready")
+        _log.info("[INTEGRATED HUD] Ready")
     
     def set_emotion(self, emotion: str):
         """Set current detected emotion for display"""
@@ -295,7 +297,7 @@ def run_integrated_hud():
     pygame.init()
     
     # Get screen info for fullscreen option
-    info = pygame.display.Info()
+    pygame.display.Info()
     
     # Window mode
     screen = pygame.display.set_mode((1400, 900))

@@ -3,6 +3,9 @@ Globe Controller - Connects JARVIS to the Holographic Globe Interface
 Bridges the globe visuals with JARVIS state
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import threading
 import time
 from typing import Optional
@@ -16,14 +19,14 @@ except ImportError:
         GLOBE_AVAILABLE = True
     except ImportError:
         GLOBE_AVAILABLE = False
-        print("[GLOBE CTRL] Globe interface not available")
+        _log.warning("[GLOBE CTRL] Globe interface not available")
 
 
 class GlobeController:
     """Controls the holographic globe interface from JARVIS"""
     
     def __init__(self, perception=None, system_status=None):
-        print("[GLOBE CTRL] Initializing Globe Controller...")
+        _log.info("[GLOBE CTRL] Initializing Globe Controller...")
         self.perception = perception
         self.system_status = system_status
         
@@ -32,14 +35,14 @@ class GlobeController:
         self.stats_thread = None
         
         if GLOBE_AVAILABLE:
-            print("[GLOBE CTRL] Globe interface available")
+            _log.info("[GLOBE CTRL] Globe interface available")
         else:
-            print("[GLOBE CTRL] Globe interface not available")
+            _log.warning("[GLOBE CTRL] Globe interface not available")
     
     def start(self):
         """Start the globe interface"""
         if not GLOBE_AVAILABLE:
-            print("[GLOBE CTRL] Cannot start - globe not available")
+            _log.warning("[GLOBE CTRL] Cannot start - globe not available")
             return False
         
         if self.is_running:
@@ -55,10 +58,10 @@ class GlobeController:
             self.stats_thread = threading.Thread(target=self._update_stats_loop, daemon=True)
             self.stats_thread.start()
             
-            print("[GLOBE CTRL] Globe interface started")
+            _log.info("[GLOBE CTRL] Globe interface started")
             return True
         except Exception as e:
-            print(f"[GLOBE CTRL] Failed to start: {e}")
+            _log.warning(f"[GLOBE CTRL] Failed to start: {e}")
             return False
     
     def stop(self):
@@ -67,11 +70,11 @@ class GlobeController:
         if self.globe:
             self.globe.stop()
             self.globe = None
-        print("[GLOBE CTRL] Globe interface stopped")
+        _log.info("[GLOBE CTRL] Globe interface stopped")
     
     def _on_globe_click(self):
         """Handle click on the globe"""
-        print("[GLOBE CTRL] Globe clicked - activating listening mode")
+        _log.info("[GLOBE CTRL] Globe clicked - activating listening mode")
         
         if self.perception:
             # Toggle listening
@@ -91,8 +94,8 @@ class GlobeController:
                         memory=mem.get("percent", 0) if mem else 0,
                         battery=bat.get("percent", 100) if bat else 100
                     )
-            except Exception as e:
-                pass
+            except Exception:
+                _log.debug("Ignored error", exc_info=True)
             
             time.sleep(2)  # Update every 2 seconds
     

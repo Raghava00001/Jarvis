@@ -3,18 +3,20 @@ Habit Tracker - Daily Habits
 Tracks and reminds daily habits
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import json
 import datetime
 import uuid
 from pathlib import Path
-import re
 
 
 class HabitTracker:
     """Tracks daily habits and provides reminders"""
 
     def __init__(self, perception):
-        print("[HABITS] Initializing Habit Tracker...")
+        _log.info("[HABITS] Initializing Habit Tracker...")
         self.perception = perception
         
         self.data_dir = Path(__file__).parent.parent.parent / "jarvis_data"
@@ -26,7 +28,7 @@ class HabitTracker:
         # Skip first reminder check on boot to prevent startup spam
         self._boot_grace = True
         
-        print("[HABITS] Tracker Ready")
+        _log.info("[HABITS] Tracker Ready")
 
     def _load_habits(self):
         """Load habits from file"""
@@ -45,7 +47,7 @@ class HabitTracker:
             with open(self.habits_file, 'w') as f:
                 json.dump(self.habits, f, indent=2)
         except Exception as e:
-            print(f"ERROR: Save error: {e}")
+            _log.warning(f"ERROR: Save error: {e}")
 
     def create_habit(self, description: str, interval: str):
         """Create a new habit"""
@@ -86,7 +88,7 @@ class HabitTracker:
                    datetime.datetime.fromisoformat(habit["last_reminder"]).date() < now.date():
                     habit["last_reminder"] = now.isoformat()
             self._save_habits()
-            print("[HABITS] Boot grace: silently updated timestamps (no spam)")
+            _log.info("[HABITS] Boot grace: silently updated timestamps (no spam)")
             return []
         
         due_reminders = []
@@ -130,23 +132,20 @@ class HabitTracker:
                 if not _live:
                     self.perception.speak(f"Reminder: {habit['description']}, sir.")
                 else:
-                    print(f"[HABITS] (live mode - suppressed) Reminder: {habit['description']}")
+                    _log.info(f"[HABITS] (live mode - suppressed) Reminder: {habit['description']}")
         
         return due_reminders
 
     def list_habits(self):
         """List all habits"""
         if not self.habits:
-            self.perception.speak("No habits tracked, sir.")
-            return True
-        
-        self.perception.speak(f"You have {len(self.habits)} habits, sir.")
-        for i, habit in enumerate(self.habits, 1):
-            desc = habit.get("description", "Habit")
-            interval = habit.get("interval", "daily")
-            self.perception.speak(f"Habit {i}: {desc}, reminder: {interval}")
-        
-        return True
+            text = "You aren't tracking any habits yet, sir. Say 'add habit drink water' to start."
+        else:
+            items = "; ".join(f"{h.get('description', 'habit')} ({h.get('interval', 'daily')})" for h in self.habits)
+            text = f"You're tracking {len(self.habits)} habit{'s' if len(self.habits) != 1 else ''}, sir: {items}."
+        if self.perception:
+            self.perception.speak(text)
+        return text
 
     def complete_habit(self, habit_id: str):
         """Mark a habit as complete"""

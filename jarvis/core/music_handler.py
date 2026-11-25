@@ -12,11 +12,12 @@ Requires: pip install spotipy
 Spotify Setup: https://developer.spotify.com/dashboard
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
 import os
-import subprocess
 import webbrowser
-import time
 import json
 from pathlib import Path
 from typing import Optional, Dict, Tuple
@@ -94,8 +95,8 @@ class SpotifyController:
             redirect_uri = os.environ.get('SPOTIPY_REDIRECT_URI', 'http://localhost:8888/callback')
             
             if not client_id or not client_secret:
-                print("[MUSIC] Spotify API credentials not found in environment")
-                print("[MUSIC] Set SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET")
+                _log.info("[MUSIC] Spotify API credentials not found in environment")
+                _log.info("[MUSIC] Set SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET")
                 return
                 
             # Initialize with required scopes
@@ -110,15 +111,15 @@ class SpotifyController:
             ))
             
             self.available = True
-            print("[MUSIC] Spotify API connected")
+            _log.info("[MUSIC] Spotify API connected")
             
             # Get active device
             self._refresh_device()
             
         except ImportError:
-            print("[MUSIC] spotipy not installed. Run: pip install spotipy")
+            _log.info("[MUSIC] spotipy not installed. Run: pip install spotipy")
         except Exception as e:
-            print(f"[MUSIC] Spotify init error: {e}")
+            _log.warning(f"[MUSIC] Spotify init error: {e}")
             
     def _refresh_device(self):
         """Get active Spotify device"""
@@ -134,7 +135,7 @@ class SpotifyController:
                         return
                 self.device_id = devices['devices'][0]['id']
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
             
     def get_state(self) -> Tuple[PlaybackState, Optional[Track]]:
         """Get current playback state from Spotify API"""
@@ -163,7 +164,7 @@ class SpotifyController:
             return state, None
             
         except Exception as e:
-            print(f"[MUSIC] Spotify state error: {e}")
+            _log.warning(f"[MUSIC] Spotify state error: {e}")
             return PlaybackState.UNKNOWN, None
             
     def play(self, query: str = None) -> Tuple[bool, str]:
@@ -254,9 +255,9 @@ class MediaKeyController:
             import ctypes
             self.user32 = ctypes.windll.user32
             self.available = True
-            print("[MUSIC] Media keys available")
+            _log.info("[MUSIC] Media keys available")
         except Exception:
-            print("[MUSIC] Media keys not available")
+            _log.warning("[MUSIC] Media keys not available")
             
     def _press_key(self, vk_code: int):
         """Press and release a virtual key"""
@@ -290,7 +291,7 @@ class MusicHandler:
     """
     
     def __init__(self, perception=None):
-        print("[MUSIC] Initializing Music Handler...")
+        _log.info("[MUSIC] Initializing Music Handler...")
         self.perception = perception
         
         # Controllers
@@ -302,8 +303,8 @@ class MusicHandler:
         self.state_path = Path(__file__).parent.parent / "data" / "music_state.json"
         self._load_state()
         
-        print("[MUSIC] Music Handler Ready")
-        print(f"[MUSIC] Spotify: {'Available' if self.spotify.available else 'Not configured'}")
+        _log.info("[MUSIC] Music Handler Ready")
+        _log.info(f"[MUSIC] Spotify: {'Available' if self.spotify.available else 'Not configured'}")
         
     def _get_title(self) -> str:
         if self.perception:
@@ -314,7 +315,7 @@ class MusicHandler:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[MUSIC] {text}")
+            _log.info(f"[MUSIC] {text}")
             
     def _load_state(self):
         """Load persisted state"""
@@ -324,7 +325,7 @@ class MusicHandler:
                     data = json.load(f)
                     self.state.volume = data.get('volume', 50)
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
             
     def _save_state(self):
         """Persist state"""
@@ -333,7 +334,7 @@ class MusicHandler:
             with open(self.state_path, 'w') as f:
                 json.dump(self.state.to_dict(), f)
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
             
     def _update_state(self):
         """Update state from active source"""
@@ -351,7 +352,7 @@ class MusicHandler:
         - If query: search and play that song
         - If no query: resume current playback
         """
-        title = self._get_title()
+        self._get_title()
         
         # Try Spotify first
         if self.spotify.available:

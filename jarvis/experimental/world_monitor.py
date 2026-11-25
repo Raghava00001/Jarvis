@@ -10,13 +10,14 @@ All results are returned as strings ready for the LLM to summarise.
 TTL cache: 60 min for news, 10 min for search.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import re
 import time
 import threading
-from pathlib import Path
 from typing import Optional
 from urllib.request import Request, urlopen
-from urllib.error import URLError
 from xml.etree import ElementTree as ET
 
 # ── Cache ──────────────────────────────────────────────────────────────────
@@ -47,7 +48,7 @@ def _http_get(url: str, timeout: int = 8) -> Optional[bytes]:
         with urlopen(req, timeout=timeout) as resp:
             return resp.read()
     except Exception as e:
-        print(f"[WORLD] HTTP error {url[:60]}: {e}")
+        _log.warning(f"[WORLD] HTTP error {url[:60]}: {e}")
         return None
 
 
@@ -100,7 +101,7 @@ def _fetch_feed(source: str, url: str) -> list[dict]:
                 results.append({"source": source, "title": title, "summary": desc, "link": link})
         return results
     except Exception as e:
-        print(f"[WORLD] Feed parse error {source}: {e}")
+        _log.warning(f"[WORLD] Feed parse error {source}: {e}")
         return []
 
 
@@ -245,7 +246,7 @@ def _search_ddg(query: str, max_results: int) -> Optional[str]:
         return "\n".join(lines)
 
     except Exception as e:
-        print(f"[WORLD] DDG parse error: {e}")
+        _log.warning(f"[WORLD] DDG parse error: {e}")
         return None
 
 
@@ -268,7 +269,7 @@ def _search_news_rss(query: str, max_results: int) -> Optional[str]:
                 lines.append(f"• {title}")
         return "\n".join(lines)
     except Exception as e:
-        print(f"[WORLD] News RSS search error: {e}")
+        _log.warning(f"[WORLD] News RSS search error: {e}")
         return None
 
 
@@ -317,7 +318,7 @@ def get_world_briefing(knowledge=None) -> str:
             if summary and len(summary) > 20:
                 return summary
         except Exception as e:
-            print(f"[WORLD] Briefing summarise error: {e}")
+            _log.warning(f"[WORLD] Briefing summarise error: {e}")
 
     # Fallback: first 5 headlines formatted as spoken text
     lines = [l for l in raw.split("\n") if l.startswith("[") or l.startswith("•")]
@@ -335,7 +336,7 @@ class WorldMonitor:
 
     def __init__(self, knowledge=None):
         self.knowledge = knowledge
-        print("[WORLD] World Monitor ready.")
+        _log.info("[WORLD] World Monitor ready.")
 
     def get_news(self, category: str = "global") -> str:
         return get_world_news(category=category)

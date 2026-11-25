@@ -25,6 +25,9 @@ Keys are now sent only after checking that WhatsApp Desktop itself is in the
 foreground, and the clipboard is restored afterwards.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import json
 import os
 import re
@@ -163,7 +166,7 @@ class WhatsAppHandler:
         self._win = win
         self.contacts_file = contacts_file
         self._draft: Optional[Draft] = None
-        print("[WHATSAPP] Handler Ready")
+        _log.info("[WHATSAPP] Handler Ready")
 
     # ── helpers ──
     @property
@@ -176,7 +179,7 @@ class WhatsAppHandler:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[WHATSAPP] {text}")
+            _log.info(f"[WHATSAPP] {text}")
 
     def _get_title(self):
         return getattr(self.perception, 'user_title', 'sir')
@@ -190,7 +193,7 @@ class WhatsAppHandler:
             os.startfile(uri)
             return True
         except OSError:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         for path in (r'%LOCALAPPDATA%\WhatsApp\WhatsApp.exe',
                      r'%LOCALAPPDATA%\Programs\whatsapp-desktop\WhatsApp.exe'):
             path = os.path.expandvars(path)
@@ -237,7 +240,7 @@ class WhatsAppHandler:
                 try:
                     pyperclip.copy(saved)
                 except Exception:
-                    pass
+                    _log.debug("Ignored error", exc_info=True)
         else:
             pyautogui.write(text, interval=0.02)
             time.sleep(settle)
@@ -283,14 +286,14 @@ class WhatsAppHandler:
             else:
                 hwnd = self._draft_by_search(contact, message)
         except Exception as e:
-            print(f"[WHATSAPP] Draft failed: {e}")
+            _log.warning(f"[WHATSAPP] Draft failed: {e}")
             hwnd = 0
         if not hwnd:
             return (f"I couldn't get WhatsApp ready to message {contact}{t}. "
                     f"Make sure WhatsApp Desktop is installed and logged in.")
 
         self._draft = Draft(contact, message, time.time() + DRAFT_WINDOW_S, hwnd)
-        print(f"[WHATSAPP] Draft to {contact}: {message[:60]}")
+        _log.info(f"[WHATSAPP] Draft to {contact}: {message[:60]}")
         where = "" if number else " Check it's the right chat."
         return (f"I've typed \"{message}\" to {contact} in WhatsApp.{where} "
                 f"Say 'send' to send it, or 'cancel'.")
@@ -339,7 +342,7 @@ class WhatsAppHandler:
                     f"The message to {d.contact} is still typed there.")
         pyautogui.press('enter')
         time.sleep(0.3)
-        print(f"[WHATSAPP] Sent to {d.contact}")
+        _log.info(f"[WHATSAPP] Sent to {d.contact}")
         return f"Sent to {d.contact}{t}."
 
     def cancel_draft(self) -> str:

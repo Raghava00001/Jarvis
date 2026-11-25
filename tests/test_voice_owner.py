@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
+from _server_src import server_source  # noqa: E402  (tests/ is on sys.path)
 
 
 def _hud(announcer=None):
@@ -104,14 +105,14 @@ def test_spoken_only_answer_becomes_the_reply_and_ai_is_not_asked():
 
 
 def test_router_uses_turn_text_for_handlers_that_speak():
-    src = (ROOT / "jarvis/gui/websocket_server.py").read_text(encoding="utf-8")
+    src = server_source()
     assert "result.response = turn_text()" in src
 
 
 # ─── Server output: one voice ──────────────────────────────────────────────
 
 def test_browser_only_speaks_when_server_could_not():
-    src = (ROOT / "jarvis/gui/websocket_server.py").read_text(encoding="utf-8")
+    src = server_source()
     assert "'speak': bool(response) and not silent and not live and not server_spoke" in src
 
 
@@ -175,14 +176,14 @@ def test_stop_and_state_queries_skip_the_command_queue():
 
 def test_no_direct_socket_sends_outside_the_sender():
     """Direct ws.send() from threads raced each client's sender task."""
-    src = (ROOT / "jarvis/gui/websocket_server.py").read_text(encoding="utf-8")
+    src = server_source()
     offenders = re.findall(r"\b(?:ws|client)\.send\(", src)
     assert offenders == []
     assert "asyncio.run_coroutine_threadsafe(q.put(" not in src
 
 
 def test_client_tasks_cancelled_however_the_connection_ends():
-    src = (ROOT / "jarvis/gui/websocket_server.py").read_text(encoding="utf-8")
+    src = server_source()
     body = src.split("async def handle_client", 1)[1].split("async def send_periodic_updates", 1)[0]
     finally_block = body.split("finally:", 1)[1]
     assert "stats_task.cancel()" in finally_block
@@ -190,7 +191,7 @@ def test_client_tasks_cancelled_however_the_connection_ends():
 
 
 def test_boot_payload_does_not_block_the_event_loop():
-    src = (ROOT / "jarvis/gui/websocket_server.py").read_text(encoding="utf-8")
+    src = server_source()
     body = src.split("async def handle_client", 1)[1].split("async def send_periodic_updates", 1)[0]
     assert "'weather': self.get_weather_data()" not in body
     assert "self._run_blocking(self.get_weather_data)" in body

@@ -3,6 +3,9 @@ JARVIS Desktop GUI — Iron Man Holographic HUD (mirrors Web HUD)
 CustomTkinter + Canvas-based interface matching the web_hud/index.html design.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import customtkinter as ctk
 import tkinter as tk
 import threading
@@ -121,7 +124,7 @@ class OrbCanvas(tk.Canvas):
         # Outer glow
         for i in range(3):
             r = 85 - i * 5 + int(pulse * 3)
-            alpha = hex(int(30 + i * 15))[2:].zfill(2)
+            hex(int(30 + i * 15))[2:].zfill(2)
             self.create_oval(
                 self.cx - r, self.cy - r, self.cx + r, self.cy + r,
                 outline=dark, width=1
@@ -221,7 +224,7 @@ class JARVISDesktopApp(ctk.CTk):
             try:
                 self.iconbitmap(str(icon_path))
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
 
         # State
         self.ws = None
@@ -446,7 +449,7 @@ class JARVISDesktopApp(ctk.CTk):
 
         for i in range(3):
             ctk.CTkLabel(
-                self.news_frame, text=f"Loading headlines...",
+                self.news_frame, text="Loading headlines...",
                 font=("Consolas", 10), text_color=C["text_dim"],
                 wraplength=180, justify="left", anchor="w"
             ).pack(fill="x", pady=3)
@@ -501,7 +504,7 @@ class JARVISDesktopApp(ctk.CTk):
             return
 
         is_jarvis = sender.lower() in ("jarvis", "friday")
-        is_user = sender.lower() == "user"
+        sender.lower() == "user"
 
         # Color scheme matches CSS
         if is_jarvis:
@@ -578,7 +581,7 @@ class JARVISDesktopApp(ctk.CTk):
                 from jarvis.gui.web_hud_launcher import start_http_server
                 self._http_server = start_http_server(8080)
             except Exception as e:
-                print(f"[DESKTOP] HTTP server error: {e}")
+                _log.warning(f"[DESKTOP] HTTP server error: {e}")
         webbrowser.open("http://localhost:8080")
 
     def _lock_screen(self):
@@ -614,7 +617,7 @@ class JARVISDesktopApp(ctk.CTk):
                     text=f"{bat.percent:.0f}%{'⚡' if bat.power_plugged else ''}")
                 self.sys_labels["BAT_bar"].set(bat.percent / 100)
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         self.after(3000, self._update_system_stats)
 
     # ═══════════════════════════════════════════════════
@@ -628,10 +631,10 @@ class JARVISDesktopApp(ctk.CTk):
             from jarvis.gui.websocket_server import JARVISWebSocketServer
             self.server = JARVISWebSocketServer()
             self.server.run_in_thread()
-            print("[DESKTOP] WebSocket server started")
+            _log.info("[DESKTOP] WebSocket server started")
         except Exception as e:
             err_msg = str(e)
-            print(f"[DESKTOP] Server error: {err_msg}")
+            _log.warning(f"[DESKTOP] Server error: {err_msg}")
             self.after(0, lambda e_msg=err_msg: self._add_chat_msg(
                 "jarvis", f"Backend startup failed: {e_msg}"))
             return
@@ -657,7 +660,7 @@ class JARVISDesktopApp(ctk.CTk):
                     self.ws_connected = True
                     retry = 0
                     self.after(0, self._set_connected, True)
-                    print("[DESKTOP] WebSocket connected")
+                    _log.info("[DESKTOP] WebSocket connected")
 
                     # Request full state + weather + news on connect
                     try:
@@ -665,16 +668,16 @@ class JARVISDesktopApp(ctk.CTk):
                         await ws.send(json.dumps({"type": "get_weather"}))
                         await ws.send(json.dumps({"type": "get_news"}))
                     except Exception:
-                        pass
+                        _log.debug("Ignored error", exc_info=True)
 
                     async for message in ws:
                         try:
                             data = json.loads(message)
                             self.after(0, self._handle_ws_message, data)
                         except json.JSONDecodeError:
-                            pass
+                            _log.debug("Ignored error", exc_info=True)
 
-            except Exception as e:
+            except Exception:
                 self.ws_connected = False
                 self.after(0, self._set_connected, False)
                 retry += 1
@@ -702,14 +705,7 @@ class JARVISDesktopApp(ctk.CTk):
 
         # ── Chat: Tool result ──
         elif msg_type == "result":
-            text = data.get("response", "")
-            if text:
-                self._add_chat_msg("jarvis", text)
-                self.orb.set_state("speaking")
-                self.after(2000, lambda: self.orb.set_state("idle"))
-            # Update state if included
-            if data.get("state"):
-                self._render_full_state(data["state"])
+            self._on_result(data)
 
         # ── Chat: User voice input ──
         elif msg_type == "voice_recognized":
@@ -730,17 +726,7 @@ class JARVISDesktopApp(ctk.CTk):
 
         # ── Gemini Live transcription (real-time audio speech) ──
         elif msg_type == "live_transcription":
-            text = data.get("text", "")
-            role = data.get("role", "jarvis")
-            if text:
-                sender = "user" if role == "user" else "jarvis"
-                self._add_chat_msg(sender, text)
-                if sender == "jarvis":
-                    self.orb.set_state("speaking")
-                    self.after(2000, lambda: self.orb.set_state("idle"))
-                else:
-                    self.orb.set_state("listening")
-                    self.after(1000, lambda: self.orb.set_state("processing"))
+            self._on_live_transcription(data)
 
         # ── Full state update ──
         elif msg_type in ("state", "feature_status"):
@@ -750,47 +736,15 @@ class JARVISDesktopApp(ctk.CTk):
 
         # ── System status (CPU/RAM from server) ──
         elif msg_type == "status":
-            try:
-                if "cpu" in data:
-                    self.sys_labels["CPU"].configure(text=f"{data['cpu']:.0f}%")
-                    self.sys_labels["CPU_bar"].set(data["cpu"] / 100)
-                if "ram" in data or "memory" in data:
-                    ram = data.get("ram", data.get("memory", 0))
-                    self.sys_labels["RAM"].configure(text=f"{ram:.0f}%")
-                    self.sys_labels["RAM_bar"].set(ram / 100)
-            except Exception:
-                pass
+            self._on_status(data)
 
         # ── Weather ──
         elif msg_type == "weather":
-            try:
-                temp = data.get("temp", data.get("temperature", "--"))
-                desc = data.get("description", data.get("condition", ""))
-                city = data.get("city", data.get("location", ""))
-                humidity = data.get("humidity", "")
-                self.weather_temp.configure(text=f"{temp}°C")
-                desc_text = desc.title() if desc else ""
-                if humidity:
-                    desc_text += f" • 💧{humidity}%"
-                self.weather_desc.configure(text=desc_text)
-                self.weather_location.configure(text=f"📍 {city}" if city else "")
-            except Exception:
-                pass
+            self._on_weather(data)
 
         # ── News ──
         elif msg_type == "news":
-            items = data.get("items", data.get("headlines", []))
-            if items:
-                for w in self.news_frame.winfo_children():
-                    w.destroy()
-                for item in items[:5]:
-                    title = item if isinstance(item, str) else item.get("title", "")
-                    if title:
-                        ctk.CTkLabel(
-                            self.news_frame, text=f"• {title[:60]}",
-                            font=("Consolas", 10), text_color=C["text_dim"],
-                            wraplength=180, justify="left", anchor="w"
-                        ).pack(fill="x", pady=2)
+            self._on_news(data)
 
         # ── Assistant info (name/mode) ──
         elif msg_type == "assistant_info":
@@ -800,19 +754,7 @@ class JARVISDesktopApp(ctk.CTk):
 
         # ── Gesture feedback ──
         elif msg_type in ("gesture_feedback", "gesture_action"):
-            gesture = data.get("gesture", "")
-            action = data.get("action", "")
-            if gesture:
-                if "Gesture" in self.feature_indicators:
-                    self.feature_indicators["Gesture"].configure(
-                        text=gesture.upper(), text_color=C["orange"]
-                    )
-                    # Reset after 3 seconds
-                    self.after(3000, lambda: self.feature_indicators["Gesture"].configure(
-                        text="ACTIVE", text_color=C["green"]
-                    ))
-            if action == "stop_speaking":
-                self._add_chat_msg("jarvis", "🤚 Speech stopped (palm gesture)")
+            self._on_gesture_action(data)
 
         # ── Emotion update ──
         elif msg_type == "emotion_update":
@@ -824,12 +766,7 @@ class JARVISDesktopApp(ctk.CTk):
 
         # ── Face recognition update ──
         elif msg_type == "face_update":
-            user = data.get("user", "")
-            confidence = data.get("confidence", 0)
-            if user and "Face ID" in self.feature_indicators:
-                self.feature_indicators["Face ID"].configure(
-                    text=f"{user.upper()}", text_color=C["green"]
-                )
+            self._on_face_update(data)
 
         # ── Speak request (server wants browser TTS — not needed for desktop) ──
         elif msg_type == "speak":
@@ -837,47 +774,150 @@ class JARVISDesktopApp(ctk.CTk):
 
         # ── Startup briefing (full boot data) ──
         elif msg_type == "startup_briefing":
-            briefing = data.get("briefing", {})
-            
-            # Auto-enable all feature indicators
-            features = briefing.get("features_enabled", {})
-            for name, indicator in self.feature_indicators.items():
-                indicator.configure(text="ACTIVE", text_color=C["green"])
-            
-            # Update weather from boot data
-            weather_ctx = briefing.get("weather_context", "")
-            if weather_ctx and "°C" in weather_ctx:
-                try:
-                    temp = weather_ctx.split("°C")[0].split()[-1]
-                    desc = weather_ctx.split(",")[-1].strip() if "," in weather_ctx else ""
-                    self.weather_temp.configure(text=f"{temp}°C")
-                    if desc:
-                        self.weather_desc.configure(text=desc.title())
-                except Exception:
-                    pass
-            
-            # Update system stats from boot data
-            sys_status = briefing.get("system_status", {})
-            if sys_status:
-                for key, api_key in [("CPU", "cpu"), ("RAM", "ram")]:
-                    val = sys_status.get(api_key)
-                    if val is not None:
-                        self.sys_labels[key].configure(text=f"{val:.0f}%")
-                        self.sys_labels[f"{key}_bar"].set(val / 100)
-                bat = sys_status.get("battery")
-                if bat is not None:
-                    plug = "⚡" if sys_status.get("plugged") else ""
-                    self.sys_labels["BAT"].configure(text=f"{bat:.0f}%{plug}")
-                    self.sys_labels["BAT_bar"].set(bat / 100)
+            self._on_startup_briefing(data)
 
         # ── Init Payload / Greeting ──
         elif msg_type == "init_payload":
-            greeting_group = data.get("greeting", {})
-            greeting_text = greeting_group.get("text", "")
-            if greeting_text:
-                self._add_chat_msg("jarvis", greeting_text)
+            self._on_init_payload(data)
+
+    def _on_result(self, data):
+        """Step of _handle_ws_message(): Result."""
+        text = data.get("response", "")
+        if text:
+            self._add_chat_msg("jarvis", text)
+            self.orb.set_state("speaking")
+            self.after(2000, lambda: self.orb.set_state("idle"))
+        # Update state if included
+        if data.get("state"):
+            self._render_full_state(data["state"])
+
+    def _on_live_transcription(self, data):
+        """Step of _handle_ws_message(): Live_transcription."""
+        text = data.get("text", "")
+        role = data.get("role", "jarvis")
+        if text:
+            sender = "user" if role == "user" else "jarvis"
+            self._add_chat_msg(sender, text)
+            if sender == "jarvis":
                 self.orb.set_state("speaking")
-                self.after(3000, lambda: self.orb.set_state("idle"))
+                self.after(2000, lambda: self.orb.set_state("idle"))
+            else:
+                self.orb.set_state("listening")
+                self.after(1000, lambda: self.orb.set_state("processing"))
+
+    def _on_status(self, data):
+        """Step of _handle_ws_message(): Status."""
+        try:
+            if "cpu" in data:
+                self.sys_labels["CPU"].configure(text=f"{data['cpu']:.0f}%")
+                self.sys_labels["CPU_bar"].set(data["cpu"] / 100)
+            if "ram" in data or "memory" in data:
+                ram = data.get("ram", data.get("memory", 0))
+                self.sys_labels["RAM"].configure(text=f"{ram:.0f}%")
+                self.sys_labels["RAM_bar"].set(ram / 100)
+        except Exception:
+            _log.debug("Ignored error", exc_info=True)
+
+    def _on_weather(self, data):
+        """Step of _handle_ws_message(): Weather."""
+        try:
+            temp = data.get("temp", data.get("temperature", "--"))
+            desc = data.get("description", data.get("condition", ""))
+            city = data.get("city", data.get("location", ""))
+            humidity = data.get("humidity", "")
+            self.weather_temp.configure(text=f"{temp}°C")
+            desc_text = desc.title() if desc else ""
+            if humidity:
+                desc_text += f" • 💧{humidity}%"
+            self.weather_desc.configure(text=desc_text)
+            self.weather_location.configure(text=f"📍 {city}" if city else "")
+        except Exception:
+            _log.debug("Ignored error", exc_info=True)
+
+    def _on_news(self, data):
+        """Step of _handle_ws_message(): News."""
+        items = data.get("items", data.get("headlines", []))
+        if items:
+            for w in self.news_frame.winfo_children():
+                w.destroy()
+            for item in items[:5]:
+                title = item if isinstance(item, str) else item.get("title", "")
+                if title:
+                    ctk.CTkLabel(
+                        self.news_frame, text=f"• {title[:60]}",
+                        font=("Consolas", 10), text_color=C["text_dim"],
+                        wraplength=180, justify="left", anchor="w"
+                    ).pack(fill="x", pady=2)
+
+    def _on_gesture_action(self, data):
+        """Step of _handle_ws_message(): gesture action."""
+        gesture = data.get("gesture", "")
+        action = data.get("action", "")
+        if gesture:
+            if "Gesture" in self.feature_indicators:
+                self.feature_indicators["Gesture"].configure(
+                    text=gesture.upper(), text_color=C["orange"]
+                )
+                # Reset after 3 seconds
+                self.after(3000, lambda: self.feature_indicators["Gesture"].configure(
+                    text="ACTIVE", text_color=C["green"]
+                ))
+        if action == "stop_speaking":
+            self._add_chat_msg("jarvis", "🤚 Speech stopped (palm gesture)")
+
+    def _on_face_update(self, data):
+        """Step of _handle_ws_message(): Face_update."""
+        user = data.get("user", "")
+        data.get("confidence", 0)
+        if user and "Face ID" in self.feature_indicators:
+            self.feature_indicators["Face ID"].configure(
+                text=f"{user.upper()}", text_color=C["green"]
+            )
+
+    def _on_startup_briefing(self, data):
+        """Step of _handle_ws_message(): Startup_briefing."""
+        briefing = data.get("briefing", {})
+
+        # Auto-enable all feature indicators
+        briefing.get("features_enabled", {})
+        for name, indicator in self.feature_indicators.items():
+            indicator.configure(text="ACTIVE", text_color=C["green"])
+
+        # Update weather from boot data
+        weather_ctx = briefing.get("weather_context", "")
+        if weather_ctx and "°C" in weather_ctx:
+            try:
+                temp = weather_ctx.split("°C")[0].split()[-1]
+                desc = weather_ctx.split(",")[-1].strip() if "," in weather_ctx else ""
+                self.weather_temp.configure(text=f"{temp}°C")
+                if desc:
+                    self.weather_desc.configure(text=desc.title())
+            except Exception:
+                _log.debug("Ignored error", exc_info=True)
+
+        # Update system stats from boot data
+        sys_status = briefing.get("system_status", {})
+        if sys_status:
+            for key, api_key in [("CPU", "cpu"), ("RAM", "ram")]:
+                val = sys_status.get(api_key)
+                if val is not None:
+                    self.sys_labels[key].configure(text=f"{val:.0f}%")
+                    self.sys_labels[f"{key}_bar"].set(val / 100)
+            bat = sys_status.get("battery")
+            if bat is not None:
+                plug = "⚡" if sys_status.get("plugged") else ""
+                self.sys_labels["BAT"].configure(text=f"{bat:.0f}%{plug}")
+                self.sys_labels["BAT_bar"].set(bat / 100)
+
+    def _on_init_payload(self, data):
+        """Step of _handle_ws_message(): Init_payload."""
+        greeting_group = data.get("greeting", {})
+        greeting_text = greeting_group.get("text", "")
+        if greeting_text:
+            self._add_chat_msg("jarvis", greeting_text)
+            self.orb.set_state("speaking")
+            self.after(3000, lambda: self.orb.set_state("idle"))
+
 
     def _render_full_state(self, state):
         """Update all UI panels from a full state object — mirrors renderFullState()."""
@@ -930,16 +970,16 @@ class JARVISDesktopApp(ctk.CTk):
             self.orb.set_state(jarvis_state)
 
     def on_closing(self):
-        print("[DESKTOP] Shutting down...")
+        _log.info("[DESKTOP] Shutting down...")
         self.destroy()
         sys.exit(0)
 
 
 def main():
-    print("=" * 60)
-    print("     J.A.R.V.I.S. DESKTOP INTERFACE")
-    print("=" * 60)
-    print()
+    _log.info("=" * 60)
+    _log.info("     J.A.R.V.I.S. DESKTOP INTERFACE")
+    _log.info("=" * 60)
+    _log.info("")
 
     app = JARVISDesktopApp()
     app.protocol("WM_DELETE_WINDOW", app.on_closing)

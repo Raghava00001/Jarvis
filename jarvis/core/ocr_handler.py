@@ -3,6 +3,9 @@ OCR Handler - Optical Character Recognition
 Extract text from images on screen or from files
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import os
 from pathlib import Path
 from typing import Optional
@@ -12,7 +15,7 @@ class OCRHandler:
     """Extracts text from images using OCR"""
     
     def __init__(self, perception=None):
-        print("[OCR] Initializing OCR Handler...")
+        _log.info("[OCR] Initializing OCR Handler...")
         self.perception = perception
         
         # Check for pytesseract
@@ -36,22 +39,22 @@ class OCRHandler:
                     self.tesseract_path = path
                     break
             
-            print(f"[OCR] pytesseract available")
+            _log.info("[OCR] pytesseract available")
             if self.tesseract_path:
-                print(f"[OCR] Tesseract found at: {self.tesseract_path}")
+                _log.info(f"[OCR] Tesseract found at: {self.tesseract_path}")
         except ImportError:
-            print("[OCR] pytesseract not available - install with: pip install pytesseract")
+            _log.warning("[OCR] pytesseract not available - install with: pip install pytesseract")
         
         # Check for PIL
         self.pil_available = False
         try:
             from PIL import Image, ImageGrab
             self.pil_available = True
-            print("[OCR] PIL available")
+            _log.info("[OCR] PIL available")
         except ImportError:
-            print("[OCR] PIL not available")
+            _log.warning("[OCR] PIL not available")
         
-        print("[OCR] OCR Handler Ready")
+        _log.info("[OCR] OCR Handler Ready")
     
     def _get_title(self) -> str:
         """Get user title from perception layer"""
@@ -64,7 +67,7 @@ class OCRHandler:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[OCR] {text}")
+            _log.info(f"[OCR] {text}")
     
     def read_screen(self) -> Optional[str]:
         """Read text from current screen"""
@@ -103,7 +106,7 @@ class OCRHandler:
                 return None
                 
         except Exception as e:
-            print(f"[OCR] Screen read error: {e}")
+            _log.warning(f"[OCR] Screen read error: {e}")
             self._speak(f"Failed to read screen text, {title}.")
             return None
     
@@ -147,7 +150,7 @@ class OCRHandler:
                 return None
                 
         except Exception as e:
-            print(f"[OCR] Image read error: {e}")
+            _log.warning(f"[OCR] Image read error: {e}")
             self._speak(f"Failed to read image text, {title}.")
             return None
     
@@ -179,7 +182,7 @@ class OCRHandler:
                 return None
                 
         except Exception as e:
-            print(f"[OCR] Region read error: {e}")
+            _log.warning(f"[OCR] Region read error: {e}")
             return None
     
     def read_clipboard_image(self) -> Optional[str]:
@@ -220,7 +223,7 @@ class OCRHandler:
                 return None
                 
         except Exception as e:
-            print(f"[OCR] Clipboard read error: {e}")
+            _log.warning(f"[OCR] Clipboard read error: {e}")
             self._speak(f"Failed to read clipboard image, {title}.")
             return None
     

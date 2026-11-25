@@ -3,6 +3,9 @@ Shared Camera Manager — Singleton camera for gesture + emotion + face auth
 Prevents multiple modules from fighting over cv2.VideoCapture(0)
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import cv2
 import threading
 import time
@@ -40,12 +43,12 @@ class SharedCamera:
         self._last_frame_time = 0
         self._fps = 10  # Reduced from 20: 10 FPS is sufficient for face/emotion/gesture
         self._initialized = True
-        print("[CAMERA] Shared Camera Manager initialized")
+        _log.info("[CAMERA] Shared Camera Manager initialized")
     
     def register(self, consumer_name: str):
         """Register a consumer (gesture, emotion, face_auth)"""
         self._consumers.add(consumer_name)
-        print(f"[CAMERA] Registered consumer: {consumer_name} (total: {len(self._consumers)})")
+        _log.info(f"[CAMERA] Registered consumer: {consumer_name} (total: {len(self._consumers)})")
         
         # Auto-start if first consumer
         if not self._running:
@@ -54,7 +57,7 @@ class SharedCamera:
     def unregister(self, consumer_name: str):
         """Unregister a consumer"""
         self._consumers.discard(consumer_name)
-        print(f"[CAMERA] Unregistered consumer: {consumer_name} (remaining: {len(self._consumers)})")
+        _log.info(f"[CAMERA] Unregistered consumer: {consumer_name} (remaining: {len(self._consumers)})")
         
         # Auto-stop if no consumers left
         if not self._consumers and self._running:
@@ -81,7 +84,7 @@ class SharedCamera:
         if self._cap and self._cap.isOpened():
             self._cap.release()
             self._cap = None
-        print("[CAMERA] Camera stopped")
+        _log.info("[CAMERA] Camera stopped")
     
     def _capture_loop(self):
         """Background capture loop"""
@@ -93,13 +96,13 @@ class SharedCamera:
                 if self._cap is None or not self._cap.isOpened():
                     self._cap = cv2.VideoCapture(0)
                     if not self._cap.isOpened():
-                        print("[CAMERA] Cannot open camera")
+                        _log.warning("[CAMERA] Cannot open camera")
                         time.sleep(5)
                         continue
                     # Optimized: 480x360 is enough for face/gesture detection, saves ~40% CPU
                     self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 480)
                     self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
-                    print("[CAMERA] Camera opened (480x360 @ 10fps)")
+                    _log.info("[CAMERA] Camera opened (480x360 @ 10fps)")
                 
                 ret, frame = self._cap.read()
                 if ret:
@@ -111,7 +114,7 @@ class SharedCamera:
                 time.sleep(frame_interval)
                 
             except Exception as e:
-                print(f"[CAMERA] Capture error: {e}")
+                _log.warning(f"[CAMERA] Capture error: {e}")
                 time.sleep(1)
         
         # Cleanup
@@ -164,9 +167,9 @@ def release_shared_camera():
     if _shared_camera is not None:
         try:
             _shared_camera.stop()
-            print("[CAMERA] Camera released on exit")
+            _log.info("[CAMERA] Camera released on exit")
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
 
 # Register atexit cleanup so camera ALWAYS releases when process exits
 import atexit

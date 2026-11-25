@@ -3,6 +3,9 @@ Screen Control Handler - Voice-driven mouse and keyboard control
 Allows JARVIS to control screen via voice commands
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from typing import Dict, Any, Optional, Tuple
 import os
 import re
@@ -61,7 +64,7 @@ def _is_switchable(user32, hwnd) -> bool:
     try:
         ctypes.windll.dwmapi.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, ctypes.byref(cloaked), ctypes.sizeof(cloaked))
     except Exception:
-        pass
+        _log.debug("Ignored error", exc_info=True)
     title = _window_title(user32, hwnd)
     return not cloaked.value and bool(title) and title != "Program Manager"
 
@@ -94,7 +97,7 @@ def focus_away_from_jarvis() -> Optional[str]:
                     return title
             hwnd = user32.GetWindow(hwnd, GW_HWNDNEXT)
     except Exception as e:
-        print(f"[SCREEN] Focus hand-off failed: {e}")
+        _log.warning(f"[SCREEN] Focus hand-off failed: {e}")
     return None
 
 
@@ -119,7 +122,7 @@ def user_window_title() -> str:
                     return title
             hwnd = user32.GetWindow(hwnd, GW_HWNDNEXT)
     except Exception as e:
-        print(f"[SCREEN] Window lookup failed: {e}")
+        _log.warning(f"[SCREEN] Window lookup failed: {e}")
     return ""
 
 
@@ -149,16 +152,16 @@ class ScreenControlHandler:
     """
     
     def __init__(self):
-        print("[SCREEN] Initializing Screen Control...")
+        _log.info("[SCREEN] Initializing Screen Control...")
         
         self.pyautogui_available = PYAUTOGUI_AVAILABLE
         self.keyboard_available = KEYBOARD_AVAILABLE
         
         if PYAUTOGUI_AVAILABLE:
-            print("[SCREEN] pyautogui available")
+            _log.info("[SCREEN] pyautogui available")
             self.screen_width, self.screen_height = pyautogui.size()
         else:
-            print("[SCREEN] pyautogui not available - screen control disabled")
+            _log.warning("[SCREEN] pyautogui not available - screen control disabled")
             self.screen_width, self.screen_height = 1920, 1080
         
         # Named positions for quick navigation
@@ -174,7 +177,7 @@ class ScreenControlHandler:
             "right": (0.9, 0.5),
         }
         
-        print("[SCREEN] Screen Control Ready")
+        _log.info("[SCREEN] Screen Control Ready")
     
     def handle(self, command: str, entities: Dict[str, Any] = None) -> str:
         """Handle screen control commands"""
@@ -208,7 +211,7 @@ class ScreenControlHandler:
         focused = focus_away_from_jarvis()
         result = action()
         if focused:
-            print(f"[SCREEN] Sent to '{focused[:50]}' (moved focus off the HUD)")
+            _log.info(f"[SCREEN] Sent to '{focused[:50]}' (moved focus off the HUD)")
         return result
 
     def _keyboard_action(self, c: str, original: str):

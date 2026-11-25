@@ -5,8 +5,11 @@ Routes intents to handlers with confidence checking.
 Uses dependency injection, respects state.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Callable
 from dataclasses import dataclass
 from .state_manager import StateManager, get_state_manager
 from .personality import JARVISPersonalityCore, get_personality
@@ -67,12 +70,12 @@ class IntentRouter:
             personality: Personality layer
             speak_func: Function to speak responses
         """
-        print("[ROUTER] Initializing Intent Router...")
+        _log.info("[ROUTER] Initializing Intent Router...")
         self.state = state_manager
         self.handlers = handlers
         self.personality = personality
         self.speak = speak_func or print
-        print("[ROUTER] Intent Router Ready")
+        _log.info("[ROUTER] Intent Router Ready")
         
     def route(self, intent: str, entities: Dict[str, Any]) -> str:
         """
@@ -111,12 +114,12 @@ class IntentRouter:
                               ["not available", "couldn't", "failed", "error"]):
                 raise Exception(response)
             return response
-        except Exception as e:
+        except Exception:
             # Try fallback strategies
             fallbacks = self.FALLBACK_STRATEGIES.get(intent, [])
             for fallback_intent in fallbacks:
                 try:
-                    print(f"[ROUTER] Primary '{intent}' failed, trying fallback '{fallback_intent}'")
+                    _log.warning(f"[ROUTER] Primary '{intent}' failed, trying fallback '{fallback_intent}'")
                     return self._dispatch(fallback_intent, entities)
                 except Exception:
                     continue
@@ -226,14 +229,14 @@ class IntentRouter:
             try:
                 self.speak(text)
             except Exception:
-                print(f"[JARVIS] {text}")
+                _log.info(f"[JARVIS] {text}")
         else:
-            print(f"[JARVIS] {text}")
+            _log.info(f"[JARVIS] {text}")
             
     # Handler implementations
     def _handle_music_play(self, entities: Dict) -> str:
         song = entities.get("song")
-        app = entities.get("app", "spotify")
+        entities.get("app", "spotify")
         
         if "music" in self.handlers:
             try:
@@ -362,8 +365,8 @@ class IntentRouter:
         
     def _handle_create_event(self, entities: Dict) -> str:
         if "calendar" in self.handlers:
-            title = entities.get("title", "New Event")
-            time = entities.get("time")
+            entities.get("title", "New Event")
+            entities.get("time")
             # TODO: parse and create
             return "Event creation not fully implemented yet"
         return "Calendar not connected"

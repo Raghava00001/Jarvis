@@ -27,6 +27,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
+from _server_src import server_source  # noqa: E402
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────
@@ -149,7 +151,7 @@ class TestWebSocketAccess:
         assert self._attempt(ws_module, path, None) == "rejected"
 
     def test_server_passes_origin_and_token_checks(self):
-        src = (ROOT / "jarvis/gui/websocket_server.py").read_text(encoding="utf-8")
+        src = server_source()
         assert "origins=ALLOWED_WS_ORIGINS" in src
         assert "process_request=check_ws_token" in src
 
@@ -227,7 +229,8 @@ class TestLiveRoutingNoDoubleExecution:
         server.process_command = MagicMock()
         failing_logger = MagicMock()
         failing_logger.info.side_effect = AttributeError("no attribute 'info'")
-        with patch.object(ws_module, "jlog", failing_logger):
+        import jarvis.gui.server.messages as messages_module
+        with patch.object(messages_module, "jlog", failing_logger):
             asyncio.run(server.process_message(MagicMock(), {"type": "command", "text": "open notepad"}))
         server._push_live_text.assert_called_once_with("open notepad")
         server._try_fast_path.assert_not_called()
@@ -240,7 +243,7 @@ class TestLiveRoutingNoDoubleExecution:
         assert server._live_ready() is False
         server.live_engine.session = object()
         assert server._live_ready() is True
-        src = (ROOT / "jarvis/gui/websocket_server.py").read_text(encoding="utf-8")
+        src = server_source()
         assert "HARD PIPELINE GATE" not in src
 
     def test_logger_has_info(self):

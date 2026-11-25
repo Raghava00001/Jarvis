@@ -13,8 +13,6 @@ import pygame
 import math
 import random
 from typing import List, Tuple, Dict, Optional
-from dataclasses import dataclass
-from enum import Enum
 
 # ═══════════════════════════════════════════════════════════════
 # IRON MAN GLOBE THEME
@@ -522,7 +520,7 @@ class IronManGlobe:
     
     def _draw_cities(self, screen: pygame.Surface):
         """Draw major city markers with pulsing effect"""
-        font = pygame.font.Font(None, 14)
+        pygame.font.Font(None, 14)
         
         for name, lat, lon in MAJOR_CITIES:
             sx, sy, z = self.latlon_to_screen(lat, lon)

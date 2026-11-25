@@ -3,9 +3,10 @@ Email Handler - Read, summarize, and SEND emails
 Uses Gmail API for reading, SMTP for sending
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import os
-import json
-import base64
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -21,8 +22,8 @@ try:
     from googleapiclient.discovery import build
     GMAIL_AVAILABLE = True
 except ImportError:
-    print("[EMAIL] Gmail libraries not installed.")
-    print("        Install: pip install google-auth google-auth-oauthlib google-api-python-client")
+    _log.info("[EMAIL] Gmail libraries not installed.")
+    _log.info("        Install: pip install google-auth google-auth-oauthlib google-api-python-client")
 
 
 class EmailHandler:
@@ -31,7 +32,7 @@ class EmailHandler:
     SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
     
     def __init__(self, perception, knowledge=None):
-        print("[EMAIL] Initializing Email Handler...")
+        _log.info("[EMAIL] Initializing Email Handler...")
         self.perception = perception
         self.knowledge = knowledge  # For LLM summarization
         self.service = None
@@ -45,11 +46,11 @@ class EmailHandler:
         self.smtp_available = bool(self.smtp_password)
         
         if self.smtp_available:
-            print(f"[EMAIL] SMTP sending enabled via {self.smtp_email}")
+            _log.info(f"[EMAIL] SMTP sending enabled via {self.smtp_email}")
         else:
-            print("[EMAIL] SMTP sending disabled (set JARVIS_EMAIL_PASSWORD in .env)")
+            _log.info("[EMAIL] SMTP sending disabled (set JARVIS_EMAIL_PASSWORD in .env)")
         
-        print("[EMAIL] Handler Ready (auth deferred)")
+        _log.info("[EMAIL] Handler Ready (auth deferred)")
     
     def _authenticate(self):
         """Authenticate with Gmail - JSON and threaded OAuth"""
@@ -65,7 +66,7 @@ class EmailHandler:
             try:
                 creds = Credentials.from_authorized_user_file(str(token_path), self.SCOPES)
             except Exception:
-                pass
+                _log.debug("Ignored error", exc_info=True)
         
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
@@ -77,7 +78,7 @@ class EmailHandler:
             if not creds:
                 if credentials_path.exists() and not getattr(self, "_oauth_running", False):
                     self._oauth_running = True
-                    print("[EMAIL] Launching OAuth browser auth in background...")
+                    _log.info("[EMAIL] Launching OAuth browser auth in background...")
                     def _run_oauth():
                         try:
                             flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), self.SCOPES)
@@ -86,9 +87,9 @@ class EmailHandler:
                                 token.write(new_creds.to_json())
                             self.service = build('gmail', 'v1', credentials=new_creds)
                             self._authenticated = True
-                            print("[EMAIL] Authenticated successfully via browser")
+                            _log.info("[EMAIL] Authenticated successfully via browser")
                         except Exception as e:
-                            print(f"[EMAIL] Auth error: {e}")
+                            _log.warning(f"[EMAIL] Auth error: {e}")
                             self.available = False
                         finally:
                             self._oauth_running = False
@@ -98,7 +99,7 @@ class EmailHandler:
                     return
                 else:
                     if not getattr(self, "_oauth_running", False):
-                        print("[EMAIL] No credentials file found at:", credentials_path)
+                        _log.info("%s %s", "[EMAIL] No credentials file found at:", credentials_path)
                         self.available = False
                     return
             
@@ -110,15 +111,15 @@ class EmailHandler:
             try:
                 self.service = build('gmail', 'v1', credentials=creds)
                 self._authenticated = True
-                print("[EMAIL] Authenticated successfully")
+                _log.info("[EMAIL] Authenticated successfully")
             except Exception as e:
-                print(f"[EMAIL] Service build error: {e}")
+                _log.warning(f"[EMAIL] Service build error: {e}")
                 self.available = False
     
     def _ensure_authenticated(self):
         """Lazy authentication - only authenticate when first needed"""
         if not self._authenticated and self.available:
-            print("[EMAIL] First email access - authenticating...")
+            _log.info("[EMAIL] First email access - authenticating...")
             self._authenticate()
         return self.available and self.service is not None
     
@@ -167,7 +168,7 @@ class EmailHandler:
             return f"You have {len(messages)} unread emails, {title}. " + ". ".join(email_list)
             
         except Exception as e:
-            print(f"[EMAIL] Error: {e}")
+            _log.warning(f"[EMAIL] Error: {e}")
             return f"Error reading emails, {title}."
     
     def summarize_emails(self, count=3):
@@ -217,7 +218,7 @@ class EmailHandler:
             return f"Email summary, {title}: {summary}"
             
         except Exception as e:
-            print(f"[EMAIL] Error: {e}")
+            _log.warning(f"[EMAIL] Error: {e}")
             return f"Error summarizing emails, {title}."
     
     # ═══════════════════════════════════════════════════════════════
@@ -245,18 +246,18 @@ class EmailHandler:
                 self._smtp_conn.login(self.smtp_email, self.smtp_password)
             try:
                 self._smtp_conn.send_message(msg)
-            except Exception as e:
+            except Exception:
                 # Connection dropped? Reconnect.
                 self._smtp_conn = smtplib.SMTP('smtp.gmail.com', 587)
                 self._smtp_conn.starttls()
                 self._smtp_conn.login(self.smtp_email, self.smtp_password)
                 self._smtp_conn.send_message(msg)
             
-            print(f"[EMAIL] Sent email to {to_email}: {subject}")
+            _log.info(f"[EMAIL] Sent email to {to_email}: {subject}")
             return f"Email sent to {to_email}, {title}."
             
         except Exception as e:
-            print(f"[EMAIL] Send error: {e}")
+            _log.warning(f"[EMAIL] Send error: {e}")
             return f"Failed to send email, {title}. Error: {str(e)[:60]}"
     
     def send_reminder_email(self, reminder_text: str) -> str:
@@ -264,7 +265,7 @@ class EmailHandler:
         title = getattr(self.perception, 'user_title', 'sir')
         
         if not self.user_email:
-            print("[EMAIL] No USER_EMAIL configured, skipping reminder email")
+            _log.info("[EMAIL] No USER_EMAIL configured, skipping reminder email")
             return ""
         
         now = datetime.now().strftime('%I:%M %p, %B %d')

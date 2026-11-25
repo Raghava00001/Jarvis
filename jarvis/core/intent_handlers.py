@@ -3,6 +3,9 @@ JARVIS Intent Handlers
 Dedicated handlers for each command type - extracted from _fallback_process
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 from jarvis.core.services import shared
 from jarvis.core.errors import recovered
 from datetime import datetime
@@ -13,7 +16,7 @@ import re
 try:
     from jarvis.core.intent_router import HandlerResult, Intent
 except ImportError:
-    from jarvis.core.intent_router import HandlerResult, Intent
+    from jarvis.core.intent_router import HandlerResult
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -56,7 +59,7 @@ def handle_greeting(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             f"Loud and clear, {title}. All systems operational.",
             f"I can hear you perfectly, {title}. Voice recognition at full capacity.",
             f"For you, {title}, always. What do you need?",
-            f"Present and accounted for. How may I assist?",
+            "Present and accounted for. How may I assist?",
         ]
         return HandlerResult(success=True, response=random.choice(responses))
     
@@ -195,6 +198,9 @@ def handle_weather(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         city = entities.get('city')
         weather = weather_handler.get_weather(city) if city else weather_handler.get_weather()
         
+        if isinstance(weather, dict) and weather.get('unavailable'):
+            # The service is down: say so (never read out "N/A°C")
+            return HandlerResult(success=True, response=f"I can't reach the weather service right now, {title}.")
         if isinstance(weather, dict):
             return HandlerResult(
                 success=True,
@@ -207,7 +213,7 @@ def handle_weather(cmd: str, entities: Dict, context: Any) -> HandlerResult:
                          f"wind {weather.get('wind_speed_kmh', weather.get('wind', 'N/A'))} kilometers per hour."
             )
     except Exception as e:
-        print(f"[HANDLERS] Weather error: {e}")
+        _log.warning(f"[HANDLERS] Weather error: {e}")
     
     return HandlerResult(
         success=False,
@@ -216,16 +222,24 @@ def handle_weather(cmd: str, entities: Dict, context: Any) -> HandlerResult:
 
 
 def handle_system_status(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle system status queries"""
+    """'system status', 'battery level'. Reads the machine when the caller
+    passed no stats (Gemini's tool passed none, so it reported 0% for all)."""
     title = context.get('title', 'sir') if context else 'sir'
-    stats = context.get('system_stats', {}) if context else {}
-    
+    stats = (context.get('system_stats') if context else None) or {}
+    if not stats:
+        try:
+            from jarvis.gui.data_providers import get_system_stats
+            stats = get_system_stats() or {}
+        except Exception as e:
+            _log.warning(f"[HANDLERS] System stats error: {e}")
     charge = " and charging" if stats.get('charging') else ""
+    if re.search(r"\bbattery\b|\bcharge\b|\bcharging\b", (cmd or "").lower()) and 'battery' in stats:
+        return HandlerResult(success=True, response=f"Battery at {stats['battery']}%{charge}, {title}.")
     return HandlerResult(
         success=True,
-        response=f"All systems operational, {title}. CPU at {stats.get('cpu', 0)}%, "
-                 f"memory at {stats.get('memory', 0)}%, disk at {stats.get('disk', 0)}%, "
-                 f"battery at {stats.get('battery', 100)}%{charge}."
+        response=f"All systems operational, {title}. CPU at {stats.get('cpu', '?')}%, "
+                 f"memory at {stats.get('ram', stats.get('memory', '?'))}%, disk at {stats.get('disk', '?')}%, "
+                 f"battery at {stats.get('battery', '?')}%{charge}."
     )
 
 
@@ -243,6 +257,9 @@ def handle_news(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     news_handler = context.get('news_handler') if context else None
     knowledge = context.get('knowledge') if context else None
     category = entities.get('category', 'general')
+    if entities.get('topic'):
+        # Gemini's news tool passes a topic; it was ignored (general headlines)
+        return handle_search_news(cmd, {'keyword': entities['topic']}, context)
     
     if not news_handler:
         return HandlerResult(success=False, response=f"News service unavailable, {title}.")
@@ -265,7 +282,7 @@ Give a 1-2 sentence take with signature JARVIS dry humor. Use probability framin
                     if opinion_response and len(opinion_response) > 10:
                         opinion = f" My take: {opinion_response}"
                 except Exception:
-                    pass  # Opinion is optional, don't fail on it
+                    _log.debug("Ignored error", exc_info=True)  # Opinion is optional, don't fail on it
             
             return HandlerResult(
                 success=True,
@@ -273,13 +290,12 @@ Give a 1-2 sentence take with signature JARVIS dry humor. Use probability framin
                 data={'type': 'news', 'items': news_data['items']}
             )
     except Exception as e:
-        print(f"[HANDLERS] News error: {e}")
+        _log.warning(f"[HANDLERS] News error: {e}")
     
     return HandlerResult(success=False, response=f"Couldn't fetch {category} news, {title}.")
 
 
 def handle_search_news(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle news search by keyword"""
     """A briefing on a topic: background and past figures, the current picture
     from recent headlines, and what to watch. ("diabetes" used to return the
     general headlines: the topic was dropped on the way to the handler.)"""
@@ -296,7 +312,7 @@ def handle_search_news(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     try:
         articles = news_handler.search_items(keyword, count=8)
     except Exception as e:
-        print(f"[HANDLERS] News search error: {e}")
+        _log.warning(f"[HANDLERS] News search error: {e}")
         articles = []
 
     panel = [f"{a['title']} ({a['source']}, {a['date']})" if a.get('source') else a['title'] for a in articles]
@@ -384,7 +400,7 @@ def handle_open_app(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             start_app(app)
         return HandlerResult(success=True, response=f"Opening {app}.")
     except Exception as e:
-        print(f"[HANDLERS] Open app error: {e}")
+        _log.warning(f"[HANDLERS] Open app error: {e}")
         return HandlerResult(success=False, response=f"Couldn't open {app}.")
 
 
@@ -402,13 +418,13 @@ def _adjust_level(kind: str, cmd: str, entities: Dict, context: Any) -> HandlerR
             from jarvis.core.system_control import SystemControl
             system_control = shared(SystemControl, lambda: SystemControl(context.get('perception') if context else None))
         except Exception as e:
-            print(f"[HANDLERS] System control unavailable: {e}")
+            _log.warning(f"[HANDLERS] System control unavailable: {e}")
             return HandlerResult(success=False, response=f"I can't control the {kind} on this computer, {title}.")
     text = f"{entities.get('action') or ''} {cmd or ''}"
     try:
         reply = system_control.adjust(kind, text, entities.get('level'))
     except Exception as e:
-        print(f"[HANDLERS] {kind} error: {e}")
+        _log.warning(f"[HANDLERS] {kind} error: {e}")
         return HandlerResult(success=False, response=f"I couldn't change the {kind}, {title}.")
     ok = not reply.startswith(("I couldn't", "I can't", "I tried", "Should I"))
     return HandlerResult(success=ok, response=reply)
@@ -432,7 +448,7 @@ def handle_ai_search(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     ai_search = context.get('ai_search') if context else None
     query = entities.get('query', '')
     mode = entities.get('mode', 'balanced')
-    source = entities.get('source', 'web')
+    entities.get('source', 'web')
     
     if not query:
         return HandlerResult(success=False, response=f"What would you like me to research, {title}?")
@@ -455,75 +471,49 @@ def handle_ai_search(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         webbrowser.open(f"https://www.google.com/search?q={query}")
         return HandlerResult(success=True, response=f"Researching {query}, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] AI search error: {e}")
+        _log.warning(f"[HANDLERS] AI search error: {e}")
         return HandlerResult(success=False, response=f"Search failed, {title}.")
 
 
 def handle_remember(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle remembering facts (Qdrant-style memory)"""
+    """'remember that my favourite colour is blue': keep the fact (memory_store).
+    This called knowledge.remember(), which doesn't exist: nothing was ever saved."""
+    from jarvis.core.memory_store import MemoryStore, fact_from
     title = context.get('title', 'sir') if context else 'sir'
-    ai_search = context.get('ai_search') if context else None
-    fact = entities.get('fact', '')
-    
+    fact = entities.get('fact') or fact_from(cmd)
     if not fact:
-        return HandlerResult(success=False, response=f"What should I remember, {title}?")
-    
+        return HandlerResult(success=True, response=f"What should I remember, {title}?")
     try:
-        if ai_search:
-            ai_search.remember(fact)
-            return HandlerResult(success=True, response=f"I'll remember that, {title}.")
-        
-        # Fallback to file-based memory
-        from pathlib import Path
-        import json
-        data_dir = Path(__file__).parent.parent.parent / "jarvis_data"
-        data_dir.mkdir(exist_ok=True)
-        memory_file = data_dir / "memory.json"
-        
-        memories = []
-        if memory_file.exists():
-            memories = json.loads(memory_file.read_text())
-        memories.append({"fact": fact, "timestamp": str(__import__('datetime').datetime.now())})
-        memory_file.write_text(json.dumps(memories, indent=2))
-        
-        return HandlerResult(success=True, response=f"Noted, {title}.")
+        MemoryStore().remember(fact)
     except Exception as e:
-        print(f"[HANDLERS] Remember error: {e}")
-        return HandlerResult(success=False, response=f"Couldn't save that, {title}.")
+        _log.warning(f"[HANDLERS] Remember error: {e}")
+        return HandlerResult(success=True, response=f"I couldn't save that, {title}.")
+    return HandlerResult(success=True, response=f"I'll remember that, {title}: {fact}.")
+
+
+EXPLICIT_RECALL_RE = re.compile(r"\b(?:do you remember|what did i tell you|recall)\b")
 
 
 def handle_recall(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle recalling facts from memory"""
+    """'what is my favourite colour', 'do you remember my wifi name'.
+
+    When nothing matches and the user didn't explicitly ask about memory
+    ("what is my IP address"), this isn't a memory question: success=False lets
+    the router ask the AI instead."""
+    from jarvis.core.memory_store import MemoryStore
     title = context.get('title', 'sir') if context else 'sir'
-    ai_search = context.get('ai_search') if context else None
-    query = entities.get('query', '')
-    
+    query = entities.get('query') or cmd
     try:
-        if ai_search:
-            facts = ai_search.recall(query)
-            if facts:
-                response = f"I remember: {facts[0]}"
-                if len(facts) > 1:
-                    response += f" And {len(facts)-1} more related facts."
-                return HandlerResult(success=True, response=response)
-            return HandlerResult(success=True, response=f"I don't recall anything about that, {title}.")
-        
-        # Fallback to file-based memory
-        from pathlib import Path
-        import json
-        data_dir = Path(__file__).parent.parent.parent / "jarvis_data"
-        memory_file = data_dir / "memory.json"
-        
-        if memory_file.exists():
-            memories = json.loads(memory_file.read_text())
-            for mem in reversed(memories):
-                if query.lower() in mem['fact'].lower():
-                    return HandlerResult(success=True, response=f"I remember: {mem['fact']}")
-        
-        return HandlerResult(success=True, response=f"I don't recall that, {title}.")
+        facts = MemoryStore().recall(cmd if len(query.split()) < 2 else query)
     except Exception as e:
-        print(f"[HANDLERS] Recall error: {e}")
-        return HandlerResult(success=True, response=f"Let me think... No, I don't remember that.")
+        _log.warning(f"[HANDLERS] Recall error: {e}")
+        facts = []
+    if facts:
+        more = f" I also remember: {'; '.join(facts[1:])}." if len(facts) > 1 else ""
+        return HandlerResult(success=True, response=f"You told me {facts[0]}.{more}")
+    if EXPLICIT_RECALL_RE.search(cmd.lower()):
+        return HandlerResult(success=True, response=f"I don't remember anything about that, {title}.")
+    return HandlerResult(success=False, response="")
 
 
 def handle_search(cmd: str, entities: Dict, context: Any) -> HandlerResult:
@@ -540,7 +530,7 @@ def handle_search(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             webbrowser.open(f"https://www.google.com/search?q={quote_plus(query)}")
             return HandlerResult(success=True, response=f"Searching for '{query}', {title}.")
         except Exception as e:
-            print(f"[HANDLERS] Search error: {e}")
+            _log.warning(f"[HANDLERS] Search error: {e}")
     
     return HandlerResult(success=False, response=f"Please specify what to search for, {title}.")
 
@@ -574,9 +564,9 @@ def handle_play_music(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         else:
             # Just resume/play
             try:
-                import pyautogui
+                from jarvis.core.music_handler import MediaKeyController
                 time.sleep(0.5)
-                pyautogui.press('space')  # Toggle play in Spotify
+                MediaKeyController().play_pause()  # media key: works whatever has focus
             except Exception as _err:
                 recovered("Handlers", _err)
             return HandlerResult(success=True, response="Playing music")
@@ -585,33 +575,26 @@ def handle_play_music(cmd: str, entities: Dict, context: Any) -> HandlerResult:
 
 
 def handle_pause_music(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle music pause - DIRECT"""
-    try:
-        import pyautogui
-        pyautogui.press('space')  # Toggle play/pause
-        return HandlerResult(success=True, response="Paused")
-    except Exception:
-        return HandlerResult(success=True, response="Paused")
+    """Pause / resume: the play-pause media key (Space typed a space into
+    whatever window had focus)."""
+    from jarvis.core.music_handler import MediaKeyController
+    ok = MediaKeyController().play_pause()
+    return HandlerResult(success=True, response="Paused." if ok else "I couldn't reach the music player.")
 
 
 def handle_next_track(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Skip to next track - DIRECT"""
-    try:
-        import pyautogui
-        pyautogui.hotkey('ctrl', 'right')
-        return HandlerResult(success=True, response="Next track")
-    except Exception:
-        return HandlerResult(success=True, response="Done")
+    """Next track: the media key, which every player handles (Ctrl+Right only
+    worked while Spotify had focus)."""
+    from jarvis.core.music_handler import MediaKeyController
+    ok = MediaKeyController().next_track()
+    return HandlerResult(success=True, response="Next track." if ok else "I couldn't skip the track.")
 
 
 def handle_previous_track(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Go to previous track - DIRECT"""
-    try:
-        import pyautogui
-        pyautogui.hotkey('ctrl', 'left')
-        return HandlerResult(success=True, response="Previous track")
-    except Exception:
-        return HandlerResult(success=True, response="Done")
+    """Previous track: the media key (Ctrl+Left only worked in a focused Spotify)."""
+    from jarvis.core.music_handler import MediaKeyController
+    ok = MediaKeyController().previous_track()
+    return HandlerResult(success=True, response="Previous track." if ok else "I couldn't go back a track.")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -631,7 +614,7 @@ def handle_set_reminder(cmd: str, entities: Dict, context: Any) -> HandlerResult
             if result:
                 message, remind_at, reminder_type = result
                 # Use silent=True since handler returns response (prevents double-speak)
-                reminder_id = reminder_manager.add_reminder(message, remind_at, reminder_type, silent=True)
+                reminder_manager.add_reminder(message, remind_at, reminder_type, silent=True)
                 
                 # Format time for response
                 time_str = remind_at.strftime("%I:%M %p")
@@ -653,7 +636,7 @@ def handle_set_reminder(cmd: str, entities: Dict, context: Any) -> HandlerResult
                     response=f"I couldn't understand the reminder, {title}. Try 'remind me to [task] in [time]' or 'remind me to [task] at [time]'."
                 )
         except Exception as e:
-            print(f"[HANDLERS] Reminder error: {e}")
+            _log.warning(f"[HANDLERS] Reminder error: {e}")
     
     return HandlerResult(
         success=False,
@@ -679,7 +662,7 @@ def handle_list_reminders(cmd: str, entities: Dict, context: Any) -> HandlerResu
             
             return HandlerResult(success=True, response=response)
         except Exception as e:
-            print(f"[HANDLERS] List reminders error: {e}")
+            _log.warning(f"[HANDLERS] List reminders error: {e}")
     
     return HandlerResult(success=False, response=f"Reminder service unavailable, {title}.")
 
@@ -713,7 +696,7 @@ def handle_face_recognition_cmd(cmd: str, entities: Dict, context: Any) -> Handl
             else:
                 return HandlerResult(success=True, response=f"I don't recognize this face, {title}. Would you like to register?")
         except Exception as e:
-            print(f"[HANDLERS] Face recognition error: {e}")
+            _log.warning(f"[HANDLERS] Face recognition error: {e}")
     
     return HandlerResult(
         success=True,
@@ -754,7 +737,7 @@ def _get_entertainment(context):
             knowledge = context.get('knowledge') if context else None
             _entertainment = shared(JARVISEntertainment, lambda: JARVISEntertainment(perception, knowledge))
         except Exception as e:
-            print(f"[HANDLERS] Entertainment init error: {e}")
+            _log.warning(f"[HANDLERS] Entertainment init error: {e}")
             return None
     return _entertainment
 
@@ -837,7 +820,7 @@ def handle_story(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             if story and len(story) > 80:
                 return HandlerResult(success=True, response=story)
         except Exception as e:
-            print(f"[HANDLERS] Story generation error: {e}")
+            _log.warning(f"[HANDLERS] Story generation error: {e}")
 
     # Fallback story
     if genre == "horror":
@@ -873,7 +856,7 @@ def handle_poem(cmd: str, entities: Dict, context: Any) -> HandlerResult:
             if poem:
                 return HandlerResult(success=True, response=poem)
         except Exception as e:
-            print(f"[HANDLERS] Poem generation error: {e}")
+            _log.warning(f"[HANDLERS] Poem generation error: {e}")
     
     # Fallback poem
     return HandlerResult(
@@ -890,31 +873,51 @@ def handle_poem(cmd: str, entities: Dict, context: Any) -> HandlerResult:
 # ═══════════════════════════════════════════════════════════════
 
 def handle_set_alarm(cmd: str, entities: Dict, context: Any) -> HandlerResult:
-    """Handle setting alarms"""
+    """'set an alarm for 7 am', 'wake me up at 6:30 pm'.
+
+    The time comes from the entities (hour/minute/period) when the classifier
+    split it, otherwise from the spoken text. Gemini's set_alarm tool passes
+    only the text ("7 am"), so every alarm it set used to ring at midnight.
+    """
     title = context.get('title', 'sir') if context else 'sir'
     alarm_system = context.get('alarm_system') if context else None
-    
-    hour = entities.get('hour', 0)
-    minute = entities.get('minute', 0)
-    period = entities.get('period', '')
-    
-    # Convert to 24h
-    if period == 'pm' and hour != 12:
-        hour += 12
-    elif period == 'am' and hour == 12:
-        hour = 0
-    
-    time_str = f"{hour % 12 or 12}:{minute:02d} {'AM' if hour < 12 else 'PM'}"
-    # Only claim success when an alarm was really set (it used to say "Alarm
-    # set" with no alarm system, or after set_alarm failed).
+    label = entities.get('label') or "Alarm"
+    if 'hour' in entities:
+        hour, minute, period = int(entities['hour']), int(entities.get('minute', 0)), entities.get('period', '')
+        if period == 'pm' and hour != 12:
+            hour += 12
+        elif period == 'am' and hour == 12:
+            hour = 0
+        when = f"{hour % 12 or 12}:{minute:02d} {'AM' if hour < 12 else 'PM'}"
+    else:
+        when = alarm_time_text(entities.get('time') or cmd)
+        if not when:
+            return HandlerResult(success=True, response=f"What time should I set the alarm for, {title}?")
+    # Only claim success when an alarm was really set
     if not alarm_system:
         return HandlerResult(success=False, response=f"The alarm service isn't available right now, {title}.")
     try:
-        if alarm_system.set_alarm(time_str) is not False:
-            return HandlerResult(success=True, response=f"Alarm set for {time_str}, {title}.")
+        if alarm_system.set_alarm(when, label) is not False:
+            return HandlerResult(success=True, response=f"Alarm set for {when}, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] Alarm error: {e}")
+        _log.warning(f"[HANDLERS] Alarm error: {e}")
     return HandlerResult(success=False, response=f"I couldn't set that alarm, {title}.")
+
+
+_ALARM_TIME_RE = re.compile(
+    r"\b(?:in\s+\d+\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?)"
+    r"|\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)"
+    r"|\d{1,2}:\d{2}"
+    r"|noon|midnight)\b", re.I)
+
+
+def alarm_time_text(text: str):
+    """'set alarm for 7 am wake up' -> '7 am'; None if there's no time in it."""
+    m = _ALARM_TIME_RE.search(text or "")
+    if not m:
+        return None
+    t = m.group(0).lower().replace(".", "")
+    return {"noon": "12:00 pm", "midnight": "12:00 am"}.get(t, t)
 
 
 def handle_set_timer(cmd: str, entities: Dict, context: Any) -> HandlerResult:
@@ -940,7 +943,7 @@ def handle_set_timer(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         if alarm_system.set_alarm(f"in {duration} {unit}", label=f"Timer ({duration} {unit})") is not False:
             return HandlerResult(success=True, response=f"Timer set for {duration} {unit}, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] Timer error: {e}")
+        _log.warning(f"[HANDLERS] Timer error: {e}")
     return HandlerResult(success=False, response=f"I couldn't set that timer, {title}.")
 
 
@@ -963,7 +966,7 @@ def handle_screenshot(cmd: str, entities: Dict, context: Any) -> HandlerResult:
                     data={'type': 'screenshot', 'path': str(path)}
                 )
         except Exception as e:
-            print(f"[HANDLERS] Screenshot error: {e}")
+            _log.warning(f"[HANDLERS] Screenshot error: {e}")
     
     # Fallback: use PIL
     try:
@@ -976,7 +979,7 @@ def handle_screenshot(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         img.save(str(filename))
         return HandlerResult(success=True, response=f"Screenshot saved, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] Screenshot fallback error: {e}")
+        _log.warning(f"[HANDLERS] Screenshot fallback error: {e}")
     
     return HandlerResult(success=False, response=f"Couldn't take a screenshot, {title}.")
 
@@ -996,7 +999,7 @@ EXPLAINER_SYSTEM = ("You are JARVIS, a knowledgeable assistant explaining things
 
 def handle_conversation(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     """Handle casual conversation / small talk"""
-    title = context.get('title', 'sir') if context else 'sir'
+    context.get('title', 'sir') if context else 'sir'
     
     cmd_lower = cmd.lower()
     
@@ -1015,7 +1018,7 @@ def handle_conversation(cmd: str, entities: Dict, context: Any) -> HandlerResult
             if text and len(text) > 20:
                 return HandlerResult(success=True, response=text)
         except Exception as e:
-            print(f"[HANDLERS] Explanation error: {e}")
+            _log.warning(f"[HANDLERS] Explanation error: {e}")
 
     if knowledge and hasattr(knowledge, 'answer_question'):
         try:
@@ -1031,11 +1034,31 @@ def handle_conversation(cmd: str, entities: Dict, context: Any) -> HandlerResult
     return None
 
 
+
+def _synonyms(word: str, title: str) -> HandlerResult:
+    """Synonyms from dictionaryapi.dev (this was a separate copy in the HUD fallback)."""
+    import requests
+    try:
+        r = requests.get(f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}", timeout=5)
+        if r.status_code == 200 and r.json():
+            found = []
+            for meaning in r.json()[0].get("meanings", []):
+                found.extend(meaning.get("synonyms", [])[:3])
+            if found:
+                return HandlerResult(success=True, response=f"Synonyms for {word}: {', '.join(found[:5])}")
+    except Exception as e:
+        recovered("Handlers", e)
+    return HandlerResult(success=True, response=f"No synonyms found for '{word}', {title}.")
+
+
 def handle_dictionary(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     """Handle word definition requests"""
     title = context.get('title', 'sir') if context else 'sir'
     word = entities.get('word', '')
     
+    if not word:
+        m = re.search(r"\bsynonyms?\s+(?:for|of|to)\s+([\w-]+)", cmd, re.I)
+        word = m.group(1) if m else ''
     if not word:
         match = re.search(r'(?:define|meaning of|what does|what is)\s+(?:the\s+word\s+)?([\w]+)', cmd, re.I)
         if match:
@@ -1043,6 +1066,8 @@ def handle_dictionary(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     
     if not word:
         return HandlerResult(success=False, response=f"What word should I define, {title}?")
+    if entities.get('mode') == 'synonyms' or re.search(r"\bsynonyms?\b", cmd.lower()):
+        return _synonyms(word, title)
     
     # Try dictionary handler from context
     knowledge = context.get('knowledge') if context else None
@@ -1150,7 +1175,7 @@ def handle_ocr(cmd: str, entities: Dict, context: Any) -> HandlerResult:
                 if text:
                     return HandlerResult(success=True, response=text)
             except Exception as e:
-                print(f"[HANDLERS] Vision screen reading error: {e}")
+                _log.warning(f"[HANDLERS] Vision screen reading error: {e}")
             # success=True: as a failure the router fell through to the AI,
             # which made up what was on the screen.
             return HandlerResult(success=True, response=f"I couldn't read the screen just now, {title}. Please try again.")
@@ -1164,7 +1189,7 @@ def handle_ocr(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         else:
             return HandlerResult(success=True, response=f"I couldn't read any text on the screen, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] OCR error: {e}")
+        _log.warning(f"[HANDLERS] OCR error: {e}")
         return HandlerResult(success=False, response=f"Error reading screen, {title}.")
 
 
@@ -1182,7 +1207,7 @@ def handle_screen_question(cmd: str, entities: Dict, context: Any) -> HandlerRes
             from jarvis.core.knowledge import clean_for_speech
             return HandlerResult(success=True, response=clean_for_speech(answer))
     except Exception as e:
-        print(f"[HANDLERS] Screen question error: {e}")
+        _log.warning(f"[HANDLERS] Screen question error: {e}")
     return HandlerResult(success=True, response=f"I couldn't get a look at the screen just now, {title}. Please try again.")
 
 
@@ -1204,7 +1229,7 @@ def handle_screen_control(cmd: str, entities: Dict, context: Any) -> HandlerResu
     except ImportError:
         return HandlerResult(success=False, response=f"Screen control is not available, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] Screen control error: {e}")
+        _log.warning(f"[HANDLERS] Screen control error: {e}")
         return HandlerResult(success=False, response=f"Error executing screen control, {title}.")
 
 
@@ -1218,24 +1243,22 @@ def handle_habit(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         
         cmd_lower = cmd.lower()
         if 'list' in cmd_lower or 'show' in cmd_lower or 'my habits' in cmd_lower:
-            habits = tracker.list_habits()
-            if habits:
-                habit_list = ", ".join(habits)
-                return HandlerResult(success=True, response=f"Your tracked habits: {habit_list}")
-            return HandlerResult(success=True, response=f"No habits tracked yet, {title}. Say 'add habit' to start.")
+            # list_habits() returns the full answer (it used to return True,
+            # which this joined like a list and crashed)
+            return HandlerResult(success=True, response=tracker.list_habits())
         
         if 'add' in cmd_lower or 'track' in cmd_lower or 'create' in cmd_lower:
             name = re.sub(r'(add|track|create|new)\s*(habit)?\s*', '', cmd_lower).strip()
             if name:
-                tracker.add_habit(name)
-                return HandlerResult(success=True, response=f"Now tracking habit: {name}")
+                tracker.create_habit(name, cmd)   # (it called add_habit(), which doesn't exist)
+                return HandlerResult(success=True, response=f"Now tracking habit: {name}, {title}.")
             return HandlerResult(success=True, response=f"What habit would you like to track, {title}?")
         
         return HandlerResult(success=True, response=f"I can track your habits, {title}. Say 'list habits' or 'add habit [name]'.")
     except ImportError:
         return HandlerResult(success=False, response=f"Habit tracking module is not available, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] Habit error: {e}")
+        _log.warning(f"[HANDLERS] Habit error: {e}")
         return HandlerResult(success=False, response=f"Error with habit tracking, {title}.")
 
 
@@ -1260,7 +1283,7 @@ def handle_email(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     except ImportError:
         return HandlerResult(success=False, response=f"Email module is not available, {title}. Configure SMTP credentials in .env to enable it.")
     except Exception as e:
-        print(f"[HANDLERS] Email error: {e}")
+        _log.warning(f"[HANDLERS] Email error: {e}")
         return HandlerResult(success=False, response=f"Error with email, {title}.")
 
 
@@ -1274,9 +1297,12 @@ def handle_calendar(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         
         cmd_lower = cmd.lower()
         if 'today' in cmd_lower or 'events' in cmd_lower or 'schedule' in cmd_lower:
-            events = cal.get_today_events_list() if hasattr(cal, 'get_today_events_list') else []
+            # (it called get_today_events_list(), which doesn't exist: always "no events")
+            events = cal.get_today_events()
             if events:
-                event_text = "; ".join(events[:5])
+                event_text = "; ".join(
+                    e.title if e.is_all_day else f"{e.title} at {e.start_time.strftime('%I:%M %p').lstrip('0')}"
+                    for e in events[:5])
                 return HandlerResult(success=True, response=f"Today's events: {event_text}")
             return HandlerResult(success=True, response=f"No events scheduled for today, {title}.")
         
@@ -1284,7 +1310,7 @@ def handle_calendar(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     except ImportError:
         return HandlerResult(success=False, response=f"Calendar module is not available, {title}. Set up Google Calendar API credentials to enable it.")
     except Exception as e:
-        print(f"[HANDLERS] Calendar error: {e}")
+        _log.warning(f"[HANDLERS] Calendar error: {e}")
         return HandlerResult(success=False, response=f"Error accessing calendar, {title}.")
 
 
@@ -1300,7 +1326,7 @@ def handle_lock_screen(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         if lock_workstation():
             return HandlerResult(success=True, response=f"Locking the screen, {title}.")
     except Exception as e:
-        print(f"[HANDLERS] Lock screen error: {e}")
+        _log.warning(f"[HANDLERS] Lock screen error: {e}")
     return HandlerResult(success=False, response=f"I couldn't lock the screen, {title}.")
 
 
@@ -1315,8 +1341,18 @@ def handle_take_note(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         shared(SmartNotes, lambda: SmartNotes(context.get('perception') if context else None)).add_note(content)
         return HandlerResult(success=True, response=f"Noted, {title}: {content}.")
     except Exception as e:
-        print(f"[HANDLERS] Note error: {e}")
+        _log.warning(f"[HANDLERS] Note error: {e}")
         return HandlerResult(success=False, response=f"I couldn't save that note, {title}.")
+
+
+def handle_calculate(cmd: str, entities: Dict, context: Any) -> HandlerResult:
+    """'calculate 25 times 4', 'what is 15 percent of 200' (core/calculator.py)."""
+    from jarvis.core.calculator import answer
+    title = context.get('title', 'sir') if context else 'sir'
+    result = answer(cmd)
+    if result is None:
+        return HandlerResult(success=False, response="")   # not a calculation after all: let the AI answer
+    return HandlerResult(success=True, response=f"That's {result}, {title}.")
 
 
 def handle_list_notes(cmd: str, entities: Dict, context: Any) -> HandlerResult:
@@ -1326,11 +1362,11 @@ def handle_list_notes(cmd: str, entities: Dict, context: Any) -> HandlerResult:
         from jarvis.core.smart_notes import SmartNotes
         notes = shared(SmartNotes, lambda: SmartNotes(context.get('perception') if context else None)).get_recent_notes(5)
     except Exception as e:
-        print(f"[HANDLERS] Notes error: {e}")
+        _log.warning(f"[HANDLERS] Notes error: {e}")
         return HandlerResult(success=False, response=f"I couldn't open your notes, {title}.")
     if not notes:
         return HandlerResult(success=True, response=f"You have no notes yet, {title}.")
-    items = "; ".join(n.content for n in notes)
+    items = "; ".join(dict.fromkeys(n.content for n in notes))   # same note saved twice: once
     return HandlerResult(success=True, response=f"Your latest notes, {title}: {items}.")
 
 
@@ -1397,6 +1433,7 @@ HANDLER_MAP = {
     'calendar': handle_calendar,
     'lock_screen': handle_lock_screen,
     'take_note': handle_take_note,
+    'calculate': handle_calculate,
     'list_notes': handle_list_notes,
 }
 

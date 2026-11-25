@@ -3,6 +3,9 @@ Learning Layer - Data & Analytics
 Tracks interactions and learns patterns
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import json
 import datetime
 from pathlib import Path
@@ -12,7 +15,7 @@ class LearningLayer:
     """Learns from interactions and improves"""
 
     def __init__(self, understanding):
-        print("[LEARNING] Initializing Learning Layer...")
+        _log.info("[LEARNING] Initializing Learning Layer...")
         self.understanding = understanding
         
         # Data directory
@@ -22,7 +25,7 @@ class LearningLayer:
         self.learning_file = self.data_dir / "learning.json"
         self._load_data()
         
-        print("[LEARNING] Layer Ready")
+        _log.info("[LEARNING] Layer Ready")
 
     def _load_data(self):
         """Load learning data from file"""
@@ -57,7 +60,7 @@ class LearningLayer:
             with open(self.learning_file, 'w') as f:
                 json.dump(self.data, f, indent=2)
         except Exception as e:
-            print(f"ERROR: Save error: {e}")
+            _log.warning(f"ERROR: Save error: {e}")
 
     def log_command(self, command: str, intent: str, confidence: float, success: bool):
         """Log a command interaction"""

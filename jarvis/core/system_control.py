@@ -4,6 +4,9 @@ Volume, Brightness, Bluetooth, and more
 JARVIS takes direct control - no manual suggestions
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import platform
 import subprocess
 import os
@@ -19,13 +22,13 @@ if platform.system() == "Windows":
         from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
         VOLUME_AVAILABLE = True
     except ImportError as e:
-        print(f"[SYSTEM] pycaw not available: {e}")
+        _log.warning(f"[SYSTEM] pycaw not available: {e}")
 
     try:
         import screen_brightness_control as sbc
         BRIGHTNESS_AVAILABLE = True
     except ImportError:
-        print("[SYSTEM] screen-brightness-control not installed")
+        _log.info("[SYSTEM] screen-brightness-control not installed")
 
 
 import re
@@ -54,7 +57,7 @@ def parse_level_request(text: str = "", level=None):
         try:
             return "set", max(0, min(100, int(float(str(level).strip().rstrip("%")))))
         except ValueError:
-            pass
+            _log.debug("Ignored error", exc_info=True)
     if _UNMUTE_RE.search(t):
         return "unmute", None
     if _MUTE_RE.search(t):
@@ -84,7 +87,7 @@ class SystemControl:
     """Controls system hardware (Windows) - JARVIS takes control"""
 
     def __init__(self, perception):
-        print("[SYSTEM] Initializing System Control...")
+        _log.info("[SYSTEM] Initializing System Control...")
         self.perception = perception
         self.platform = platform.system()
         
@@ -97,7 +100,7 @@ class SystemControl:
                 # Try the standard Activate method
                 interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
                 self.volume_interface = cast(interface, POINTER(IAudioEndpointVolume))
-                print("[SYSTEM] Volume control ready (pycaw)")
+                _log.info("[SYSTEM] Volume control ready (pycaw)")
             except AttributeError:
                 # Newer pycaw: AudioDevice wrapper doesn't expose Activate directly
                 try:
@@ -111,12 +114,12 @@ class SystemControl:
                         # Try getting the endpoint volume directly
                         interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
                     self.volume_interface = cast(interface, POINTER(IAudioEndpointVolume))
-                    print("[SYSTEM] Volume control ready (pycaw compat)")
+                    _log.info("[SYSTEM] Volume control ready (pycaw compat)")
                 except Exception as e2:
-                    print(f"[SYSTEM] Volume init pycaw compat error: {e2}")
+                    _log.warning(f"[SYSTEM] Volume init pycaw compat error: {e2}")
                     self.volume_interface = None
             except Exception as e:
-                print(f"[SYSTEM] Volume init pycaw error: {e}")
+                _log.warning(f"[SYSTEM] Volume init pycaw error: {e}")
                 # Fallback: try with CoInitializeEx for STA threading
                 try:
                     import comtypes
@@ -124,15 +127,15 @@ class SystemControl:
                     devices = AudioUtilities.GetSpeakers()
                     interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
                     self.volume_interface = cast(interface, POINTER(IAudioEndpointVolume))
-                    print("[SYSTEM] Volume control ready (pycaw CoInitializeEx)")
+                    _log.info("[SYSTEM] Volume control ready (pycaw CoInitializeEx)")
                 except Exception as e2:
-                    print(f"[SYSTEM] Volume init fallback error: {e2}")
+                    _log.warning(f"[SYSTEM] Volume init fallback error: {e2}")
                     self.volume_interface = None
         
         if not self.volume_interface:
-            print("[SYSTEM] Volume will use pyautogui keyboard fallback")
+            _log.info("[SYSTEM] Volume will use pyautogui keyboard fallback")
         
-        print("[SYSTEM] Control Ready")
+        _log.info("[SYSTEM] Control Ready")
 
     def _get_title(self):
         return getattr(self.perception, 'user_title', 'sir')
@@ -171,7 +174,7 @@ class SystemControl:
         try:
             CoInitialize()
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         try:
             dev = AudioUtilities.GetSpeakers()
             if hasattr(dev, "EndpointVolume"):          # pycaw >= 2024
@@ -180,7 +183,7 @@ class SystemControl:
             iface = raw.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
             return cast(iface, POINTER(IAudioEndpointVolume))
         except Exception as e:
-            print(f"[SYSTEM] Volume control unavailable: {e}")
+            _log.warning(f"[SYSTEM] Volume control unavailable: {e}")
             return None
 
     def get_volume(self):
@@ -190,7 +193,7 @@ class SystemControl:
         try:
             return round(ep.GetMasterVolumeLevelScalar() * 100)
         except Exception as e:
-            print(f"[SYSTEM] Volume read error: {e}")
+            _log.warning(f"[SYSTEM] Volume read error: {e}")
             return None
 
     def _adjust_volume(self, action: str, value, t: str) -> str:
@@ -210,7 +213,7 @@ class SystemControl:
                 now = round(ep.GetMasterVolumeLevelScalar() * 100)
                 return f"Volume is now {now}%{t}."
             except Exception as e:
-                print(f"[SYSTEM] Volume error: {e}")
+                _log.warning(f"[SYSTEM] Volume error: {e}")
         # Fallback: the keyboard's volume keys (each press is about 2%)
         try:
             import pyautogui
@@ -224,7 +227,7 @@ class SystemControl:
                 pyautogui.press(key)
             return f"Turned the volume {action}{t}."
         except Exception as e:
-            print(f"[SYSTEM] Volume keys error: {e}")
+            _log.warning(f"[SYSTEM] Volume keys error: {e}")
         return f"I couldn't change the volume{t}."
 
     # brightness
@@ -234,7 +237,7 @@ class SystemControl:
                 b = sbc.get_brightness()
                 return b[0] if isinstance(b, list) else b
             except Exception as e:
-                print(f"[SYSTEM] Brightness read error: {e}")
+                _log.warning(f"[SYSTEM] Brightness read error: {e}")
         try:
             r = subprocess.run(["powershell", "-NoProfile", "-Command",
                                 "(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness"
@@ -242,7 +245,7 @@ class SystemControl:
                                capture_output=True, text=True, timeout=10)
             return int(r.stdout.strip()) if r.stdout.strip().isdigit() else None
         except Exception as e:
-            print(f"[SYSTEM] Brightness read (WMI) error: {e}")
+            _log.warning(f"[SYSTEM] Brightness read (WMI) error: {e}")
             return None
 
     def _write_brightness(self, level: int) -> None:
@@ -251,7 +254,7 @@ class SystemControl:
                 sbc.set_brightness(level)
                 return
             except Exception as e:
-                print(f"[SYSTEM] Brightness (sbc) error: {e}")
+                _log.warning(f"[SYSTEM] Brightness (sbc) error: {e}")
         subprocess.run(["powershell", "-NoProfile", "-Command",
                         "(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods)"
                         f".WmiSetBrightness(1, {int(level)})"],
@@ -269,7 +272,7 @@ class SystemControl:
         try:
             self._write_brightness(target)
         except Exception as e:
-            print(f"[SYSTEM] Brightness error: {e}")
+            _log.warning(f"[SYSTEM] Brightness error: {e}")
         time.sleep(0.3)  # some displays apply the change a moment later
         now = self.get_brightness()
         if now is None or abs(now - target) > 5:
@@ -326,12 +329,12 @@ class SystemControl:
                 self._is_bt_on = True
                 self.perception.speak(f"Bluetooth turned on, {title}.")
             else:
-                print(f"[SYSTEM] Bluetooth PS error: {result.stderr.decode(errors='ignore')}")
+                _log.warning(f"[SYSTEM] Bluetooth PS error: {result.stderr.decode(errors='ignore')}")
                 self.perception.speak(f"Bluetooth may not have turned on, {title}. Opening settings.")
                 subprocess.Popen("ms-settings:bluetooth", shell=True)
             return True
         except Exception as e:
-            print(f"[SYSTEM] Bluetooth on error: {e}")
+            _log.warning(f"[SYSTEM] Bluetooth on error: {e}")
             # Fallback: open settings
             subprocess.Popen("ms-settings:bluetooth", shell=True)
             self.perception.speak(f"Opening Bluetooth settings, {title}.")
@@ -361,12 +364,12 @@ class SystemControl:
             if result.returncode == 0:
                 self.perception.speak(f"Bluetooth turned off, {title}.")
             else:
-                print(f"[SYSTEM] Bluetooth PS error: {result.stderr.decode(errors='ignore')}")
+                _log.warning(f"[SYSTEM] Bluetooth PS error: {result.stderr.decode(errors='ignore')}")
                 self.perception.speak(f"Bluetooth may not have turned off, {title}. Opening settings.")
                 subprocess.Popen("ms-settings:bluetooth", shell=True)
             return True
         except Exception as e:
-            print(f"[SYSTEM] Bluetooth off error: {e}")
+            _log.warning(f"[SYSTEM] Bluetooth off error: {e}")
             subprocess.Popen("ms-settings:bluetooth", shell=True)
             self.perception.speak(f"Opening Bluetooth settings, {title}.")
             return True
@@ -414,7 +417,7 @@ class SystemControl:
             os.system("rundll32.exe powrprof.dll,SetSuspendState 0,1,0")
             return True
         except Exception as e:
-            print(f"[SYSTEM] Sleep error: {e}")
+            _log.warning(f"[SYSTEM] Sleep error: {e}")
             self.perception.speak(f"Failed to put system to sleep, {title}.")
             return False
     
@@ -430,7 +433,7 @@ class SystemControl:
             self.perception.speak(f"Shutting down in 5 seconds, {title}.")
             os.system("shutdown /s /t 5")
             return True
-        except Exception as e:
+        except Exception:
             self.perception.speak(f"Failed to shutdown, {title}.")
             return False
     
@@ -446,6 +449,6 @@ class SystemControl:
             self.perception.speak(f"Restarting in 5 seconds, {title}.")
             os.system("shutdown /r /t 5")
             return True
-        except Exception as e:
+        except Exception:
             self.perception.speak(f"Failed to restart, {title}.")
             return False

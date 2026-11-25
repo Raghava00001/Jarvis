@@ -8,6 +8,9 @@ These functions produce HUD-ready dicts. They do NOT touch
 websocket transport, client sessions, or audio playback.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import os
 import psutil
 from typing import Dict, Any, Optional
@@ -35,7 +38,7 @@ def get_system_stats() -> Dict[str, Any]:
                 battery = bat.percent
                 charging = bat.power_plugged
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
         
         return {
             'type': 'status',
@@ -45,7 +48,7 @@ def get_system_stats() -> Dict[str, Any]:
             'charging': charging,
             'disk': round(disk)
         }
-    except Exception as e:
+    except Exception:
         return {'type': 'status', 'cpu': 0, 'memory': 0, 'battery': 100}
 
 
@@ -76,7 +79,7 @@ def get_weather_data(weather_handler=None, city: Optional[str] = None) -> Dict[s
                     'wind': data.get('wind_speed_kmh', 10)
                 }
     except Exception as e:
-        print(f"[DataProvider] Weather error: {e}")
+        _log.warning(f"[DataProvider] Weather error: {e}")
     
     # Honest fallback: never show invented numbers as if they were real weather
     return {
@@ -136,7 +139,7 @@ def get_news_data(news_handler=None, category: str = 'general',
             if result and result.get('items'):
                 return {'type': 'news', 'items': result['items'][:count], 'category': category}
     except Exception as e:
-        print(f"[DataProvider] News error: {e}")
+        _log.warning(f"[DataProvider] News error: {e}")
     
     # Honest fallback: say headlines are unavailable instead of inventing them
     return {

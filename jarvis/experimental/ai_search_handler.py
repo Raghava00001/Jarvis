@@ -8,15 +8,16 @@ AI Search Handler - Production Grade
 - Citation discipline
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import requests
 import json
-import hashlib
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Set
+from datetime import datetime
+from typing import Dict, List, Optional, Set
 from dataclasses import dataclass, field
 from enum import Enum
-from collections import defaultdict
 import re
 import time
 
@@ -116,7 +117,7 @@ class RequestManager:
                 if attempt < retries:
                     time.sleep((attempt + 1) * 0.5)
                 else:
-                    print(f"[AI-SEARCH] Request failed: {e}")
+                    _log.warning(f"[AI-SEARCH] Request failed: {e}")
                     
         return None
 
@@ -134,7 +135,7 @@ class ResultRanker:
         
         # Combine title and snippet for matching
         text = f"{result.title} {result.snippet}".lower()
-        text_terms = text.split()
+        text.split()
         
         # Term frequency score
         tf_score = 0
@@ -224,7 +225,7 @@ class AISearchHandler:
     }
     
     def __init__(self, perception=None, ai_brain=None):
-        print("[AI-SEARCH] Initializing AI Search Handler...")
+        _log.info("[AI-SEARCH] Initializing AI Search Handler...")
         self.perception = perception
         self.ai_brain = ai_brain
         
@@ -244,7 +245,7 @@ class AISearchHandler:
         self.memory: List[Dict] = []
         self._load_data()
         
-        print("[AI-SEARCH] Handler Ready")
+        _log.info("[AI-SEARCH] Handler Ready")
         
     def _load_data(self):
         """Load history and memory"""
@@ -256,7 +257,7 @@ class AISearchHandler:
                 with open(self.memory_path, 'r') as f:
                     self.memory = json.load(f)
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
             
     def _save_history(self):
         """Save search history"""
@@ -264,7 +265,7 @@ class AISearchHandler:
             with open(self.history_path, 'w') as f:
                 json.dump(self.history[-100:], f, indent=2)
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
             
     def _save_memory(self):
         """Save memory"""
@@ -272,7 +273,7 @@ class AISearchHandler:
             with open(self.memory_path, 'w') as f:
                 json.dump(self.memory[-500:], f, indent=2)
         except Exception:
-            pass
+            _log.debug("Ignored error", exc_info=True)
             
     def search(
         self,
@@ -393,7 +394,7 @@ class AISearchHandler:
             return results
             
         except Exception as e:
-            print(f"[AI-SEARCH] DDG parse error: {e}")
+            _log.warning(f"[AI-SEARCH] DDG parse error: {e}")
             return []
             
     def _search_news(self, query: str) -> List[SearchResult]:
@@ -417,7 +418,7 @@ class AISearchHandler:
                             "%a, %d %b %Y %H:%M:%S"
                         )
                     except Exception:
-                        pass
+                        _log.debug("Ignored error", exc_info=True)
                         
                 results.append(SearchResult(
                     title=item.title.text.strip() if item.title else "",
@@ -430,7 +431,7 @@ class AISearchHandler:
             return results
             
         except Exception as e:
-            print(f"[AI-SEARCH] News parse error: {e}")
+            _log.warning(f"[AI-SEARCH] News parse error: {e}")
             return []
             
     def _search_reddit(self, query: str) -> List[SearchResult]:
@@ -468,7 +469,7 @@ class AISearchHandler:
             return results
             
         except Exception as e:
-            print(f"[AI-SEARCH] Reddit parse error: {e}")
+            _log.warning(f"[AI-SEARCH] Reddit parse error: {e}")
             return []
             
     def _generate_summary(self, query: str, results: List[SearchResult]) -> str:
@@ -498,7 +499,7 @@ Summary:"""
                 return self.ai_brain.chat(prompt)
                 
         except Exception as e:
-            print(f"[AI-SEARCH] Summary error: {e}")
+            _log.warning(f"[AI-SEARCH] Summary error: {e}")
             
         return results[0].snippet if results else ""
         
@@ -547,7 +548,7 @@ Summary:"""
         if self.perception:
             self.perception.speak(answer)
         else:
-            print(f"[AI-SEARCH] {answer}")
+            _log.info(f"[AI-SEARCH] {answer}")
             
         return answer
 

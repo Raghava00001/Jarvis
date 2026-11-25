@@ -3,8 +3,10 @@ Entertainment Module - Singing, Storytelling, Poems, Jokes
 JARVIS entertains and comforts you
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import random
-from typing import Optional
 from enum import Enum
 
 
@@ -21,7 +23,7 @@ class JARVISEntertainment:
     """Entertainment capabilities for JARVIS"""
     
     def __init__(self, perception=None, knowledge=None):
-        print("[ENTERTAINMENT] Initializing Entertainment Module...")
+        _log.info("[ENTERTAINMENT] Initializing Entertainment Module...")
         self.perception = perception
         self.knowledge = knowledge
         
@@ -32,7 +34,7 @@ class JARVISEntertainment:
         # Built-in content
         self._init_builtin_content()
         
-        print("[ENTERTAINMENT] Entertainment Module Ready")
+        _log.info("[ENTERTAINMENT] Entertainment Module Ready")
     
     @property
     def storyteller(self):
@@ -42,7 +44,7 @@ class JARVISEntertainment:
                 from .sound_effects import ImmersiveStoryteller
                 self._storyteller = ImmersiveStoryteller(self.perception, self.knowledge)
             except Exception as e:
-                print(f"[ENTERTAINMENT] Immersive storytelling not available: {e}")
+                _log.warning(f"[ENTERTAINMENT] Immersive storytelling not available: {e}")
                 self._storyteller_available = False
         return self._storyteller
     
@@ -55,7 +57,7 @@ class JARVISEntertainment:
         if self.perception:
             self.perception.speak(text)
         else:
-            print(f"[ENTERTAINMENT] {text}")
+            _log.info(f"[ENTERTAINMENT] {text}")
     
     def _init_builtin_content(self):
         """Initialize built-in songs, poems, etc."""
@@ -157,7 +159,7 @@ class JARVISEntertainment:
                 if joke and len(joke) > 10:
                     return joke
             except Exception as e:
-                print(f"[ENTERTAINMENT] Joke generation error: {e}")
+                _log.warning(f"[ENTERTAINMENT] Joke generation error: {e}")
         
         if self.joke_index >= len(self.jokes):
             random.shuffle(self.jokes)

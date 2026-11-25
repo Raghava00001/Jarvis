@@ -7,6 +7,9 @@ now lives here, defaults to the `gemini-flash-latest` alias (kept current by
 Google), and can be pinned with the JARVIS_GEMINI_TEXT_MODEL environment variable.
 """
 
+import logging
+_log = logging.getLogger(__name__)
+
 import os
 import threading
 from typing import List, Optional
@@ -64,7 +67,7 @@ def ask_gemini(user_text: str, system: str = JARVIS_STYLE, api_key: Optional[str
             if text:
                 return text.strip()
         except Exception as e:
-            print(f"[LLM] Gemini ({model}) error: {str(e)[:120]}")
+            _log.warning(f"[LLM] Gemini ({model}) error: {str(e)[:120]}")
             if not any(code in str(e) for code in _RETRYABLE):
                 return None  # e.g. bad key: other models won't help
     return None
