@@ -7,23 +7,8 @@ import re
 
 _log = logging.getLogger(__name__)
 
-PRECISE_RULE_INTENTS = {
-    'search_news',      # "news about X", "the latest on X" (topic)
-    'screen_question',  # "what is this", "explain this error"
-    'set_timer',        # "set a timer for 10 minutes"
-    'take_note', 'list_notes', 'read_clipboard', 'ocr',
-    'calculate',        # "25 times 4" (the brain guessed get_time from "times")
-    'remember', 'recall',  # "remember that ...", "what is my ..." (falls through if nothing is stored)
-}
-def _is_precise_rule(kw_intent, command: str) -> bool:
-    if kw_intent in PRECISE_RULE_INTENTS:
-        return True
-    # Tab commands only: other screen_control words ("copy", "type") also
-    # appear in ordinary questions ("how do I copy a file in linux").
-    if kw_intent == 'screen_control':
-        from jarvis.core.screen_control import is_tab_command
-        return is_tab_command(command)
-    return False
+# One definition, shared with console mode (core/dispatch.py)
+from jarvis.core.dispatch import PRECISE_RULE_INTENTS, is_precise_rule as _is_precise_rule  # noqa: E402
 FEATURE_TOGGLE_RE = re.compile(
     r"^(?:please\s+)?(?:enable|disable|turn\s+on|turn\s+off|start|stop|switch\s+on|switch\s+off)\s+"
     r"(?:the\s+)?(?:gestures?|gesture\s+control|face(?:\s+recognition)?|emotion(?:\s+detection)?|mood\s+detection)\b")
@@ -102,3 +87,18 @@ HUD_COMMANDS = (
     'switch to friday', 'activate friday',
     'switch to jarvis', 'activate jarvis',
 )
+
+
+__all__ = [
+    'DIRECT_APPS',
+    'FEATURE_TOGGLE_RE',
+    'HUD_COMMANDS',
+    'NEWS_CATEGORIES',
+    'PRECISE_RULE_INTENTS',
+    'RESUME_PHRASES',
+    'ROUTER_ERROR_PHRASES',
+    'STORY_PHRASES',
+    'WEB_APPS',
+    '_gesture_mp_available',
+    '_is_precise_rule',
+]

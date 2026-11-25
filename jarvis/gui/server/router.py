@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 import re
-import subprocess
 import time
 from datetime import datetime
 
@@ -21,7 +20,6 @@ from jarvis.gui.server.features import jlog
 from jarvis.gui.server.tables import HUD_COMMANDS
 from jarvis.gui.server.tables import NEWS_CATEGORIES
 from jarvis.gui.server.tables import ROUTER_ERROR_PHRASES
-from jarvis.gui.server.tables import _is_precise_rule
 
 _log = logging.getLogger(__name__)
 
@@ -97,28 +95,11 @@ class RouterMixin:
                 from jarvis.core.intent_handlers import resolve_brain_intent
                 intent_name, entities = resolve_brain_intent(brain_result.action,
                                                              brain_result.entities, command)
-                # Names the router serves itself, outside HANDLER_MAP
-                router_native = {'list_alarms', 'read_clipboard', 'next', 'previous', 'scroll'}
-                kw_intent, kw_entities = classify_intent(command) if ROUTER_AVAILABLE else (None, {})
-                if kw_intent != intent_name and _is_precise_rule(kw_intent, command):
-                    # A precise keyword rule fired (an exact pattern with its own
-                    # entities): it beats the ML guess. The brain called "news
-                    # about diabetes" plain 'news' and the topic was lost; it
-                    # sent "what is this" to web search.
-                    intent_name, entities = kw_intent, kw_entities
-                elif ROUTER_AVAILABLE and intent_name not in HANDLER_MAP and intent_name not in router_native:
-                    if kw_intent in HANDLER_MAP:
-                        intent_name, entities = kw_intent, kw_entities
-                elif kw_intent == intent_name and kw_entities:
-                    # Both layers agree: fill entities the ML extractor missed
-                    # (e.g. the city in "weather in london") from the rule-based ones.
-                    # For messages the rule parse wins: it reads contact and text
-                    # straight from the sentence (the ML extractor returned the
-                    # contact "message to mom").
-                    if intent_name in ('send_message',):
-                        entities = {**entities, **kw_entities}
-                    else:
-                        entities = {**kw_entities, **entities}
+                # Checked against the keyword rules: the same selection console
+                # mode uses (core/dispatch.py)
+                if ROUTER_AVAILABLE:
+                    from jarvis.core.dispatch import merge_brain_and_rules
+                    intent_name, entities = merge_brain_and_rules(intent_name, entities, command)
                 if jlog: jlog.intent(f"BRAIN:{intent_name}", entities=entities)
                 else: _log.info(f"[WebSocket] BRAIN Intent: {intent_name}, Entities: {entities}, Conf: {brain_result.confidence:.2f}")
 
@@ -184,10 +165,6 @@ class RouterMixin:
         if _r is not _NEXT:
             return _r
 
-        _r = self._route_list_alarms(intent_name, title)
-        if _r is not _NEXT:
-            return _r
-
         _r = self._route_open_app(entities, intent_name, title)
         if _r is not _NEXT:
             return _r
@@ -205,10 +182,6 @@ class RouterMixin:
         # --- OCR / READ SCREEN ---
         # OCR: handled by HANDLER_MAP['ocr'] (handle_ocr). This inline copy
         # skipped the Tesseract availability check and said "No readable text".
-
-        _r = self._route_read_clipboard(intent_name, title)
-        if _r is not _NEXT:
-            return _r
 
         return self._route_dispatch_handler(_r, command, entities, intent_name, title)
 
@@ -459,16 +432,6 @@ class RouterMixin:
                     break
         return intent_name
 
-    def _route_list_alarms(self, intent_name, title):
-        """Step of _route_through_router(): List_alarms."""
-        if intent_name == 'list_alarms' and self.alarm_system:
-            alarms = self.alarm_system.scheduler.get_all()
-            if not alarms:
-                return f"No active alarms, {title}."
-            alarm_list = ", ".join([f"{a.label} at {a.trigger_time.strftime('%I:%M %p')}" for a in alarms])
-            return f"Active alarms: {alarm_list}, {title}."
-        return _NEXT
-
     def _route_open_app(self, entities, intent_name, title):
         """Step of _route_through_router(): OPEN APP."""
         # --- OPEN APP ---
@@ -490,21 +453,6 @@ class RouterMixin:
                     if jlog: jlog.error(f'App open failed: {app_name}', e)
                     else: _log.warning(f"[WebSocket] App open error: {e}")
                     return f"Had trouble opening {app_name}, {title}."
-        return _NEXT
-
-    def _route_read_clipboard(self, intent_name, title):
-        """Step of _route_through_router(): READ CLIPBOARD."""
-        # --- READ CLIPBOARD ---
-        if intent_name == 'read_clipboard':
-            try:
-                text = subprocess.run(['powershell', '-command', 'Get-Clipboard'],
-                                     capture_output=True, text=True, timeout=5).stdout.strip()
-                if text:
-                    short_text = text[:300] + '...' if len(text) > 300 else text
-                    return f"Clipboard contains: {short_text}"
-                return f"Clipboard is empty, {title}."
-            except Exception as e:
-                return f"Clipboard error: {e}"
         return _NEXT
 
 

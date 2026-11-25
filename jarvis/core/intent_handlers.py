@@ -1355,6 +1355,34 @@ def handle_calculate(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     return HandlerResult(success=True, response=f"That's {result}, {title}.")
 
 
+def handle_list_alarms(cmd: str, entities: Dict, context: Any) -> HandlerResult:
+    """'list my alarms' (this was a step only the HUD router had)."""
+    title = context.get('title', 'sir') if context else 'sir'
+    alarm_system = context.get('alarm_system') if context else None
+    if not alarm_system:
+        return HandlerResult(success=False, response=f"The alarm service isn't available right now, {title}.")
+    alarms = alarm_system.scheduler.get_all()
+    if not alarms:
+        return HandlerResult(success=True, response=f"No active alarms, {title}.")
+    listed = ", ".join(f"{a.label} at {a.trigger_time.strftime('%I:%M %p').lstrip('0')}" for a in alarms)
+    return HandlerResult(success=True, response=f"Active alarms: {listed}, {title}.")
+
+
+def handle_read_clipboard(cmd: str, entities: Dict, context: Any) -> HandlerResult:
+    """'read my clipboard' (this was a step only the HUD router had)."""
+    title = context.get('title', 'sir') if context else 'sir'
+    import subprocess
+    try:
+        text = subprocess.run(['powershell', '-NoProfile', '-command', 'Get-Clipboard'],
+                              capture_output=True, text=True, timeout=5).stdout.strip()
+    except Exception as e:
+        return HandlerResult(success=True, response=f"I couldn't read the clipboard, {title}: {e}")
+    if not text:
+        return HandlerResult(success=True, response=f"The clipboard is empty, {title}.")
+    preview = text[:300] + "..." if len(text) > 300 else text
+    return HandlerResult(success=True, response=f"Clipboard contains: {preview}")
+
+
 def handle_list_notes(cmd: str, entities: Dict, context: Any) -> HandlerResult:
     """Read back the most recent notes."""
     title = context.get('title', 'sir') if context else 'sir'
@@ -1434,6 +1462,8 @@ HANDLER_MAP = {
     'lock_screen': handle_lock_screen,
     'take_note': handle_take_note,
     'calculate': handle_calculate,
+    'list_alarms': handle_list_alarms,
+    'read_clipboard': handle_read_clipboard,
     'list_notes': handle_list_notes,
 }
 

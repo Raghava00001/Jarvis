@@ -12,6 +12,7 @@ _log = logging.getLogger(__name__)
 _NEXT = object()
 
 from jarvis.core.services import shared
+from jarvis.core.errors import recovered
 import sys
 import time
 import threading
@@ -344,6 +345,52 @@ class JARVISUltimate:
             self.perception.speak(result)
         return bool(result)
 
+    def _handler_context(self) -> dict:
+        """What a HANDLER_MAP handler receives in console mode: the same keys the
+        HUD server's _handler_context() gives, from this JARVIS's subsystems."""
+        get = lambda name: getattr(self, name, None)
+        try:
+            from jarvis.gui.data_providers import get_system_stats
+            stats = get_system_stats()
+        except Exception as e:
+            recovered("Console", e)
+            stats = {}
+        return {
+            'title': getattr(self.perception, 'user_title', 'sir'),
+            'perception': self.perception,
+            'server': None,
+            'websocket': None,
+            'system_stats': stats,
+            'alarm_system': get('alarm_system'),
+            'reminder_manager': get('smart_reminders'),
+            'knowledge': get('knowledge'),
+            'ai_search': get('knowledge'),
+            'weather_handler': get('weather'),
+            'news_handler': get('news_handler'),
+            'entertainment': get('_entertainment'),
+            'system_control': get('system_control'),
+            'screen_control': get('screen_control'),
+            'screenshot_handler': get('screenshot'),
+            'ocr_handler': get('_ocr'),
+            'whatsapp_handler': get('whatsapp'),
+            'face_auth': get('_face_auth'),
+            'youtube': get('_youtube'),
+            'dictionary_handler': get('dictionary'),
+            'chat_history': get('_chat_history'),
+            'context_memory': get('_context_memory'),
+        }
+
+    def _answer_with_handler(self, command: str):
+        """The feature handler's reply (core/dispatch.py), or None."""
+        from jarvis.core.dispatch import answer
+        try:
+            from jarvis.core.brain_adapter import get_brain_adapter
+            brain = get_brain_adapter()
+        except Exception as e:
+            recovered("Console", e)
+            brain = None
+        return answer(command, self._handler_context(), brain=brain)
+
     def _process_single_command(self, command: str) -> bool:
         """Process a single command through all layers"""
         if not command:
@@ -373,7 +420,7 @@ class JARVISUltimate:
                 except Exception:
                     _log.debug("Ignored error", exc_info=True)
 
-        # Classify intent
+        # Console-only commands (face registration, workflows, settings ...)
         intent, confidence = self.understanding.classify(command)
         entities = self.understanding.extract_entities(command)
 
@@ -449,66 +496,28 @@ class JARVISUltimate:
         if _r is not _NEXT:
             return _r
 
-        # ========== DIRECT BROWSER TAB CONTROL ==========
-        try:
-            import pyautogui
-            if "new tab" in command_lower or "open tab" in command_lower or "create tab" in command_lower:
-                pyautogui.hotkey('ctrl', 't')
-                self.perception.speak("New tab opened, sir.")
-                return True
-            elif "close tab" in command_lower or "close this tab" in command_lower:
-                pyautogui.hotkey('ctrl', 'w')
-                self.perception.speak("Tab closed, sir.")
-                return True
-        except ImportError:
-            _log.debug("Ignored error", exc_info=True)
+        # Features: their one implementation (HANDLER_MAP), chosen like the HUD
+        # and voice do (core/dispatch.py: typo fix, brain + keyword rules)
+        reply = self._answer_with_handler(command)
+        if reply:
+            self.perception.speak(reply)
+            self.context_memory.add_exchange(command, reply, "handler")
+            return True
 
-        _r = self._do_screen_control_scroll_click(command, command_lower)
+        _r = self._do_app_switching(_r, command, command_lower)
         if _r is not _NEXT:
             return _r
 
-        # ========== MUSIC CONTROL (play, pause, next, previous) ==========
-        try:
-            import pyautogui
-            music_keywords = ["play music", "pause music", "resume", "next track", "next song", 
-                            "previous track", "previous song", "skip", "stop music"]
-            if any(kw in command_lower for kw in music_keywords) or command_lower in ["play", "pause", "next", "previous", "skip"]:
-                if "pause" in command_lower or "stop" in command_lower:
-                    pyautogui.press('playpause')
-                    self.perception.speak("Paused.")
-                    return True
-                elif "play" in command_lower or "resume" in command_lower:
-                    pyautogui.press('playpause')
-                    self.perception.speak("Playing.")
-                    return True
-                elif "next" in command_lower or "skip" in command_lower:
-                    pyautogui.press('nexttrack')
-                    self.perception.speak("Next track.")
-                    return True
-                elif "previous" in command_lower:
-                    pyautogui.press('prevtrack')
-                    self.perception.speak("Previous track.")
-                    return True
-        except ImportError:
-            _log.debug("Ignored error", exc_info=True)
 
-        _r = self._do_app_switching_switch_switch(_r, command, command_lower)
+        _r = self._do_calendar_commands(_r, command, command_lower)
         if _r is not _NEXT:
             return _r
 
-        _r = self._do_reminders_remind_me_set(_r, command, command_lower)
+        _r = self._do_clipboard_memory(_r, command, command_lower)
         if _r is not _NEXT:
             return _r
 
-        _r = self._do_calendar_add_event_schedule(_r, command, command_lower)
-        if _r is not _NEXT:
-            return _r
-
-        _r = self._do_clipboard_save_what_did(_r, command, command_lower)
-        if _r is not _NEXT:
-            return _r
-
-        _r = self._do_workflows_multi_action_morning(_r, command, command_lower)
+        _r = self._do_workflows(_r, command, command_lower)
         if _r is not _NEXT:
             return _r
         return _NEXT
@@ -768,7 +777,7 @@ class JARVISUltimate:
             return _r
         return _NEXT
 
-    def _do_app_switching_switch_switch(self, _r, command, command_lower):
+    def _do_app_switching(self, _r, command, command_lower):
         """Step of _process_single_command(): APP SWITCHING switch to switch back list windows."""
         # ========== APP SWITCHING (switch to, switch back, list windows) ==========
         switch_keywords = ["switch to", "switch back", "go back", "focus", "list windows", "what's open", "running apps"]
@@ -777,16 +786,7 @@ class JARVISUltimate:
             return _r
         return _NEXT
 
-    def _do_reminders_remind_me_set(self, _r, command, command_lower):
-        """Step of _process_single_command(): REMINDERS remind me set reminder my reminders."""
-        # ========== REMINDERS (remind me, set reminder, my reminders) ==========
-        reminder_keywords = ["remind me", "set reminder", "set a reminder", "my reminders", "read reminders", "upcoming reminders"]
-        _r = self._do_reminders(command, command_lower, reminder_keywords)
-        if _r is not _NEXT:
-            return _r
-        return _NEXT
-
-    def _do_calendar_add_event_schedule(self, _r, command, command_lower):
+    def _do_calendar_commands(self, _r, command, command_lower):
         """Step of _process_single_command(): CALENDAR add event schedule my schedule."""
         # ========== CALENDAR (add event, schedule, my schedule) ==========
         calendar_keywords = ["add event", "add meeting", "schedule meeting", "create event", "my schedule", 
@@ -796,7 +796,7 @@ class JARVISUltimate:
             return _r
         return _NEXT
 
-    def _do_clipboard_save_what_did(self, _r, command, command_lower):
+    def _do_clipboard_memory(self, _r, command, command_lower):
         """Step of _process_single_command(): CLIPBOARD save this what did I copy paste."""
         # ========== CLIPBOARD (save this, what did I copy, paste) ==========
         clipboard_keywords = ["save this", "save clipboard", "what did i copy", "last copied", 
@@ -806,7 +806,7 @@ class JARVISUltimate:
             return _r
         return _NEXT
 
-    def _do_workflows_multi_action_morning(self, _r, command, command_lower):
+    def _do_workflows(self, _r, command, command_lower):
         """Step of _process_single_command(): WORKFLOWS multi action morning routine focus mode."""
         # ========== WORKFLOWS (multi-action, morning routine, focus mode) ==========
         workflow_triggers = ["morning routine", "focus mode", "and then", "and search"]
@@ -1011,18 +1011,6 @@ class JARVISUltimate:
         _r = self._do_list_users(command_lower)
         if _r is not _NEXT:
             return _r
-        return _NEXT
-
-    def _do_screen_control_scroll_click(self, command, command_lower):
-        """Step of _process_single_command(): SCREEN CONTROL (scroll, click, switch, minimize)."""
-        # ========== SCREEN CONTROL (scroll, click, switch, minimize) ==========
-        screen_control_keywords = ["scroll up", "scroll down", "click", "double click", "right click", 
-                                   "switch window", "alt tab", "minimize", "maximize", "close window",
-                                   "move mouse", "type "]
-        if any(kw in command_lower for kw in screen_control_keywords):
-            response = self.screen_control.handle(command)
-            self.perception.speak(response)
-            return True
         return _NEXT
 
 

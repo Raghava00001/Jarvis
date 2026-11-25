@@ -5,7 +5,6 @@ _log = logging.getLogger(__name__)
 # caller carries on with its next step.
 _NEXT = object()
 
-from jarvis.core.errors import recovered
 import json
 import re
 
@@ -73,18 +72,8 @@ class FallbackProcessor:
         """The keyword classifier's intent, answered by that feature's handler.
         (The router tries the ML brain first; this is the safety net, with the
         same handlers, not copies of them.)"""
-        from jarvis.core.intent_classifier import classify_intent
-        from jarvis.gui.server.features import HANDLER_MAP
-        intent, entities = classify_intent(command)
-        handler = HANDLER_MAP.get(intent)
-        if handler is None or intent in ("conversation", "ai_search", "search"):
-            return None   # conversation and open-ended search: the AI answers below
-        try:
-            result = handler(command, entities, self.server._handler_context(title))
-        except Exception as e:
-            recovered("Fallback", e)
-            return None
-        return result.response if result and result.success and result.response else None
+        from jarvis.core.dispatch import answer_by_keywords
+        return answer_by_keywords(command, self.server._handler_context(title))
 
     async def _cmd_switch_voice(self, cmd, websocket):
         """Step of process(): switch voice."""
